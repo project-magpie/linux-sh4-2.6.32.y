@@ -45,7 +45,7 @@
 #define CKGA_PLL0LS_DIV_CFG(x)		(0xA00 + (x) * 4)
 #define CKGA_PLL1_DIV_CFG(x)		(0xB00 + (x) * 4)
 
-
+#define CLKA0_ETH_PHY_ID		14
 /*
  * The Stx7108 uses the Synopsys IP Dram Controller
  * For registers description see:
@@ -77,6 +77,8 @@
 static void __iomem *cga0;
 static void __iomem *cga1;
 
+static struct clk *ca0_pll1_clk;
+static struct clk *ca0_eth_phy_clk;
 static struct clk *ca1_ref_clk;
 static struct clk *ca1_pll1_clk;
 static struct clk *ca1_ic_lp_on_clk;
@@ -244,6 +246,7 @@ static int stx7108_suspend_core(suspend_state_t state, int suspending)
 	static char *pll1_regs;
 	static long *switch_cfg;
 	int i;
+	unsigned long cfg_a0_0, pwr_a0;
 
 	if (suspending)
 		goto on_suspending;
@@ -315,28 +318,34 @@ on_suspending:
 
 	}
 
+	/* Almost all the A0 clocks are off */
+	cfg_a0_0 = 0xFFC3FCFF;
+	pwr_a0 = 0x3; /* the AO.PLLs are off */
+
 	/*
 	 * WOL needs:
 	 * - eth1.phy under cga_0.pll_1
-	 * - eth1.mac under cga_0.pll_0
 	 */
-	if (wkd.eth1_phy_can_wakeup)
-		iowrite32(0x6FC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
-	else
-		iowrite32(0xFFC3FCFF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
+	if (wkd.eth1_phy_can_wakeup) {
+		unsigned long pll_id;
+		/* identify the eth_phy_clk parent */
+		pll_id = (clk_get_parent(ca0_eth_phy_clk) == ca0_pll1_clk) ?
+			2 : 1;
+		pwr_a0 &= ~pll_id;
+		cfg_a0_0 &= ~(0x3 << (2 * CLKA0_ETH_PHY_ID));
+		cfg_a0_0 |= (pll_id << (2 * CLKA0_ETH_PHY_ID));
+	}
+
+	iowrite32(cfg_a0_0, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
 	iowrite32(0xF3FFFFFF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
 
 	if (state == PM_SUSPEND_MEM) {
 		/* all the clocks off */
 		iowrite32(0xF, cga0 + CKGA_CLKOPSRC_SWITCH_CFG2);
 		iowrite32(0xF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG2);
-		/*
-		 * WOL on eth1 needs unser cga_0.pll_1!
-		 */
-		if (!wkd.eth1_phy_can_wakeup)
-			/* turn-off cga_1.pll_0 and cga_1.pll_1 */
-			iowrite32(3, cga0 + CKGA_POWER_CFG);
 
+		/* turn-off not required cga_0 plls */
+		iowrite32(pwr_a0, cga0 + CKGA_POWER_CFG);
 		/* turn-off cga_1.pll_0 and cga_1.pll_1 */
 		iowrite32(3, cga1 + CKGA_POWER_CFG);
 	}
@@ -409,11 +418,14 @@ static int __init stx7108_suspend_setup(void)
 		if (!sc[i])
 			goto error;
 
+	ca0_pll1_clk = clk_get(NULL, "CLKA0_PLL1");
+	ca0_eth_phy_clk = clk_get(NULL, "CLKA_ETH_PHY_1");
 	ca1_ref_clk = clk_get(NULL, "CLKA1_REF");
 	ca1_pll1_clk = clk_get(NULL, "CLKA1_PLL1");
 	ca1_ic_lp_on_clk = clk_get(NULL, "CLKA_IC_REG_LP_ON");
 
-	if (!ca1_ref_clk || !ca1_pll1_clk || !ca1_ic_lp_on_clk)
+	if (!ca1_ref_clk || !ca1_pll1_clk || !ca1_ic_lp_on_clk ||
+	    !ca0_pll1_clk || !ca0_eth_phy_clk)
 		goto error;
 
 	cga0 = ioremap(CGA0, 0x1000);

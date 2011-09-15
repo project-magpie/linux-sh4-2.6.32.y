@@ -57,6 +57,7 @@
 static struct clk *ca_ref_clk;
 static struct clk *ca_pll1_clk;
 static struct clk *ca_ic_if_100_clk;
+static struct clk *ca_eth_phy_clk;
 static unsigned long ca_ic_if_100_clk_rate;
 
 static void __iomem *cga;
@@ -232,11 +233,14 @@ on_suspending:
 	cfg_1 &= ~(0x3 << (2 * (CLKA_IC_IF_200_ID - 16)));
 
 	if (wkd.eth_phy_can_wakeup) {
-		/* Pll_0 on */
-		pwr &= ~1;
-		/* eth_phy_clk under pll0 */
+		unsigned long pll_id;
+
+		/* identify the eth_phy_clk */
+		pll_id = (clk_get_parent(ca_eth_phy_clk) == ca_pll1_clk) ?
+				2 : 1;
+		pwr &= ~pll_id;
 		cfg_0 &= ~(0x3 << (2 * CLKA_ETH_PHY_ID));
-		cfg_0 |= (0x1 << (2 * CLKA_ETH_PHY_ID));
+		cfg_0 |= (pll_id << (2 * CLKA_ETH_PHY_ID));
 	}
 
 	if (wkd.hdmi_can_wakeup) {
@@ -322,8 +326,10 @@ static int __init stx7111_suspend_setup(void)
 	ca_ref_clk = clk_get(NULL, "CLKA_REF");
 	ca_pll1_clk = clk_get(NULL, "CLKA_PLL1");
 	ca_ic_if_100_clk = clk_get(NULL, "CLKA_IC_IF_100");
+	ca_eth_phy_clk = clk_get(NULL, "CLKA_ETH_PHY");
 
-	if (!ca_ref_clk || !ca_pll1_clk || !ca_ic_if_100_clk)
+	if (!ca_ref_clk || !ca_pll1_clk ||
+	    !ca_ic_if_100_clk || !ca_eth_phy_clk)
 		goto error;
 
 	return stm_suspend_register(&stx7111_suspend);

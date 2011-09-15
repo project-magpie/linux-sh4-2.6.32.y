@@ -55,6 +55,7 @@ static void __iomem *lmi;
 static struct clk *ca_ref_clk;
 static struct clk *ca_pll1_clk;
 static struct clk *ca_ic_if_100_clk;
+static struct clk *ca_eth_phy_clk;
 static unsigned long ca_ic_if_100_clk_rate;
 
 /* *************************
@@ -246,10 +247,13 @@ on_suspending:
 			cfg |= (0x2 << (2 * CLKA_IC_IF_100_ID));
 		}
 		if (wkd.eth_phy_can_wakeup) {
-			/* needs PLL1 on */
-			pwr &= ~2;
+			unsigned long pll_id;
+			/* identify the eth_phy_clk parent */
+			pll_id = (clk_get_parent(ca_eth_phy_clk) ==
+				ca_pll1_clk) ? 2 : 1;
+			pwr &= ~pll_id;
 			cfg &= ~(0x3 << (2 * CLKA_ETH0_PHY_ID));
-			cfg |= (0x2 << (2 * CLKA_ETH0_PHY_ID));
+			cfg |= (pll_id << (2 * CLKA_ETH0_PHY_ID));
 		}
 		iowrite32(cfg, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
 		iowrite32(pwr, cga + CKGA_POWER_CFG);
@@ -329,8 +333,10 @@ static int __init stx7105_suspend_setup(void)
 	ca_ref_clk = clk_get(NULL, "CLKA_REF");
 	ca_pll1_clk = clk_get(NULL, "CLKA_PLL1");
 	ca_ic_if_100_clk = clk_get(NULL, "CLKA_IC_IF_100");
+	ca_eth_phy_clk = clk_get(NULL, "CLKA_ETH0_PHY");
 
-	if (!ca_ref_clk || !ca_pll1_clk || !ca_ic_if_100_clk)
+	if (!ca_ref_clk || !ca_pll1_clk ||
+	    !ca_ic_if_100_clk || !ca_eth_phy_clk)
 		goto error;
 
 	return stm_suspend_register(&stx7105_suspend);

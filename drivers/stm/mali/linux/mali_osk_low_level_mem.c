@@ -68,6 +68,7 @@ typedef struct AllocationList AllocationList;
 struct MappingInfo
 {
 	struct vm_area_struct *vma;
+	mali_vma_usage_tracker *vma_usage_tracker;
 	struct AllocationList *list;
 };
 
@@ -434,6 +435,7 @@ _mali_osk_errcode_t _mali_osk_mem_mapregion_init( mali_memory_allocation * descr
 	}
 
 	mappingInfo->vma = vma;
+	mappingInfo->vma_usage_tracker = vma_usage_tracker;
 	descriptor->process_addr_mapping_info = mappingInfo;
 
 	/* Do the va range allocation - in this case, it was done earlier, so we copy in that information */
@@ -462,7 +464,6 @@ _mali_osk_errcode_t _mali_osk_mem_mapregion_init( mali_memory_allocation * descr
 
 void _mali_osk_mem_mapregion_term( mali_memory_allocation * descriptor )
 {
-	struct vm_area_struct* vma;
 	mali_vma_usage_tracker * vma_usage_tracker;
 	MappingInfo *mappingInfo;
 
@@ -476,15 +477,17 @@ void _mali_osk_mem_mapregion_term( mali_memory_allocation * descriptor )
 
 	/* Linux does the right thing as part of munmap to remove the mapping
 	 * All that remains is that we remove the vma_usage_tracker setup in init() */
-	vma = mappingInfo->vma;
 
-	MALI_DEBUG_ASSERT_POINTER( vma );
-
+	/* vma_area_struct in descriptor and in vma_close can be different.
+	 * Dereferencing vma to get tracker can fault, as kernel MIGHT have
+	 * freed the vma_area_struct in the descriptor. Now vma_usage_tracker
+	 * can be obtained from mappingInfo, which will be valid at this point.
+	 */
+	vma_usage_tracker = mappingInfo->vma_usage_tracker;
+	
 	/* ASSERT that there are no allocations on the list. Unmap should've been
 	 * called on all OS allocations. */
 	MALI_DEBUG_ASSERT( NULL == mappingInfo->list );
-
-	vma_usage_tracker = vma->vm_private_data;
 
 	/* We only get called if mem_mapregion_init succeeded */
 	_mali_osk_free(vma_usage_tracker);

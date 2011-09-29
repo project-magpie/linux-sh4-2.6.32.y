@@ -52,8 +52,18 @@ COMMON_OBJS := $(addprefix ./common/, \
 PLATFORM_OBJS := $(addprefix ./platform/default/, \
         mali_platform.o )
 
-ifeq ($(CONFIG_CPU_SUBTYPE_STX7108)$(CONFIG_CPU_SUBTYPE_FLI7510),y)
+ifeq ($(CONFIG_CPU_SUBTYPE_STIH415)$(CONFIG_CPU_SUBTYPE_STX7108)$(CONFIG_CPU_SUBTYPE_FLI7510),y)
+
+ifeq ($(CONFIG_CPU_SUBTYPE_STIH415),y)
+SOC                      := stih415
+endif
+ifeq ($(CONFIG_CPU_SUBTYPE_STX7108),y)
 SOC                      := stx7108
+endif
+ifeq ($(CONFIG_CPU_SUBTYPE_FLI7510),y)
+SOC                      := fli75x0
+endif
+
 USING_MMU                := 1
 USING_UMP                := 0
 USING_MALI200            := 0

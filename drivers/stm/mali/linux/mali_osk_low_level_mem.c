@@ -27,6 +27,10 @@
 #include "mali_kernel_common.h"
 #include "mali_kernel_linux.h"
 
+#ifndef CONFIG_PARANOID_MEM_BARRIERS
+#define CONFIG_PARANOID_MEM_BARRIERS 1
+#endif
+
 static void mali_kernel_memory_vma_open(struct vm_area_struct * vma);
 static void mali_kernel_memory_vma_close(struct vm_area_struct * vma);
 
@@ -278,11 +282,21 @@ static void mali_kernel_memory_vma_close(struct vm_area_struct * vma)
 
 void _mali_osk_mem_barrier( void )
 {
-	/* This is pretty useless on ST SoCs as the CPU sync will return as soon as
-	 * STBus says the write has happened, but all writes are posted, so this
-	 * doesn't mean the write has reached its target.
+	/*
+	 * Note: mb() is a NOP on ST SH4 architectures
 	 */
 	mb();
+
+#if defined(__sh__) && (CONFIG_PARANOID_MEM_BARRIERS == 1)
+	/*
+	 * This is what mb would have done but it is pretty useless on ST SoCs as
+	 * the CPU sync will return as soon as STBus says the write has happened,
+	 * but all writes are posted, so this doesn't mean the write has reached
+	 * its target.
+	 */
+	__asm__ __volatile__ ("synco": : :"memory");
+#endif
+
 	/*
 	 * This ensures that any previous uncached writes, from the CPU to the
 	 * memory interface the Linux kernel is mapped in to, have really reached
@@ -357,6 +371,21 @@ u32 inline _mali_osk_mem_ioread32( volatile mali_io_address addr, u32 offset )
 void inline _mali_osk_mem_iowrite32( volatile mali_io_address addr, u32 offset, u32 val )
 {
 	iowrite32(val, ((u8*)addr) + offset);
+
+#if (CONFIG_PARANOID_MEM_BARRIERS == 1)
+#if defined(__sh__)
+	__asm__ __volatile__ ("synco": : :"memory");
+#endif
+        /*
+	 * This readback ensures that the previous write must have reached the
+	 * bus target it was intended for. The usual place this can catch you out
+	 * is clearing interrupts, if the write to the clear register doesn't
+	 * complete before the interrupt handler returns, the interrupt controller
+	 * may still see the interrupt as asserted and the linux interrupt
+	 * dispatcher will call the handler again spuriously.
+	 */
+	val = ioread32(((u8*)addr) + offset);
+#endif
 }
 
 void _mali_osk_cache_flushall( void )

@@ -37,6 +37,7 @@ static int mali_kernel_memory_cpu_page_fault_handler(struct vm_area_struct *vma,
 static unsigned long mali_kernel_memory_cpu_page_fault_handler(struct vm_area_struct * vma, unsigned long address);
 #endif
 
+extern volatile int *stbus_system_memory_barrier;
 
 typedef struct mali_vma_usage_tracker
 {
@@ -131,6 +132,10 @@ static u32 _kernel_page_allocate(void)
 	/* Ensure page is flushed from CPU caches. */
 	linux_phys_addr = dma_map_page(NULL, new_page, 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
 
+#if defined(__sh__)
+			_mali_osk_mem_barrier();
+#endif
+	
 	return linux_phys_addr;
 }
 
@@ -273,7 +278,20 @@ static void mali_kernel_memory_vma_close(struct vm_area_struct * vma)
 
 void _mali_osk_mem_barrier( void )
 {
+	/* This is pretty useless on ST SoCs as the CPU sync will return as soon as
+	 * STBus says the write has happened, but all writes are posted, so this
+	 * doesn't mean the write has reached its target.
+	 */
 	mb();
+	/*
+	 * This ensures that any previous uncached writes, from the CPU to the
+	 * memory interface the Linux kernel is mapped in to, have really reached
+	 * DDR and are available to be read by the GPU. It is actually the read
+	 * here which ensures the ordering, the write is just there to make sure the
+	 * compiler doesn't optimize it out.
+	 *
+	 */
+	(*stbus_system_memory_barrier)++;
 }
 
 mali_io_address _mali_osk_mem_mapioregion( u32 phys, u32 size, const char *description )
@@ -348,7 +366,14 @@ void _mali_osk_cache_flushall( void )
 
 void _mali_osk_cache_ensure_uncached_range_flushed( void *uncached_mapping, u32 offset, u32 size )
 {
-	wmb();
+	/*
+	 * On the SH4 the address we get here is a userspace address, for
+	 * which we have no interface that can be used to flush the L2. So
+	 * instead we flush pages during the map function when they are
+	 * allocated from the kernel. However just for paranoia we put a
+	 * bus barrier here.
+	 */
+	_mali_osk_mem_barrier();
 }
 
 _mali_osk_errcode_t _mali_osk_mem_mapregion_init( mali_memory_allocation * descriptor )

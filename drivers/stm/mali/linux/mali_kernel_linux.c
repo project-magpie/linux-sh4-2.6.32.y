@@ -246,7 +246,8 @@ int initialize_kernel_device(void)
 	cdev_init(&device.cdev, &mali_fops);
 	device.cdev.owner = THIS_MODULE;
 	device.cdev.ops = &mali_fops;
-
+	kobject_set_name(&(device.cdev.kobj), mali_dev_name);
+	
 	/* register char dev with the kernel */
 	err = cdev_add(&device.cdev, dev, 1/*count*/);
 	if (err)

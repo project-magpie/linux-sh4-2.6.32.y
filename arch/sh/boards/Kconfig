@@ -403,6 +403,14 @@ config SH_ST_HDK7105
 	  Select HDK7105 if configuring for an
 	  STMicroelectronics STi7105 HDK Reference Board.
 
+config SH_ST_HDKH225
+	bool "HDKH225 : STiH225 HDK Reference board"
+	depends on CPU_SUBTYPE_STX7141
+	default n
+	help
+	  Select this if configuring for an
+	  STMicroelectronics STiH225 HDK Reference Board.
+
 config SH_ST_HDKH246
 	bool "HDKH246 : STi235/236/246 Reference boards"
 	depends on CPU_SUBTYPE_STX7105
@@ -793,6 +801,7 @@ source "arch/sh/boards/mach-mb837/Kconfig"
 source "arch/sh/boards/mach-mb671/Kconfig"
 source "arch/sh/boards/mach-hdk7106/Kconfig"
 source "arch/sh/boards/mach-hdk7108/Kconfig"
+source "arch/sh/boards/mach-hdkh225/Kconfig"
 source "arch/sh/boards/mach-adi7108/Kconfig"
 
 if SH_MAGIC_PANEL_R2

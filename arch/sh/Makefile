@@ -161,6 +161,7 @@ machdir-$(CONFIG_SH_ST_HDK5289)			+= mach-hdk5289
 machdir-$(CONFIG_SH_ST_DTT5250)			+= mach-dtt5250
 machdir-$(CONFIG_SH_ST_HDK5250)			+= mach-hdk5250
 machdir-$(CONFIG_SH_ST_HDK7105)			+= mach-hdk7105
+machdir-$(CONFIG_SH_ST_HDKH225)			+= mach-hdkh225
 machdir-$(CONFIG_SH_ST_HDKH246)			+= mach-hdkh246
 machdir-$(CONFIG_SH_ST_HDKH251)			+= mach-hdkh251
 machdir-$(CONFIG_SH_ST_HDK7106)			+= mach-hdk7106

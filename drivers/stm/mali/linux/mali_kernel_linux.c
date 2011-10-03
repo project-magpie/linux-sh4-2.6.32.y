@@ -540,7 +540,6 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 static int mali_platform_probe(struct platform_device *pdev)
 {
 	_mali_osk_errcode_t err;
-	MALI_DEBUG_PRINT(2, ("Mali Alvar r2p2_03rev0 dev version\n"));
 	MALI_DEBUG_PRINT(2, ("Mali (non-PM) Platform device probe id = %d num_resources = %d resource = %p.\n",pdev->id,pdev->num_resources,pdev->resource));
 
 	if(pdev->id != 0 || pdev->num_resources == 0 || pdev->resource == NULL)

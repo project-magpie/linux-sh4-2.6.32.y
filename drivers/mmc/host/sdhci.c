@@ -457,9 +457,13 @@ static int sdhci_adma_table_pre(struct sdhci_host *host,
 
 	align_addr = host->align_addr;
 
+	DBG("adma_table_pre: sg entries %d\n", data->sg_len);
+
 	for_each_sg(data->sg, sg, host->sg_count, i) {
 		addr = sg_dma_address(sg);
 		len = sg_dma_len(sg);
+
+		DBG("\tfrag %d: addr 0x%x, len %d\n", i, addr, len);
 
 		/*
 		 * The SDHCI specification states that ADMA

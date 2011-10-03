@@ -41,7 +41,34 @@
  *                                                                           *
 \*****************************************************************************/
 
+static int sdhci_pltfm_8bit_width(struct sdhci_host *host, int width)
+{
+		u8 ctrl;
+
+		ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
+
+		switch (width) {
+		case MMC_BUS_WIDTH_8:
+				ctrl |= SDHCI_CTRL_8BITBUS;
+				ctrl &= ~SDHCI_CTRL_4BITBUS;
+				break;
+		case MMC_BUS_WIDTH_4:
+				ctrl |= SDHCI_CTRL_4BITBUS;
+				ctrl &= ~SDHCI_CTRL_8BITBUS;
+				break;
+		default:
+				ctrl &= ~(SDHCI_CTRL_8BITBUS |
+						  SDHCI_CTRL_4BITBUS);
+				break;
+		}
+
+		sdhci_writeb(host, ctrl, SDHCI_HOST_CONTROL);
+
+		return 0;
+}
+
 static struct sdhci_ops sdhci_pltfm_ops = {
+	.platform_8bit_width    = sdhci_pltfm_8bit_width,
 };
 
 /*****************************************************************************\
@@ -115,6 +142,8 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		if (ret)
 			goto err_plat_init;
 	}
+
+	host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_BUS_WIDTH_TEST;
 
 	ret = sdhci_add_host(host);
 	if (ret)

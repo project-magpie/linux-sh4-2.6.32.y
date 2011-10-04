@@ -67,7 +67,15 @@ static int sdhci_pltfm_8bit_width(struct sdhci_host *host, int width)
 		return 0;
 }
 
+static unsigned int sdhci_pltfm_get_max_clk(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	return clk_get_rate(pltfm_host->clk);
+}
+
 static struct sdhci_ops sdhci_pltfm_ops = {
+	.get_max_clock          = sdhci_pltfm_get_max_clk,
 	.platform_8bit_width    = sdhci_pltfm_8bit_width,
 };
 
@@ -84,6 +92,7 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	struct sdhci_host *host;
 	struct sdhci_pltfm_host *pltfm_host;
 	struct resource *iomem;
+	struct clk *clk;
 	int ret;
 
 	if (platid && platid->driver_data)
@@ -145,6 +154,15 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 
 	host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_BUS_WIDTH_TEST;
 
+	clk = clk_get(mmc_dev(host->mmc), NULL);
+	if (IS_ERR(clk)) {
+		dev_err(mmc_dev(host->mmc), "clk err\n");
+		ret = PTR_ERR(clk);
+		goto err_plat_init;
+	}
+	clk_enable(clk);
+	pltfm_host->clk = clk;
+
 	ret = sdhci_add_host(host);
 	if (ret)
 		goto err_add_host;
@@ -156,6 +174,10 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 err_add_host:
 	if (pdata && pdata->exit)
 		pdata->exit(host);
+
+	clk_disable(clk);
+	clk_put(clk);
+
 err_plat_init:
 	iounmap(host->ioaddr);
 err_remap:
@@ -172,6 +194,7 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	struct sdhci_pltfm_data *pdata = pdev->dev.platform_data;
 	struct sdhci_host *host = platform_get_drvdata(pdev);
 	struct resource *iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	int dead;
 	u32 scratch;
 
@@ -187,6 +210,9 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	release_mem_region(iomem->start, resource_size(iomem));
 	sdhci_free_host(host);
 	platform_set_drvdata(pdev, NULL);
+
+	clk_disable(pltfm_host->clk);
+	clk_put(pltfm_host->clk);
 
 	return 0;
 }
@@ -207,6 +233,9 @@ MODULE_DEVICE_TABLE(platform, sdhci_pltfm_ids);
 static int sdhci_pltfm_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	clk_disable(pltfm_host->clk);
 
 	return sdhci_suspend_host(host, state);
 }
@@ -214,6 +243,9 @@ static int sdhci_pltfm_suspend(struct platform_device *dev, pm_message_t state)
 static int sdhci_pltfm_resume(struct platform_device *dev)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	clk_enable(pltfm_host->clk);
 
 	return sdhci_resume_host(host);
 }

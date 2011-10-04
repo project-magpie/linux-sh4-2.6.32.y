@@ -85,7 +85,8 @@ struct sdhci_host {
 #define SDHCI_QUIRK_NO_HISPD_BIT			(1<<29)
 /* Controller has to treat card as non-removeble (eg eMMC card) */
 #define SDHCI_QUIRK_NONREMOVABLE_CARD			(1<<30)
-
+/* Controller can force the voltage to max 3.3V */
+#define SDHCI_QUIRK_FORCE_MAX_VDD			(1<<31)
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
 

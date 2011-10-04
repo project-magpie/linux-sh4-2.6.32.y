@@ -1954,6 +1954,10 @@ int sdhci_add_host(struct sdhci_host *host)
 		mmc->caps |= MMC_CAP_NEEDS_POLL;
 
 	mmc->ocr_avail = 0;
+
+	if (host->quirks & SDHCI_QUIRK_FORCE_MAX_VDD)
+		caps &= ~(SDHCI_CAN_VDD_300 | SDHCI_CAN_VDD_180);
+
 	if (caps & SDHCI_CAN_VDD_330)
 		mmc->ocr_avail |= MMC_VDD_32_33|MMC_VDD_33_34;
 	if (caps & SDHCI_CAN_VDD_300)

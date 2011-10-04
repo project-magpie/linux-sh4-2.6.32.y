@@ -978,7 +978,8 @@ static int mmc_pad_resources(struct sdhci_host *sdhci)
 static struct sdhci_pltfm_data stx7108_mmc_platform_data = {
 		.init = mmc_pad_resources,
 		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC |
-			  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
+			  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
+			  SDHCI_QUIRK_FORCE_MAX_VDD,
 };
 
 static struct platform_device stx7108_mmc_device = {

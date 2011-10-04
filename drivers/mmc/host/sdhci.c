@@ -1008,9 +1008,10 @@ static void sdhci_finish_command(struct sdhci_host *host)
 
 static void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 {
-	int div;
+	int div = 0;
 	u16 clk;
 	unsigned long timeout;
+	unsigned int new_hc_clock = host->max_clk;
 
 	if (clock == host->clock)
 		return;
@@ -1069,7 +1070,10 @@ static void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
 
 out:
-	host->clock = clock;
+	if (div)
+		new_hc_clock = host->max_clk / div;
+
+	host->clock = new_hc_clock;
 }
 
 static void sdhci_set_power(struct sdhci_host *host, unsigned short power)
@@ -1200,6 +1204,9 @@ static void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	}
 
 	sdhci_set_clock(host, ios->clock);
+
+	/* Clock provided to the HC */
+	ios->clock = host->clock;
 
 	if (ios->power_mode == MMC_POWER_OFF)
 		sdhci_set_power(host, -1);

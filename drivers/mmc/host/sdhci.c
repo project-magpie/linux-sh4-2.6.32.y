@@ -26,6 +26,11 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/host.h>
 
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+#endif
+
 #include "sdhci.h"
 
 #define DRIVER_NAME "sdhci"
@@ -37,6 +42,7 @@
 	defined(CONFIG_MMC_SDHCI_MODULE))
 #define SDHCI_USE_LEDS_CLASS
 #endif
+
 
 static unsigned int debug_quirks = 0;
 
@@ -88,6 +94,86 @@ static void sdhci_dumpregs(struct sdhci_host *host)
 
 	printk(KERN_DEBUG DRIVER_NAME ": ===========================================\n");
 }
+
+#ifdef CONFIG_DEBUG_FS
+static struct dentry *sdhci_regs;
+
+static int sdhci_dump_registers(struct seq_file *seq, void *v)
+{
+	struct sdhci_host *host = seq->private;
+
+	seq_printf(seq, "Sys addr: 0x%08x | Version:  0x%08x\n",
+		sdhci_readl(host, SDHCI_DMA_ADDRESS),
+		sdhci_readw(host, SDHCI_HOST_VERSION));
+	seq_printf(seq, "Blk size: 0x%08x | Blk cnt:  0x%08x\n",
+		sdhci_readw(host, SDHCI_BLOCK_SIZE),
+		sdhci_readw(host, SDHCI_BLOCK_COUNT));
+	seq_printf(seq, "Argument: 0x%08x | Trn mode: 0x%08x\n",
+		sdhci_readl(host, SDHCI_ARGUMENT),
+		sdhci_readw(host, SDHCI_TRANSFER_MODE));
+	seq_printf(seq, "Present:  0x%08x | Host ctl: 0x%08x\n",
+		sdhci_readl(host, SDHCI_PRESENT_STATE),
+		sdhci_readb(host, SDHCI_HOST_CONTROL));
+	seq_printf(seq, "Power:    0x%08x | Blk gap:  0x%08x\n",
+		sdhci_readb(host, SDHCI_POWER_CONTROL),
+		sdhci_readb(host, SDHCI_BLOCK_GAP_CONTROL));
+	seq_printf(seq, "Wake-up:  0x%08x | Clock:    0x%08x\n",
+		sdhci_readb(host, SDHCI_WAKE_UP_CONTROL),
+		sdhci_readw(host, SDHCI_CLOCK_CONTROL));
+	seq_printf(seq, "Timeout:  0x%08x | Int stat: 0x%08x\n",
+		sdhci_readb(host, SDHCI_TIMEOUT_CONTROL),
+		sdhci_readl(host, SDHCI_INT_STATUS));
+	seq_printf(seq, "Int enab: 0x%08x | Sig enab: 0x%08x\n",
+		sdhci_readl(host, SDHCI_INT_ENABLE),
+		sdhci_readl(host, SDHCI_SIGNAL_ENABLE));
+	seq_printf(seq, "AC12 err: 0x%08x | Slot int: 0x%08x\n",
+		sdhci_readw(host, SDHCI_ACMD12_ERR),
+		sdhci_readw(host, SDHCI_SLOT_INT_STATUS));
+	seq_printf(seq, "Caps:     0x%08x | Max curr: 0x%08x\n",
+		sdhci_readl(host, SDHCI_CAPABILITIES),
+		sdhci_readl(host, SDHCI_MAX_CURRENT));
+
+	if (host->flags & SDHCI_USE_ADMA)
+		seq_printf(seq, "ADMA Err: 0x%08x | ADMA Ptr: 0x%08x\n",
+		       readl(host->ioaddr + SDHCI_ADMA_ERROR),
+		       readl(host->ioaddr + SDHCI_ADMA_ADDRESS));
+
+	return 0;
+}
+
+
+static int sdhci_regs_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, sdhci_dump_registers, inode->i_private);
+}
+
+static const struct file_operations sdhci_regs_fops = {
+	.owner = THIS_MODULE,
+	.open = sdhci_regs_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+
+static int sdhci_init_debugfs(struct sdhci_host *host)
+{
+	sdhci_regs = debugfs_create_file("sdhci_regs", S_IRUGO,
+					 host->mmc->debugfs_root,
+					 host, &sdhci_regs_fops);
+
+	if (!sdhci_regs || IS_ERR(sdhci_regs)) {
+		pr_err("%s: not create sdhci reg debug_fs\n", __func__);
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+static void sdhci_remove_debugfs(void)
+{
+	debugfs_remove(sdhci_regs);
+
+}
+#endif /* CONFIG_DEBUG_FS */
 
 /*****************************************************************************\
  *                                                                           *
@@ -2076,6 +2162,9 @@ int sdhci_add_host(struct sdhci_host *host)
 
 	sdhci_enable_card_detection(host);
 
+#ifdef CONFIG_DEBUG_FS
+	sdhci_init_debugfs(host);
+#endif
 	return 0;
 
 #ifdef SDHCI_USE_LEDS_CLASS
@@ -2096,6 +2185,9 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
 {
 	unsigned long flags;
 
+#ifdef CONFIG_DEBUG_FS
+	sdhci_remove_debugfs();
+#endif
 	if (dead) {
 		spin_lock_irqsave(&host->lock, flags);
 

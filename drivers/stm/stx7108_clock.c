@@ -29,8 +29,7 @@ int __init plat_clk_alias_init(void)
 	clk_add_alias("fdma_ic_clk", NULL, "CLKA_IC_REG_LP_ON", NULL);
 
 	/* SDHCI clocks */
-	clk_add_alias("sdhci_clk", NULL, "CLKA_SYS_MMC_SS",  NULL);
-	clk_add_alias("sdhci_card_clk", NULL, "CLKA_CARD_MMC_SS",  NULL);
+	clk_add_alias(NULL, "sdhci.0", "CLKA_CARD_MMC_SS",  NULL);
 
 	/* USB clocks */
 	clk_add_alias("usb_48_clk", NULL, "CLKB_FS1_CH3", NULL);

@@ -21,9 +21,8 @@
 #include <linux/stm/device.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stx5206.h>
+#include <linux/stm/clk.h>
 #include <asm/irq-ilc.h>
-
-
 
 /* Note that 5206 documentation defines PIO alternative functions starting
  * from 0. So for the "Pad Manager" use the STX5206_GPIO_FUNCTION defines
@@ -464,6 +463,24 @@ static struct platform_device stx5206_mmc_device = {
 void __init stx5206_configure_mmc(void)
 {
 	struct sysconf_field *sc;
+
+	struct clk *mmc_clk = clk_get(NULL, "CLKB_FS1_CH3");
+
+	if (mmc_clk && !IS_ERR(mmc_clk)) {
+		unsigned long mmc_clk_rate = clk_get_rate(mmc_clk);
+
+		if (mmc_clk_rate < 48000000) { /* Arasan suggested clk */
+
+			pr_debug("mmc_stm: invalid clk (%luMHz), force it "
+				 "to 50MHz", mmc_clk_rate);
+
+			mmc_clk_rate = 50000000; /* Validation clk */
+			if (clk_set_rate(mmc_clk, mmc_clk_rate))
+				pr_err("mmc_stm: Unable to set clock to"
+				"%luMHz\n", mmc_clk_rate);
+		}
+	} else
+		pr_err("mmc_stm: cannot find mmc clock");
 
 	sc = sysconf_claim(SYS_CFG, 18, 19, 19, "mmc");
 	sysconf_write(sc, 1);

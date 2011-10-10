@@ -860,11 +860,8 @@ static int snd_stm_pcm_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	BUG_ON(!pcm_player->info->clock_name);
-	snd_stm_printd(0, "Player connected to clock '%s'.\n",
-			pcm_player->info->clock_name);
 	pcm_player->clock = snd_stm_clk_get(pcm_player->device,
-			pcm_player->info->clock_name, snd_device->card,
+			"pcm_player_clk", snd_device->card,
 			pcm_player->info->card_device);
 	if (!pcm_player->clock || IS_ERR(pcm_player->clock)) {
 		snd_stm_printe("Failed to get a clock for '%s'!\n",

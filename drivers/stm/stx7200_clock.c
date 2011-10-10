@@ -33,5 +33,21 @@ int __init plat_clk_alias_init(void)
 	clk_add_alias("usb_ic_clk", NULL, "ic_reg", NULL);
 	/* usb_phy_clk and usb_48_clk managed internally in the wrapper */
 
+	/* ALSA clocks */
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.0", "CLKC_FS0_CH1",
+			NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.1", "CLKC_FS0_CH2",
+			NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.2", "CLKC_FS0_CH3",
+			NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.3", "CLKC_FS0_CH4",
+			NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.4", "CLKC_FS1_CH3",
+			NULL);
+	clk_add_alias("spdif_player_clk", "snd_spdif_player.0",	"CLKC_FS1_CH4",
+			NULL);
+	clk_add_alias("spdif_player_clk", "snd_spdif_player.1", "CLKC_FS1_CH3",
+			NULL);
+
 	return 0;
 }

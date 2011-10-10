@@ -1438,11 +1438,8 @@ static int snd_stm_spdif_player_register(struct snd_device *snd_device)
 
 	/* Get frequency synthesizer channel */
 
-	BUG_ON(!spdif_player->info->clock_name);
-	snd_stm_printd(0, "Player connected to clock '%s'.\n",
-			spdif_player->info->clock_name);
 	spdif_player->clock = snd_stm_clk_get(spdif_player->device,
-			spdif_player->info->clock_name, snd_device->card,
+			"spdif_player_clk", snd_device->card,
 			spdif_player->info->card_device);
 	if (!spdif_player->clock || IS_ERR(spdif_player->clock)) {
 		snd_stm_printe("Failed to get a clock for '%s'!\n",

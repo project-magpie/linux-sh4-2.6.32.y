@@ -32,5 +32,13 @@ int __init plat_clk_alias_init(void)
 	clk_add_alias("usb_ic_clk", NULL, "CLKA_IC_IF_100", NULL);
 	clk_add_alias("usb_phy_clk", NULL, "CLKF_USB_PHY", NULL);
 
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.0", "CLKC_FS0_CH1",
+		NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.1", "CLKC_FS0_CH2",
+		NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.2", "CLKC_FS0_CH4",
+		NULL);
+	clk_add_alias("spdif_player_clk", NULL, "CLKC_FS0_CH3", NULL);
+
 	return 0;
 }

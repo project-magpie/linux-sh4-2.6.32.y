@@ -31,5 +31,11 @@ int __init plat_clk_alias_init(void)
 	/* usb_phy_clk generated internally to the wrapped system PLL */
 	/* usb_48_clk generated internally to the wrapped system PLL */
 
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.0", "CLKC_FS0_CH1",
+		NULL);
+	clk_add_alias("pcm_player_clk", "snd_pcm_player.1", "CLKC_FS0_CH2",
+		NULL);
+	clk_add_alias("spdif_player_clk", NULL, "CLKC_FS0_CH3", NULL);
+
 	return 0;
 }

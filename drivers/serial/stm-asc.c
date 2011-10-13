@@ -317,7 +317,11 @@ static void __devinit asc_init_port(struct asc_port *ascport,
 	port->flags	|= UPF_IOREMAP;
 	port->membase	= NULL;
 
-	ascport->clk = clk_get(&pdev->dev, "comms_clk");
+	if (plat_data->clk_id)
+		ascport->clk = clk_get(&pdev->dev, plat_data->clk_id);
+	else
+		ascport->clk = clk_get(&pdev->dev, "comms_clk");
+
 	if (IS_ERR(ascport->clk))
 		return;
 	clk_enable(ascport->clk);

@@ -62,15 +62,10 @@ choice
 	  points to only one data buffer pointer.
 
 config STMMAC_RING
-	bool "Ring Mode"
-	default y
-	help
-	  Select this option to enable RING mode.
+	bool "Enable Descriptor Ring Mode"
 
 config STMMAC_CHAINED
-	bool "Chain Mode"
-	help
-	  Select this option to enable CHAINED mode.
+	bool "Enable Descriptor Chained Mode"
 
 endchoice
 

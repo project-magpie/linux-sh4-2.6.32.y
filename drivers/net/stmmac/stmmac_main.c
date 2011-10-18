@@ -2,7 +2,7 @@
   This is the driver for the ST MAC 10/100/1000 on-chip Ethernet controllers.
   ST Ethernet IPs are built around a Synopsys IP Core.
 
-  Copyright (C) 2007-2009  STMicroelectronics Ltd
+	Copyright(C) 2007-2011 STMicroelectronics Ltd
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -41,15 +41,14 @@
 #include <linux/if_ether.h>
 #include <linux/crc32.h>
 #include <linux/mii.h>
-#include <linux/phy.h>
 #include <linux/if_vlan.h>
 #include <linux/dma-mapping.h>
 #include <linux/prefetch.h>
-#include "stmmac.h"
 #ifdef CONFIG_STMMAC_DEBUG_FS
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #endif
+#include "stmmac.h"
 
 #define STMMAC_RESOURCE_NAME	"stmmaceth"
 
@@ -162,8 +161,6 @@ static void stmmac_verify_args(void)
 		flow_ctrl = FLOW_OFF;
 	if (unlikely((pause < 0) || (pause > 0xffff)))
 		pause = PAUSE_TIME;
-
-	return;
 }
 
 #if defined(STMMAC_XMIT_DEBUG) || defined(STMMAC_RX_DEBUG)
@@ -326,7 +323,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	    (interface == PHY_INTERFACE_MODE_RMII))) {
 		phydev->supported &= (PHY_BASIC_FEATURES | SUPPORTED_Pause |
 				      SUPPORTED_Asym_Pause);
-        	priv->phydev->advertising = priv->phydev->supported;
+		priv->phydev->advertising = priv->phydev->supported;
 	}
 
 	/*
@@ -388,25 +385,21 @@ static void display_ring(struct dma_desc *p, int size)
 	}
 }
 
-#if defined(CONFIG_STMMAC_CHAINED)
-/* In chained mode des3 points to the next element in the ring.
- * The latest element has to point to the head.
- */
-static void init_dma_chain(struct dma_desc *des, dma_addr_t phy_addr,
-			   unsigned int size)
+static int stmmac_set_bfsize(int mtu, int bufsize)
 {
-	int i;
-	struct dma_desc *p = des;
-	dma_addr_t dma_phy = phy_addr;
+	int ret = bufsize;
 
-	for (i = 0; i < (size - 1); i++) {
-		dma_phy += sizeof(struct dma_desc);
-		p->des3 = (unsigned int) dma_phy;
-		p++;
-	}
-	p->des3 = (unsigned int) phy_addr;
+	if (mtu >= BUF_SIZE_4KiB)
+		ret = BUF_SIZE_8KiB;
+	else if (mtu >= BUF_SIZE_2KiB)
+		ret = BUF_SIZE_4KiB;
+	else if (mtu >= DMA_BUFFER_SIZE)
+		ret = BUF_SIZE_2KiB;
+	else
+		ret = DMA_BUFFER_SIZE;
+
+	return ret;
 }
-#endif
 
 /**
  * init_dma_desc_rings - init the RX/TX descriptor rings
@@ -422,29 +415,18 @@ static void init_dma_desc_rings(struct net_device *dev)
 	struct sk_buff *skb;
 	unsigned int txsize = priv->dma_tx_size;
 	unsigned int rxsize = priv->dma_rx_size;
-	unsigned int bfsize = priv->dma_buf_sz;
+	unsigned int bfsize;
 	int dis_ic = 0;
-#if defined(CONFIG_STMMAC_RING)
 	int des3_as_data_buf = 0;
 
-	/* Set the Buffer size according to the MTU;
-	 * indeed, in case of jumbo we need to bump-up the buffer sizes.
-	 * Note that device can handle only 8KiB in chained mode.
-	 * In ring mode if the mtu exceeds the 8KiB use des3.
-	 */
-	if (unlikely(dev->mtu >= BUF_SIZE_8KiB)) {
-		bfsize = BUF_SIZE_16KiB;
+	/* Set the max buffer size according to the DESC mode
+	 * and the MTU. Note that RING mode allows 16KiB bsize. */
+	bfsize = priv->hw->ring->set_16kib_bfsize(dev->mtu);
+
+	if (bfsize == BUF_SIZE_16KiB)
 		des3_as_data_buf = 1;
-	} else
-#endif
-	if (unlikely(dev->mtu >= BUF_SIZE_4KiB))
-		bfsize = BUF_SIZE_8KiB;
-	else if (unlikely(dev->mtu >= BUF_SIZE_2KiB))
-		bfsize = BUF_SIZE_4KiB;
-	else if (unlikely(dev->mtu >= DMA_BUFFER_SIZE))
-		bfsize = BUF_SIZE_2KiB;
 	else
-		bfsize = DMA_BUFFER_SIZE;
+		bfsize = stmmac_set_bfsize(dev->mtu, priv->dma_buf_sz);
 
 #ifdef CONFIG_STMMAC_TIMER
 	/* Disable interrupts on completion for the reception if timer is on */
@@ -478,15 +460,9 @@ static void init_dma_desc_rings(struct net_device *dev)
 		return;
 	}
 
-	DBG(probe, INFO, "stmmac (%s) DMA desc %s mode: virt addr (Rx %p, "
+	DBG(probe, INFO, "stmmac (%s) DMA desc: virt addr (Rx %p, "
 	    "Tx %p)\n\tDMA phy addr (Rx 0x%08x, Tx 0x%08x)\n",
-	    dev->name,
-#if defined(CONFIG_STMMAC_RING)
-		"ring",
-#else
-		"chained",
-#endif
-		priv->dma_rx, priv->dma_tx,
+	    dev->name, priv->dma_rx, priv->dma_tx,
 	    (unsigned int)priv->dma_rx_phy, (unsigned int)priv->dma_tx_phy);
 
 	/* RX INITIALIZATION */
@@ -507,10 +483,8 @@ static void init_dma_desc_rings(struct net_device *dev)
 
 		p->des2 = priv->rx_skbuff_dma[i];
 
-#if defined(CONFIG_STMMAC_RING)
-		if (unlikely(des3_as_data_buf))
-			p->des3 = p->des2 + BUF_SIZE_8KiB;
-#endif
+		priv->hw->ring->init_desc3(des3_as_data_buf, p);
+
 		DBG(probe, INFO, "[%p]\t[%p]\t[%x]\n", priv->rx_skbuff[i],
 			priv->rx_skbuff[i]->data, priv->rx_skbuff_dma[i]);
 	}
@@ -525,10 +499,11 @@ static void init_dma_desc_rings(struct net_device *dev)
 		priv->dma_tx[i].des2 = 0;
 	}
 
-#if defined(CONFIG_STMMAC_CHAINED)
-	init_dma_chain(priv->dma_rx, priv->dma_rx_phy, rxsize);
-	init_dma_chain(priv->dma_tx, priv->dma_tx_phy, txsize);
-#endif
+	/* In case of Chained mode this sets the des3 to the next
+	 * element in the chain */
+	priv->hw->ring->init_dma_chain(priv->dma_rx, priv->dma_rx_phy, rxsize);
+	priv->hw->ring->init_dma_chain(priv->dma_tx, priv->dma_tx_phy, txsize);
+
 	priv->dirty_tx = 0;
 	priv->cur_tx = 0;
 
@@ -659,10 +634,7 @@ static void stmmac_tx(struct stmmac_priv *priv)
 			dma_unmap_single(priv->device, p->des2,
 					 priv->hw->desc->get_tx_len(p),
 					 DMA_TO_DEVICE);
-#if defined(CONFIG_STMMAC_RING)
-		if (unlikely(p->des3))
-			p->des3 = 0;
-#endif
+		priv->hw->ring->clean_desc3(p);
 
 		if (likely(skb != NULL)) {
 			/*
@@ -1109,96 +1081,6 @@ sw_tso_end:
 	return NETDEV_TX_OK;
 }
 
-static unsigned int stmmac_handle_jumbo_frames(struct sk_buff *skb,
-					       struct net_device *dev,
-					       int csum_insertion)
-{
-	struct stmmac_priv *priv = netdev_priv(dev);
-	unsigned int nopaged_len = skb_headlen(skb);
-	unsigned int txsize = priv->dma_tx_size;
-	unsigned int entry = priv->cur_tx % txsize;
-	struct dma_desc *desc = priv->dma_tx + entry;
-	unsigned int buf_max_size;
-	int len;
-
-#if defined(CONFIG_STMMAC_RING)
-	if (priv->plat->enh_desc)
-		buf_max_size = BUF_SIZE_8KiB;
-	else
-		buf_max_size = BUF_SIZE_2KiB;
-
-	len = nopaged_len - buf_max_size;
-
-	if (nopaged_len > BUF_SIZE_8KiB) {
-
-		desc->des2 = dma_map_single(priv->device, skb->data,
-					    buf_max_size, DMA_TO_DEVICE);
-		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
-		priv->hw->desc->prepare_tx_desc(desc, 1, buf_max_size,
-						csum_insertion);
-
-		entry = (++priv->cur_tx) % txsize;
-		desc = priv->dma_tx + entry;
-
-		desc->des2 = dma_map_single(priv->device,
-					skb->data + buf_max_size,
-					len, DMA_TO_DEVICE);
-		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
-		priv->hw->desc->prepare_tx_desc(desc, 0, len,
-						csum_insertion);
-		priv->hw->desc->set_tx_owner(desc);
-		priv->tx_skbuff[entry] = NULL;
-	} else {
-		desc->des2 = dma_map_single(priv->device, skb->data,
-					    nopaged_len, DMA_TO_DEVICE);
-		desc->des3 = desc->des2 + BUF_SIZE_4KiB;
-		priv->hw->desc->prepare_tx_desc(desc, 1, nopaged_len,
-						csum_insertion);
-	}
-#else
-	unsigned i = 1;
-
-	if (priv->plat->enh_desc)
-		buf_max_size = BUF_SIZE_8KiB;
-	else
-		buf_max_size = BUF_SIZE_2KiB;
-
-	len = nopaged_len - buf_max_size;
-
-	desc->des2 = dma_map_single(priv->device, skb->data,
-				    buf_max_size, DMA_TO_DEVICE);
-	priv->hw->desc->prepare_tx_desc(desc, 1, buf_max_size,
-					csum_insertion);
-
-	while (len != 0) {
-		entry = (++priv->cur_tx) % txsize;
-		desc = priv->dma_tx + entry;
-
-		if (len > buf_max_size) {
-			desc->des2 = dma_map_single(priv->device,
-						(skb->data + buf_max_size * i),
-						buf_max_size, DMA_TO_DEVICE);
-			priv->hw->desc->prepare_tx_desc(desc, 0, buf_max_size,
-							csum_insertion);
-			priv->hw->desc->set_tx_owner(desc);
-			priv->tx_skbuff[entry] = NULL;
-			len -= buf_max_size;
-			i++;
-		} else {
-			desc->des2 = dma_map_single(priv->device,
-						(skb->data + buf_max_size * i),
-						len, DMA_TO_DEVICE);
-			priv->hw->desc->prepare_tx_desc(desc, 0, len,
-							csum_insertion);
-			priv->hw->desc->set_tx_owner(desc);
-			priv->tx_skbuff[entry] = NULL;
-			len = 0;
-		}
-	}
-#endif
-	return entry;
-}
-
 /**
  *  stmmac_xmit:
  *  @skb : the socket buffer
@@ -1213,6 +1095,7 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	int i, csum_insertion = 0;
 	int nfrags = skb_shinfo(skb)->nr_frags;
 	struct dma_desc *desc, *first;
+	unsigned int nopaged_len = skb_headlen(skb);
 
 	if (unlikely(stmmac_tx_avail(priv) < nfrags + 1)) {
 		if (!netif_queue_stopped(dev)) {
@@ -1231,7 +1114,7 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		pr_info("stmmac xmit:\n"
 		       "\tskb addr %p - len: %d - nopaged_len: %d\n"
 		       "\tn_frags: %d - ip_summed: %d - %s gso\n",
-		       skb, skb->len, skb_headlen(skb), nfrags, skb->ip_summed,
+		       skb, skb->len, nopaged_len, nfrags, skb->ip_summed,
 		       !skb_is_gso(skb) ? "isn't" : "is");
 #endif
 
@@ -1255,22 +1138,14 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	if ((nfrags > 0) || (skb->len > ETH_FRAME_LEN))
 		pr_debug("stmmac xmit: skb len: %d, nopaged_len: %d,\n"
 		       "\t\tn_frags: %d, ip_summed: %d\n",
-		       skb->len, skb_headlen(skb), nfrags, skb->ip_summed);
+		       skb->len, nopaged_len, nfrags, skb->ip_summed);
 #endif
 	priv->tx_skbuff[entry] = skb;
 
-#if defined(CONFIG_STMMAC_RING)
-	if (unlikely(skb->len >= BUF_SIZE_4KiB)) {
-		entry = stmmac_handle_jumbo_frames(skb, dev, csum_insertion);
+	if (priv->hw->ring->is_jumbo_frm(skb->len, priv->plat->enh_desc)) {
+		entry = priv->hw->ring->jumbo_frm(priv, skb, csum_insertion);
 		desc = priv->dma_tx + entry;
-#else
-	if ((priv->plat->enh_desc && unlikely(skb->len > BUF_SIZE_8KiB)) ||
-	(!priv->plat->enh_desc && unlikely(skb->len > BUF_SIZE_2KiB))) {
-		entry = stmmac_handle_jumbo_frames(skb, dev, csum_insertion);
-		desc = priv->dma_tx + entry;
-#endif
 	} else {
-		unsigned int nopaged_len = skb_headlen(skb);
 		desc->des2 = dma_map_single(priv->device, skb->data,
 					nopaged_len, DMA_TO_DEVICE);
 		priv->hw->desc->prepare_tx_desc(desc, 1, nopaged_len,
@@ -1360,13 +1235,10 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv)
 					   DMA_FROM_DEVICE);
 
 			(p + entry)->des2 = priv->rx_skbuff_dma[entry];
-#if defined(CONFIG_STMMAC_RING)
-			if (unlikely(priv->plat->has_gmac)) {
-				if (bfsize >= BUF_SIZE_8KiB)
-					(p + entry)->des3 =
-					    (p + entry)->des2 + BUF_SIZE_8KiB;
-			}
-#endif
+
+			if (unlikely(priv->plat->has_gmac))
+				priv->hw->ring->refill_desc3(bfsize, p + entry);
+
 			RX_DBG(KERN_INFO "\trefill entry #%d\n", entry);
 		}
 		wmb();
@@ -1740,7 +1612,7 @@ static int stmmac_sysfs_dma_cap_read(struct seq_file *seq, void *v)
 	}
 
 	seq_printf(seq, "==============================\n");
-	seq_printf(seq, "        DMA HW features \n");
+	seq_printf(seq, "\tDMA HW features\n");
 	seq_printf(seq, "==============================\n");
 
 	seq_printf(seq, "\t10/100 Mbps %s\n",
@@ -1949,6 +1821,7 @@ static int stmmac_mac_device_setup(struct net_device *dev)
 		device->desc = &ndesc_ops;
 
 	priv->hw = device;
+	priv->hw->ring = &ring_mode_ops;
 
 	if (device_can_wakeup(priv->device)) {
 		priv->wolopts = WAKE_MAGIC; /* Magic Frame as default */
@@ -1978,7 +1851,8 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		return -ENODEV;
 	pr_info("\tdone!\n");
 
-	if (!request_mem_region(res->start, resource_size(res),	pdev->name)) {
+	if (!request_mem_region(res->start, resource_size(res),
+				pdev->name)) {
 		pr_err("%s: ERROR: memory allocation failed"
 		       "cannot get the I/O addr 0x%x\n",
 		       __func__, (unsigned int)res->start);
@@ -2244,7 +2118,7 @@ static int stmmac_restore(struct device *dev)
 	return stmmac_open(ndev);
 }
 
-static struct dev_pm_ops stmmac_pm_ops = {
+static const struct dev_pm_ops stmmac_pm_ops = {
 	.suspend = stmmac_suspend,
 	.resume = stmmac_resume,
 	.freeze = stmmac_freeze,
@@ -2252,7 +2126,7 @@ static struct dev_pm_ops stmmac_pm_ops = {
 	.restore = stmmac_restore,
 };
 #else
-static struct dev_pm_ops stmmac_pm_ops;
+static const struct dev_pm_ops stmmac_pm_ops;
 #endif /* CONFIG_PM */
 
 static struct platform_driver stmmac_driver = {
@@ -2272,6 +2146,7 @@ static struct platform_driver stmmac_driver = {
 static int __init stmmac_init_module(void)
 {
 	int ret;
+
 	ret = platform_driver_register(&stmmac_driver);
 	return ret;
 }

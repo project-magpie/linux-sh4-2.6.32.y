@@ -1458,7 +1458,7 @@ static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 	 * needs to have the Tx COE disabled for oversized frames
 	 * (due to limited buffer sizes). In this case we disable
 	 * the TX csum insertionin the TDES and not use SF. */
-	if ((priv->plat->bugged_jumbo) && (priv->dev->mtu > ETH_DATA_LEN))
+	if ((priv->plat->bugged_jumbo) && (max_mtu > ETH_DATA_LEN))
 		priv->no_csum_insertion = 1;
 	else
 		priv->no_csum_insertion = 0;

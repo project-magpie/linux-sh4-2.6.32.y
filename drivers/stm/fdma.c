@@ -1385,6 +1385,8 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		panic("Cant Register irq %d for FDMA engine err %d\n",
 				fdma->irq, err);
 
+	fdma_disable_all_channels(fdma);
+	fdma_reset_channels(fdma);
 	fdma_register_caps(fdma);
 
 	fdma_check_firmware_state(fdma);

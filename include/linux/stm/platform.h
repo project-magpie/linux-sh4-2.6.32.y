@@ -492,7 +492,7 @@ struct stm_plat_ilc3_data {
 	int disable_wakeup:1;
 };
 
-/*** To claim Ethernet PAD resources from thr platform ***/
+/*** To claim Ethernet PAD resources from the platform ***/
 
 static inline int stmmac_claim_resource(struct platform_device *pdev)
 {

@@ -20,7 +20,7 @@
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
 
-#define DRV_MODULE_VERSION	"Nov_2010"
+#define DRV_MODULE_VERSION	"Oct_2011"
 #include <linux/stmmac.h>
 
 #include "common.h"
@@ -70,8 +70,10 @@ struct stmmac_priv {
 
 	u32 msg_enable;
 	spinlock_t lock;
+	spinlock_t tx_lock;
 	int wolopts;
 	int wolenabled;
+	int wol_irq;
 #ifdef CONFIG_STMMAC_TIMER
 	struct stmmac_timer *tm;
 #endif
@@ -79,6 +81,8 @@ struct stmmac_priv {
 	struct vlan_group *vlgrp;
 #endif
 	struct plat_stmmacenet_data *plat;
+	struct stmmac_counters mmc;
+	struct dma_features dma_cap;
 };
 
 extern int stmmac_mdio_unregister(struct net_device *ndev);

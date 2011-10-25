@@ -229,6 +229,7 @@ struct mmc_host {
 #endif
 
 	struct dentry		*debugfs_root;
+	unsigned int		actual_clock;	/* Actual HC clock rate */
 
 	unsigned long		private[0] ____cacheline_aligned;
 };

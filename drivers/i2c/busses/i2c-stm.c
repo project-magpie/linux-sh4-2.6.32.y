@@ -55,6 +55,8 @@
  *		seems less sensible to the noise on the bus.
  * Version 2.7  (01 Jun 2010) Bruno Strudel <bruno.strudel@st.com>
  *   + Fixed the IIC_FSM_REPSTART_ADDR to wait in case of clock stretching
+ * Version 2.8  (28 Oct 2011) Francesco Virlinzi <francesco.virlinzi@st.com>
+ *   + Fixed Idle state to avoid glitch on SDA
  *
  * --------------------------------------------------------------------
  *
@@ -602,9 +604,9 @@ be_fsm_stop:
 		 * i.e.: it is much less sensible to the noice on the cable
 		 */
 		dbg_print2("-Idle\n");
-		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM);
 		/* push the data line high */
 		ssc_store32(adap, SSC_TBUF, 0x1ff);
+		ssc_store32(adap, SSC_I2C, SSC_I2C_I2CM);
 		ssc_store32(adap, SSC_CTL, SSC_CTL_EN |
 			    SSC_CTL_PO | SSC_CTL_PH | SSC_CTL_HB | 0x8);
 		/* No break here! */

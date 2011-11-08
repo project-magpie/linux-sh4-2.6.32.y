@@ -46,6 +46,7 @@
 #define CKGA_PLL1_DIV_CFG(x)		(0xB00 + (x) * 4)
 
 #define CLKA0_ETH_PHY_ID		14
+#define CLKA0_ETH_MAC_ID		15
 /*
  * The Stx7108 uses the Synopsys IP Dram Controller
  * For registers description see:
@@ -324,7 +325,12 @@ on_suspending:
 
 	/*
 	 * WOL needs:
-	 * - eth1.phy under cga_0.pll_1
+	 *  - gmac_clk enabled (at any frequency)
+	 *  - eth_phy_clk enabled (at 25MHz)
+	 *  - eth_phy_clk's parent PLL enabled (to ensure correct eth_phy_clk)
+	 * Use the same PLL which is driving the phy_clk to drive gmac_clk
+	 * as we don't care about the actual frequency as long as it has a
+	 * clock.
 	 */
 	if (wkd.eth1_phy_can_wakeup) {
 		unsigned long pll_id;
@@ -333,7 +339,9 @@ on_suspending:
 			2 : 1;
 		pwr_a0 &= ~pll_id;
 		cfg_a0_0 &= ~(0x3 << (2 * CLKA0_ETH_PHY_ID));
+		cfg_a0_0 &= ~(0x3 << (2 * CLKA0_ETH_MAC_ID));
 		cfg_a0_0 |= (pll_id << (2 * CLKA0_ETH_PHY_ID));
+		cfg_a0_0 |= (pll_id << (2 * CLKA0_ETH_MAC_ID));
 	}
 
 	iowrite32(cfg_a0_0, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);

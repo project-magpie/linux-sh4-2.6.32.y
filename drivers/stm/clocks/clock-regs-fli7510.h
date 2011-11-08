@@ -14,7 +14,8 @@
 
 
 /* --- Base addresses ---------------------------------------- */
-#define CKGA_BASE_ADDRESS		0xfde00000
+#define FLI7510_CKGA_BASE_ADDRESS	0xfde00000
+#define FLI7520_CKGA_BASE_ADDRESS	0xfe000000
 
 /* --- CKGA registers --- */
 #define CKGA_PLL0_CFG			0x000

@@ -37,6 +37,8 @@ static int clkgena_init(clk_t *clk_p);
 
 #define SYSA_CLKIN			30	/* FE osc */
 
+static void __iomem *clkgen_a_base;
+
 _CLK_OPS(clkgena,
 	"Clockgen A",
 	clkgena_init,
@@ -146,9 +148,9 @@ static int clkgena_set_parent(clk_t *clk_p, clk_t *src_p)
 	if (idx == -1)
 		return CLK_ERR_BAD_PARAMETER;
 
-	val = CLK_READ(CKGA_BASE_ADDRESS + srcreg) & ~(0x3 << shift);
+	val = CLK_READ(clkgen_a_base + srcreg) & ~(0x3 << shift);
 	val = val | (clk_src << shift);
-	CLK_WRITE(CKGA_BASE_ADDRESS + srcreg, val);
+	CLK_WRITE(clkgen_a_base + srcreg, val);
 
 	clk_p->parent = &clk_clocks[src_p->id];
 
@@ -187,7 +189,7 @@ static int clkgena_identify_parent(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Identifying source */
-	src_sel = (CLK_READ(CKGA_BASE_ADDRESS + srcreg) >> shift) & 0x3;
+	src_sel = (CLK_READ(clkgen_a_base + srcreg) >> shift) & 0x3;
 	switch (src_sel) {
 	case 0:
 		clk_p->parent = &clk_clocks[CLKA_REF];
@@ -227,12 +229,12 @@ static int clkgena_xable_pll(clk_t *clk_p, int enable)
 		return CLK_ERR_BAD_PARAMETER;
 
 	bit = (clk_p->id == CLKA_PLL0HS ? 0 : 1);
-	val = CLK_READ(CKGA_BASE_ADDRESS + CKGA_POWER_CFG);
+	val = CLK_READ(clkgen_a_base + CKGA_POWER_CFG);
 	if (enable)
 		val &= ~(1 << bit);
 	else
 		val |= (1 << bit);
-	CLK_WRITE(CKGA_BASE_ADDRESS + CKGA_POWER_CFG, val);
+	CLK_WRITE(clkgen_a_base + CKGA_POWER_CFG, val);
 
 	if (enable)
 		err = clkgena_recalc(clk_p);
@@ -298,9 +300,9 @@ static int clkgena_disable(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Disabling clock */
-	val = CLK_READ(CKGA_BASE_ADDRESS + srcreg) & ~(0x3 << shift);
+	val = CLK_READ(clkgen_a_base + srcreg) & ~(0x3 << shift);
 	val = val | (3 << shift);	 /* 3 = STOP clock */
-	CLK_WRITE(CKGA_BASE_ADDRESS + srcreg, val);
+	CLK_WRITE(clkgen_a_base + srcreg, val);
 	clk_p->rate = 0;
 
 	return 0;
@@ -326,7 +328,7 @@ static int clkgena_set_div(clk_t *clk_p, unsigned long *div_p)
 
 	/* Now according to parent, let's write divider ratio */
 	offset = CKGA_SOURCE_CFG(clk_p->parent->id - CLKA_REF);
-	CLK_WRITE(CKGA_BASE_ADDRESS + offset + (4 * idx), div_cfg);
+	CLK_WRITE(clkgen_a_base + offset + (4 * idx), div_cfg);
 
 	return 0;
 }
@@ -375,7 +377,7 @@ static int clkgena_recalc(clk_t *clk_p)
 		clk_p->rate = clk_p->parent->rate;
 		break;
 	case CLKA_PLL0HS:
-		data = CLK_READ(CKGA_BASE_ADDRESS + CKGA_PLL0_CFG);
+		data = CLK_READ(clkgen_a_base + CKGA_PLL0_CFG);
 		err = clk_pll1600_get_rate(clk_p->parent->rate, data & 0x7,
 				(data >> 8) & 0xff, &clk_p->rate);
 		return err;
@@ -383,7 +385,7 @@ static int clkgena_recalc(clk_t *clk_p)
 		clk_p->rate = clk_p->parent->rate / 2;
 		return 0;
 	case CLKA_PLL1:
-		data = CLK_READ(CKGA_BASE_ADDRESS + CKGA_PLL1_CFG);
+		data = CLK_READ(clkgen_a_base + CKGA_PLL1_CFG);
 		return clk_pll800_get_rate(clk_p->parent->rate, data & 0xff,
 			(data >> 8) & 0xff, (data >> 16) & 0x7, &clk_p->rate);
 
@@ -394,7 +396,7 @@ static int clkgena_recalc(clk_t *clk_p)
 
 		/* Now according to source, let's get divider ratio */
 		offset = CKGA_SOURCE_CFG(clk_p->parent->id - CLKA_REF);
-		data = CLK_READ(CKGA_BASE_ADDRESS + offset + (4 * idx));
+		data = CLK_READ(clkgen_a_base + offset + (4 * idx));
 
 		ratio = (data & 0x1F) + 1;
 
@@ -575,6 +577,14 @@ static int __init clkgen_audio_init(void)
 int __init plat_clk_init(void)
 {
 	int ret;
+	unsigned long base_address;
+
+	base_address = (cpu_data->type == CPU_FLI7510) ?
+			FLI7510_CKGA_BASE_ADDRESS : FLI7520_CKGA_BASE_ADDRESS;
+
+	clkgen_a_base = ioremap(base_address, 0x1000);
+	if (!clkgen_a_base)
+		return -EBUSY;
 
 	ret = clk_register_table(clk_clocks, ARRAY_SIZE(clk_clocks), 1);
 

@@ -25,6 +25,7 @@
 #include <linux/fs.h>
 #include <linux/ftrace.h>
 #include <linux/preempt.h>
+#include <linux/list.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/pgalloc.h>
@@ -34,6 +35,7 @@
 #include <asm/watchdog.h>
 #include <asm/syscalls.h>
 #include <asm/watchdog.h>
+#include <asm/restart.h>
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 unsigned long __stack_chk_guard __read_mostly;
@@ -48,8 +50,30 @@ static void watchdog_trigger_immediate(void)
 	sh_wdt_write_csr(0xC2);
 }
 
+LIST_HEAD(restart_prep_handler_list);
+
+void register_prepare_restart_handler(void (*prepare_restart)(void))
+{
+	struct restart_prep_handler *s = (struct restart_prep_handler *)
+				kmalloc(sizeof(struct restart_prep_handler),
+				GFP_KERNEL);
+	s->prepare_restart = prepare_restart;
+	list_add(&(s->list), &(restart_prep_handler_list));
+}
+
 void machine_restart(char * __unused)
 {
+	struct restart_prep_handler *tmp;
+	struct list_head *pos, *q;
+
+	/* Run any "prepare restart" handlers */
+	list_for_each_safe(pos, q, &restart_prep_handler_list) {
+		tmp = list_entry(pos, struct restart_prep_handler, list);
+		tmp->prepare_restart();
+		list_del(pos);
+		kfree(tmp);
+	}
+
 	local_irq_disable();
 
 	/* Use watchdog timer to trigger reset */

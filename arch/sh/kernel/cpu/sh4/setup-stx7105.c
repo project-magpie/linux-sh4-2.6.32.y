@@ -15,6 +15,8 @@
 #include <linux/stm/stx7105.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
+#include <asm/restart.h>
+#include <linux/clk.h>
 
 
 
@@ -61,7 +63,49 @@ static int __init stx7105_sh4_devices_setup(void)
 }
 core_initcall(stx7105_sh4_devices_setup);
 
+/* Warm reboot --------------------------------------------------------- */
 
+void stx7105_prepare_restart(void)
+{
+	struct sysconf_field *sc1;
+	struct sysconf_field *sc2;
+	struct clk *sys_clk = NULL;
+	struct clk *osc_clk = NULL;
+
+	/* Ensure the reset period is short and that the reset is not masked */
+	sc1 = sysconf_claim(SYS_CFG, 9, 29, 29, "kernel");
+	sc2 = sysconf_claim(SYS_CFG, 9, 0, 25, "kernel");
+	sysconf_write(sc1, 0x0);
+	sysconf_write(sc2, 0x00000a8c);
+
+	/* Slow the EMI clock down. This clock is used to drive serial flash
+	 * at boot time, and some larger flash parts need to be driven as
+	 * slowly as 20MHz. Note that the SPI boot clock divider is reset to
+	 * 2 on watchdog reset. */
+	sys_clk = clk_get(NULL, "CLKA_EMI_MASTER");
+	osc_clk = clk_get(NULL, "CLKA_REF");
+	clk_set_parent(sys_clk, osc_clk);
+	clk_set_rate(sys_clk, clk_get_rate(osc_clk));
+}
+
+static int __init stx7105_reset_init(void)
+{
+	struct sysconf_field *sc;
+
+	/* Set the reset chain correctly */
+	sc = sysconf_claim(SYS_CFG, 9, 27, 28, "reset_chain");
+	sysconf_write(sc, 0);
+
+	/* Release the sysconf bits so the coprocessor driver can claim them */
+	sysconf_release(sc);
+
+	/* Add stx_7105_prepare_restart to the list of functions to be called
+	 * immediately before a warm reboot. */
+	register_prepare_restart_handler(stx7105_prepare_restart);
+
+	return 0;
+}
+arch_initcall(stx7105_reset_init);
 
 /* Interrupt initialisation ----------------------------------------------- */
 

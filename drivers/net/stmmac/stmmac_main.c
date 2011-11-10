@@ -1576,10 +1576,7 @@ static int stmmac_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	case SIOCSMIIREG:
 		if (!priv->phydev)
 			return -EINVAL;
-
-		spin_lock(&priv->lock);
 		ret = phy_mii_ioctl(priv->phydev, if_mii(rq), cmd);
-		spin_unlock(&priv->lock);
 	default:
 		break;
 	}

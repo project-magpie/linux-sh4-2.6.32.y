@@ -24,6 +24,7 @@
 #define BANK_EMICONFIGDATA(b, r)	(0x100 + (0x40 * b) + (8 * r))
 #define EMI_COMMON_CFG(reg)		(0x10 + (0x8 * (reg)))
 
+#define EMI_CFG_DATA0_WRITE_CS		(1 << 10)
 
 static struct platform_device *emi;
 static struct clk *emi_clk;
@@ -78,6 +79,24 @@ void emi_bank_configure(int bank, unsigned long data[4])
 		writel(data[i], emi_control + BANK_EMICONFIGDATA(bank, i));
 }
 EXPORT_SYMBOL_GPL(emi_bank_configure);
+
+void emi_bank_write_cs_enable(int bank, int enable)
+{
+	unsigned long reg;
+
+	BUG_ON(bank < 0 || bank >= EMI_BANKS);
+	BUG_ON(!emi_initialised);
+
+	reg = readl(emi_control + BANK_EMICONFIGDATA(bank, 0));
+
+	if (enable)
+		reg |= EMI_CFG_DATA0_WRITE_CS;
+	else
+		reg &= ~EMI_CFG_DATA0_WRITE_CS;
+
+	writel(reg, emi_control + BANK_EMICONFIGDATA(bank, 0));
+}
+EXPORT_SYMBOL_GPL(emi_bank_write_cs_enable);
 
 void emi_config_pcmode(int bank, int pc_mode)
 {

@@ -9,6 +9,16 @@ config MTD_COMPLEX_MAPPINGS
 	  This causes the chip drivers to allow for complicated
 	  paged mappings of flash chips.
 
+config MTD_STM_EMI_WRITEPRO_MAP
+	bool "STMicroelectronics EMI 'Write-Protect' Mapping"
+	depends on MTD_COMPLEX_MAPPINGS
+	help
+	  Add support for a 'Write-Protect' mapping of an STM EMI bank.  The
+	  mapping, which can be used in conjunction with the Physmap driver,
+	  disables the EMI 'write-CS' when not required by the driver.  This
+	  provides some level of protection against rogue accesses to the EMI
+	  bank.
+
 config MTD_PHYSMAP
 	tristate "Flash device in physical memory map"
 	depends on MTD_CFI || MTD_JEDECPROBE || MTD_ROM || MTD_LPDDR

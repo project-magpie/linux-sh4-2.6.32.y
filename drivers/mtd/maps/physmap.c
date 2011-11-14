@@ -134,6 +134,11 @@ static int physmap_flash_probe(struct platform_device *dev)
 			goto err_out;
 		}
 
+#ifdef CONFIG_MTD_COMPLEX_MAPPINGS
+		if (physmap_data->map_init)
+			physmap_data->map_init(&info->map[i]);
+		else
+#endif
 		simple_map_init(&info->map[i]);
 
 		probe_type = rom_probe_types;

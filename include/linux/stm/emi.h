@@ -27,6 +27,7 @@ struct emi_timing_data {
 
 unsigned long emi_bank_base(int bank);
 void emi_bank_configure(int bank, unsigned long data[4]);
+void emi_bank_write_cs_enable(int bank, int enable);
 void emi_config_pcmode(int bank, int pc_mode);
 
 void emi_config_pata(int bank, int pc_mode);

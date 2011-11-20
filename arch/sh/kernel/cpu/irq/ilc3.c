@@ -391,6 +391,33 @@ static struct irq_chip ilc_chip = {
 	.set_wake	= set_wake_ilc_irq,
 };
 
+static int __init ilc_irq_mux_init(struct platform_device *pdev)
+{
+	struct stm_plat_ilc3_data *pdata = pdev->dev.platform_data;
+	struct resource *memory;
+	int memory_size;
+	void *base;
+	int mux_input;
+
+	/* If we don't have an irq mux on this SoC, there is nothing to do. */
+	memory = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	if (!memory)
+		return 0;
+
+	memory_size = resource_size(memory);
+	if (!request_mem_region(memory->start, memory_size, pdev->name))
+		return -EBUSY;
+
+	base = ioremap(memory->start, memory_size);
+	if (!base)
+		return -ENOMEM;
+
+	for (mux_input = 0; mux_input < pdata->inputs_num; mux_input++)
+		writel(0x80000000 | mux_input, base + (mux_input*4));
+
+	return 0;
+}
+
 static void __init ilc_demux_init(struct platform_device *pdev)
 {
 	struct ilc *ilc = platform_get_drvdata(pdev);
@@ -455,6 +482,10 @@ static int __init ilc_probe(struct platform_device *pdev)
 	ilc->base = ioremap(memory->start, memory_size);
 	if (!ilc->base)
 		return -ENOMEM;
+
+	error = ilc_irq_mux_init(pdev);
+	if (error)
+		return error;
 
 	ilc->irqs = kzalloc(sizeof(struct ilc_irq) * ilc->inputs_num,
 			GFP_KERNEL);

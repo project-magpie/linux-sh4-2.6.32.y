@@ -1,0 +1,459 @@
+/*
+ * (c) 2011 STMicroelectronics Limited
+ *
+ * Author: Stuart Menefy <stuart.menefy@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include <linux/init.h>
+#include <linux/platform_device.h>
+#include <linux/ethtool.h>
+#include <linux/dma-mapping.h>
+#include <linux/phy.h>
+#include <linux/stm/miphy.h>
+#include <linux/stm/device.h>
+#include <linux/clk.h>
+#include <linux/stm/emi.h>
+#include <linux/stm/pad.h>
+#include <linux/stm/sysconf.h>
+#include <linux/stm/stxh205.h>
+#include <linux/delay.h>
+#include <asm/irq-ilc.h>
+#include "pio-control.h"
+
+static u64 stxh205_dma_mask = DMA_BIT_MASK(32);
+
+/* --------------------------------------------------------------------
+ *           Ethernet MAC resources (PAD and Retiming)
+ * --------------------------------------------------------------------*/
+
+#define DATA_IN(_port, _pin, _func, _retiming) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_in, \
+		.function = _func, \
+		.priv = &(struct stxh205_pio_config) { \
+			.retime = _retiming, \
+		}, \
+	}
+
+#define DATA_OUT(_port, _pin, _func, _retiming) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_out, \
+		.function = _func, \
+		.priv = &(struct stxh205_pio_config) { \
+			.retime = _retiming, \
+		}, \
+	}
+
+#define CLOCK_IN(_port, _pin, _func, _retiming) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_in, \
+		.function = _func, \
+		.priv = &(struct stxh205_pio_config) { \
+			.retime = _retiming, \
+		}, \
+	}
+
+#define CLOCK_OUT(_port, _pin, _func, _retiming) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_out, \
+		.function = _func, \
+		.priv = &(struct stxh205_pio_config) { \
+			.retime = _retiming, \
+		}, \
+	}
+
+#define PHY_CLOCK(_port, _pin, _func, _retiming) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_unknown, \
+		.function = _func, \
+		.name = "PHYCLK", \
+		.priv = &(struct stxh205_pio_config) { \
+		.retime = _retiming, \
+		}, \
+	}
+
+
+static struct stm_pad_config stxh205_ethernet_mii_pad_config = {
+	.gpios_num = 20,
+	.gpios = (struct stm_pad_gpio []) {
+		DATA_OUT(0, 0, 1, RET_BYPASS(0)),/* TXD[0] */
+		DATA_OUT(0, 1, 1, RET_BYPASS(0)),/* TXD[1] */
+		DATA_OUT(0, 2, 1, RET_BYPASS(0)),/* TXD[2] */
+		DATA_OUT(0, 3, 1, RET_BYPASS(0)),/* TXD[3] */
+		DATA_OUT(0, 4, 1, RET_BYPASS(0)),/* TXER */
+		DATA_OUT(0, 5, 1, RET_BYPASS(0)),/* TXEN */
+		CLOCK_IN(0, 6, 1, RET_NICLK(0)),/* TXCLK */
+		DATA_IN(0, 7, 1, RET_BYPASS(0)),/* COL */
+		DATA_OUT(1, 0, 1, RET_BYPASS(0)),/* MDIO*/
+		CLOCK_OUT(1, 1, 1, RET_NICLK(0)),/* MDC */
+		DATA_IN(1, 2, 1, RET_BYPASS(0)),/* CRS */
+		DATA_IN(1, 3, 1, RET_BYPASS(0)),/* MDINT */
+		DATA_IN(1, 4, 1, RET_BYPASS(0)),/* RXD[0] */
+		DATA_IN(1, 5, 1, RET_BYPASS(0)),/* RXD[1] */
+		DATA_IN(1, 6, 1, RET_BYPASS(0)),/* RXD[2] */
+		DATA_IN(1, 7, 1, RET_BYPASS(0)),/* RXD[3] */
+		DATA_IN(2, 0, 1, RET_BYPASS(0)),/* RXDV */
+		DATA_IN(2, 1, 1, RET_BYPASS(0)),/* RX_ER */
+		CLOCK_IN(2, 2, 1, RET_NICLK(0)),/* RXCLK */
+		PHY_CLOCK(2, 3, 1, RET_NICLK(0)),/* PHYCLK */
+	},
+	.sysconfs_num = 7,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* ETH_POWERDOWN_REQ */
+		STM_PAD_SYSCONF(SYSCONF(23), 0, 0, 0),
+		/* ETH_MII_PHY_SEL */
+		STM_PAD_SYSCONF(SYSCONF(23), 2, 4, 0),
+		/* ETH_ENMII */
+		STM_PAD_SYSCONF(SYSCONF(23), 5, 5, 1),
+		/* ETH_SEL_TXCLK_NOT_CLK125 */
+		STM_PAD_SYSCONF(SYSCONF(23), 6, 6, 1),
+		/* ETH_SEL_INTERNAL_NOTEXT_PHYCLK */
+		STM_PAD_SYSCONF(SYSCONF(23), 7, 7, 1),
+		/* ETH_SEL_TX_RETIMING_CLK */
+		STM_PAD_SYSCONF(SYSCONF(23), 8, 8, 0),
+		/* ETH_GMAC_EN */
+		STM_PAD_SYSCONF(SYSCONF(23), 9, 9, 1),
+	},
+};
+
+static struct stm_pad_config stxh205_ethernet_rmii_pad_config = {
+	.gpios_num = 11,
+	.gpios = (struct stm_pad_gpio []) {
+		DATA_OUT(0, 0, 1, RET_BYPASS(0)),/* TXD[0] */
+		DATA_OUT(0, 1, 1, RET_BYPASS(0)),/* TXD[1] */
+		DATA_OUT(0, 5, 1, RET_BYPASS(0)),/* TXEN */
+		DATA_OUT(1, 0, 1, RET_BYPASS(0)),/* MDIO */
+		CLOCK_OUT(1, 1, 1, RET_NICLK(0)),/* MDC */
+		DATA_IN(1, 3, 1, RET_BYPASS(0)),/* MDINT */
+		DATA_IN(1, 4, 1, RET_BYPASS(0)),/* RXD.0 */
+		DATA_IN(1, 5, 1, RET_BYPASS(0)),/* RXD.1 */
+		DATA_IN(2, 0, 1, RET_BYPASS(0)),/* RXDV */
+		DATA_IN(2, 1, 1, RET_BYPASS(0)),/* RX_ER */
+		PHY_CLOCK(2, 3, 2, RET_NICLK(0)),/* PHYCLK */
+	},
+	.sysconfs_num = 7,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* ETH_POWERDOWN_REQ */
+		STM_PAD_SYSCONF(SYSCONF(23), 0, 0, 0),
+		/* ETH_MII_PHY_SEL */
+		STM_PAD_SYSCONF(SYSCONF(23), 2, 4, 4),
+		/* ETH_ENMII */
+		STM_PAD_SYSCONF(SYSCONF(23), 5, 5, 1),
+		/* ETH_SEL_TXCLK_NOT_CLK125 */
+		STM_PAD_SYSCONF(SYSCONF(23), 6, 6, 1),
+		/* ETH_SEL_INTERNAL_NOTEXT_PHYCLK */
+		STM_PAD_SYSCONF(SYSCONF(23), 7, 7, 1),
+		/* ETH_SEL_TX_RETIMING_CLK */
+		STM_PAD_SYSCONF(SYSCONF(23), 8, 8, 1),
+		/* ETH_GMAC_EN */
+		STM_PAD_SYSCONF(SYSCONF(23), 9, 9, 1),
+	},
+};
+
+/* TODO */
+static struct stm_pad_config stxh205_ethernet_reverse_mii_pad_config = {
+	.gpios_num = 20,
+	.gpios = (struct stm_pad_gpio []) {
+		DATA_OUT(0, 0, 1, RET_BYPASS(0)),/* TXD[0] */
+		DATA_OUT(0, 1, 1, RET_BYPASS(0)),/* TXD[1] */
+		DATA_OUT(0, 2, 1, RET_BYPASS(0)),/* TXD[2] */
+		DATA_OUT(0, 3, 1, RET_BYPASS(0)),/* TXD[3] */
+		DATA_OUT(0, 4, 1, RET_BYPASS(0)),/* TXER */
+		DATA_OUT(0, 5, 1, RET_BYPASS(0)),/* TXEN */
+		CLOCK_IN(0, 6, 1, RET_NICLK(0)),/* TXCLK */
+		DATA_OUT(0, 7, 1, RET_BYPASS(0)),/* COL */
+		DATA_OUT(1, 0, 1, RET_BYPASS(0)),/* MDIO*/
+		CLOCK_IN(1, 1, 1, RET_NICLK(0)),/* MDC */
+		DATA_OUT(1, 2, 1, RET_BYPASS(0)),/* CRS */
+		DATA_IN(1, 3, 1, RET_BYPASS(0)),/* MDINT */
+		DATA_IN(1, 4, 1, RET_BYPASS(0)),/* RXD[0] */
+		DATA_IN(1, 5, 1, RET_BYPASS(0)),/* RXD[1] */
+		DATA_IN(1, 6, 1, RET_BYPASS(0)),/* RXD[2] */
+		DATA_IN(1, 7, 1, RET_BYPASS(0)),/* RXD[3] */
+		DATA_IN(2, 0, 1, RET_BYPASS(0)),/* RXDV */
+		DATA_IN(2, 1, 1, RET_BYPASS(0)),/* RX_ER */
+		CLOCK_IN(2, 2, 1, RET_NICLK(0)),/* RXCLK */
+		PHY_CLOCK(2, 3, 1, RET_NICLK(0)),/* PHYCLK */
+	},
+	.sysconfs_num = 7,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* ETH_POWERDOWN_REQ */
+		STM_PAD_SYSCONF(SYSCONF(23), 0, 0, 0),
+		/* ETH_MII_PHY_SEL */
+		STM_PAD_SYSCONF(SYSCONF(23), 2, 4, 0),
+		/* ETH_ENMII */
+		STM_PAD_SYSCONF(SYSCONF(23), 5, 5, 0),
+		/* ETH_SEL_TXCLK_NOT_CLK125 */
+		STM_PAD_SYSCONF(SYSCONF(23), 6, 6, 1),
+		/* ETH_SEL_INTERNAL_NOTEXT_PHYCLK */
+		STM_PAD_SYSCONF(SYSCONF(23), 7, 7, 1),
+		/* ETH_SEL_TX_RETIMING_CLK */
+		STM_PAD_SYSCONF(SYSCONF(23), 8, 8, 0),
+		/* ETH_GMAC_EN */
+		STM_PAD_SYSCONF(SYSCONF(23), 9, 9, 1),
+	},
+};
+
+static struct plat_stmmacenet_data stxh205_ethernet_platform_data = {
+	.pbl = 32,
+	.has_gmac = 1,
+	.enh_desc = 1,
+	.tx_coe = 1,
+	.bugged_jumbo = 1,
+	.pmt = 1,
+	.init = &stmmac_claim_resource,
+};
+
+static struct platform_device stxh205_ethernet_device = {
+	.name = "stmmaceth",
+	.id = 0,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfda88000, 0x8000),
+		STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(21), -1),
+	},
+	.dev = {
+		.dma_mask = &stxh205_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
+		.platform_data = &stxh205_ethernet_platform_data,
+	},
+};
+
+void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
+{
+	static int configured;
+	struct stxh205_ethernet_config default_config;
+	struct plat_stmmacenet_data *plat_data;
+	struct stm_pad_config *pad_config;
+	int interface;
+
+	BUG_ON(configured++);
+
+	if (!config)
+		config = &default_config;
+
+	plat_data = &stxh205_ethernet_platform_data;
+
+	switch (config->mode) {
+	case stxh205_ethernet_mode_mii:
+		pad_config = &stxh205_ethernet_mii_pad_config;
+		if (config->ext_clk)
+			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
+		else
+			stm_pad_set_pio_out(pad_config, "PHYCLK", 1);
+		interface = PHY_INTERFACE_MODE_MII;
+		break;
+	case stxh205_ethernet_mode_rmii:
+		pad_config = &stxh205_ethernet_rmii_pad_config;
+
+		if (config->ext_clk) {
+			stm_pad_set_pio_in(pad_config, "PHYCLK", 2);
+			/* ETH_SEL_INTERNAL_NOTEXT_PHYCLK */
+			pad_config->sysconfs[4].value = 0;
+		} else {
+			stm_pad_set_pio_out(pad_config, "PHYCLK", 1);
+			/* ETH_SEL_INTERNAL_NOTEXT_PHYCLK */
+			pad_config->sysconfs[4].value = 1;
+		}
+		interface = PHY_INTERFACE_MODE_RMII;
+		break;
+	case stxh205_ethernet_mode_reverse_mii:
+		pad_config = &stxh205_ethernet_reverse_mii_pad_config;
+		if (config->ext_clk)
+			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
+		else
+			stm_pad_set_pio_out(pad_config, "PHYCLK", 1);
+		interface = PHY_INTERFACE_MODE_MII;
+		break;
+	default:
+		BUG();
+		return;
+	}
+
+	plat_data->custom_cfg = (void *) pad_config;
+	plat_data->interface = interface;
+	plat_data->bus_id = config->phy_bus;
+	plat_data->phy_addr = config->phy_addr;
+	plat_data->mdio_bus_data = config->mdio_bus_data;
+
+	platform_device_register(&stxh205_ethernet_device);
+}
+
+/* USB resources ---------------------------------------------------------- */
+
+#define USB_HOST_PWR		"USB_HOST_PWR"
+#define USB_PHY_INDCSHIFT	"USB_PHY_INDCSHIFT"
+#define USB_PHY_INEDGECTL	"USB_PHY_INEDGECTL"
+#define USB_PWR_ACK		"USB_PWR_ACK"
+
+static DEFINE_MUTEX(stxh205_usb_phy_mutex);
+static struct sysconf_field *stxh205_usb_phy_sc;
+static int stxh205_usb_phy_count;
+
+/* FIXME: replace this with a clock when we have a proper clock setup */
+
+static int stxh205_usb_init(struct stm_device_state *device_state)
+{
+	int result = 0;
+
+	mutex_lock(&stxh205_usb_phy_mutex);
+	if (!stxh205_usb_phy_sc) {
+		stxh205_usb_phy_sc = sysconf_claim(SYSCONF(501), 0, 0, "usb");
+		if (!stxh205_usb_phy_sc) {
+			result = -EBUSY;
+			goto err;
+		}
+		sysconf_write(stxh205_usb_phy_sc, 0);
+	}
+	stxh205_usb_phy_count++;
+err:
+	mutex_unlock(&stxh205_usb_phy_mutex);
+	return result;
+}
+
+static int stxh205_usb_exit(struct stm_device_state *device_state)
+{
+	mutex_lock(&stxh205_usb_phy_mutex);
+	if (--stxh205_usb_phy_count == 0) {
+		sysconf_write(stxh205_usb_phy_sc, 0);
+		sysconf_release(stxh205_usb_phy_sc);
+	}
+	mutex_unlock(&stxh205_usb_phy_mutex);
+	return 0;
+}
+
+static void stxh205_usb_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
+
+	stm_device_sysconf_write(device_state, USB_HOST_PWR, value);
+
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, USB_PWR_ACK)
+			== value)
+			break;
+		mdelay(10);
+	}
+}
+
+static struct stm_plat_usb_data stxh205_usb_platform_data[] = {
+	[0] = {
+		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+		.device_config = &(struct stm_device_config){
+			.init = stxh205_usb_init,
+			.exit = stxh205_usb_exit,
+			.power = stxh205_usb_power,
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYSCONF(SYSCONF(449), 0, 0,
+					USB_HOST_PWR),
+				STM_DEVICE_SYSCONF(SYSCONF(423), 3, 3,
+					USB_PWR_ACK),
+			},
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection */
+					STM_PAD_PIO_IN(4, 2, 1),
+					/* USB power enable */
+					STM_PAD_PIO_OUT(4, 3, 1),
+				},
+			},
+		},
+	},
+	[1] = {
+		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+		.device_config = &(struct stm_device_config){
+			.init = stxh205_usb_init,
+			.exit = stxh205_usb_exit,
+			.power = stxh205_usb_power,
+			.sysconfs_num = 2,
+			.sysconfs = (struct stm_device_sysconf []) {
+				STM_DEVICE_SYSCONF(SYSCONF(449), 1, 1,
+					USB_HOST_PWR),
+				STM_DEVICE_SYSCONF(SYSCONF(423), 4, 4,
+					USB_PWR_ACK),
+			},
+			.pad_config = &(struct stm_pad_config) {
+				.gpios_num = 2,
+				.gpios = (struct stm_pad_gpio []) {
+					/* Overcurrent detection */
+					STM_PAD_PIO_IN(4, 4, 1),
+					/* USB power enable */
+					STM_PAD_PIO_OUT(4, 5, 1),
+				},
+			},
+		},
+	},
+};
+
+static struct platform_device stxh205_usb_devices[] = {
+	[0] = {
+		.name = "stm-usb",
+		.id = 0,
+		.dev = {
+			.dma_mask = &stxh205_dma_mask,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
+			.platform_data = &stxh205_usb_platform_data[0],
+		},
+		.num_resources = 6,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper",
+					0xfe000000, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci",
+					0xfe0ffc00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci",
+					0xfe0ffe00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol",
+					0xfe0fff00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(59), -1),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(62), -1),
+		},
+	},
+	[1] = {
+		.name = "stm-usb",
+		.id = 1,
+		.dev = {
+			.dma_mask = &stxh205_dma_mask,
+			.coherent_dma_mask = DMA_BIT_MASK(32),
+			.platform_data = &stxh205_usb_platform_data[1],
+		},
+		.num_resources = 6,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM_NAMED("wrapper",
+					0xfe100000, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ohci",
+					0xfe1ffc00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("ehci",
+					0xfe1ffe00, 0x100),
+			STM_PLAT_RESOURCE_MEM_NAMED("protocol",
+					0xfe1fff00, 0x100),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ehci", ILC_IRQ(60), -1),
+			STM_PLAT_RESOURCE_IRQ_NAMED("ohci", ILC_IRQ(63), -1),
+		},
+	},
+};
+
+void __init stxh205_configure_usb(int port)
+{
+	static int configured[ARRAY_SIZE(stxh205_usb_devices)];
+
+	BUG_ON(port < 0 || port >= ARRAY_SIZE(stxh205_usb_devices));
+
+	BUG_ON(configured[port]++);
+
+	platform_device_register(&stxh205_usb_devices[port]);
+}

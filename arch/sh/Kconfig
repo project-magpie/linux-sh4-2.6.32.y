@@ -470,6 +470,14 @@ config CPU_SUBTYPE_STX7200
 	help
 	  Select STx7200 if you have an STx7200 CPU.
 
+config CPU_SUBTYPE_STXH205
+	bool "Support STxH205/7 (Lille/Liege) processors"
+	select CPU_ST40_300
+	select SUPPORTS_32BIT
+	help
+	  Select STXH205 if you have an STxH205 (Lille) or STxH207 (Liege)
+	  CPU.
+
 # SH-4A Processor Support
 
 config CPU_SUBTYPE_SH7723

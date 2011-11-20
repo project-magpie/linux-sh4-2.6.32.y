@@ -16,6 +16,10 @@
 #define ILC_FIRST_IRQ	44
 #define ILC_NR_IRQS	136
 #define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
+#elif defined(CONFIG_CPU_SUBTYPE_STXH205)
+#define ILC_FIRST_IRQ	176
+#define ILC_NR_IRQS	224 /* or is it 300? */
+#define ILC_IRQ(x)	(ILC_FIRST_IRQ + (x))
 #elif defined(CONFIG_CPU_SUBTYPE_STX5197)
 #define ILC_FIRST_IRQ	33
 #define ILC_NR_IRQS	72

@@ -30,6 +30,7 @@ obj-$(CONFIG_STM_PCI_EMISS)		+= pci-emiss.o
 obj-$(CONFIG_STM_PCIE)			+= pcie.o
 
 obj-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= fli7510.o fli7510_clock.o fli7510_audio.o fli7510_comms.o fli7510_hispeed.o fli7510_pci.o
+obj-$(CONFIG_CPU_SUBTYPE_STXH205)	+= stxh205.o stxh205_clock.o stxh205_comms.o stxh205_hispeed.o pio-control.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= stx5197.o stx5197_clock.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5206)	+= stx5206.o stx5206_clock.o stx5206_comms.o stx5206_hispeed.o stx5206_pci.o
 obj-$(CONFIG_CPU_SUBTYPE_STX7100)	+= stx7100.o stx7100_clock.o stx7100_audio.o stx7100_comms.o stx7100_hispeed.o

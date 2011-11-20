@@ -333,6 +333,22 @@ config SH_ST_ADI7108
 	  Select SH_ST_ADI7108 if configuring for a
 	  STMicroelectronics STi7108-ADI Reference Board.
 
+config SH_ST_B2039
+	bool "B2039: STxH207-HVK processor module board"
+	depends on CPU_SUBTYPE_STXH205
+	default n
+	help
+	  Select SH_ST_B2039 if configuring for a
+	  STMicroelectronics STxH207-HVK processor module board.
+
+config SH_ST_B2057
+	bool "B2057: STxH207-HDK Reference board"
+	depends on CPU_SUBTYPE_STXH205
+	default n
+	help
+	  Select SH_ST_B2057 if configuring for a
+	  STMicroelectronics STxH207-HDK Reference Board.
+
 config SH_ST_CAB5197
 	bool "CAB5197: STx5197 CAB reference board"
 	depends on CPU_SUBTYPE_STX5197

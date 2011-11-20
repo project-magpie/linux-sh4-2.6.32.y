@@ -50,6 +50,7 @@ config USB_ARCH_HAS_OHCI
 	default y if CPU_SUBTYPE_SH7763
 	default y if CPU_SUBTYPE_SH7786
 	default y if CPU_SUBTYPE_FLI7510
+	default y if CPU_SUBTYPE_STXH205
 	default y if CPU_SUBTYPE_STX5197
 	default y if CPU_SUBTYPE_STX5206
 	default y if CPU_SUBTYPE_STX7100
@@ -70,6 +71,7 @@ config USB_ARCH_HAS_EHCI
 	default y if ARCH_W90X900
 	default y if ARCH_AT91SAM9G45
 	default y if CPU_SUBTYPE_FLI7510
+	default y if CPU_SUBTYPE_STXH205
 	default y if CPU_SUBTYPE_STX5197
 	default y if CPU_SUBTYPE_STX5206
 	default y if CPU_SUBTYPE_STX7100

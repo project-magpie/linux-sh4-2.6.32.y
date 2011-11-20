@@ -183,7 +183,9 @@ int stmmac_mdio_register(struct net_device *ndev)
 			if ((mdio_bus_data->irqs == NULL) &&
 			    (mdio_bus_data->probed_phy_irq > 0)) {
 				irqlist[addr] = mdio_bus_data->probed_phy_irq;
-				phydev->irq = mdio_bus_data->probed_phy_irq;
+				if (!phydev->drv ||
+				    (phydev->drv->flags & PHY_HAS_INTERRUPT))
+					phydev->irq = irqlist[addr];
 			}
 
 			/*

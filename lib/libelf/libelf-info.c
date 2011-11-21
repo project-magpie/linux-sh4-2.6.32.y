@@ -9,6 +9,7 @@
  */
 
 #include <linux/libelf.h>
+#include <linux/module.h>
 
 /* Useful for debug, this function shows elf header informations */
 void ELF_printHeaderInfo(const struct ELFinfo *elfinfo)

@@ -16,27 +16,28 @@
 #define ELF_CHECK_TYPE(x)	({x ? x : ~SHT_NULL; })
 
 /* Check elf file identity */
-unsigned int ELF_checkIdent(Elf32_Ehdr *hdr)
+unsigned int ELF32_checkIdent(Elf32_Ehdr *hdr)
 {
 	return memcmp(hdr->e_ident, ELFMAG, SELFMAG);
 }
-EXPORT_SYMBOL(ELF_checkIdent);
+EXPORT_SYMBOL(ELF32_checkIdent);
 
-static inline int ELF_valid_offset(struct ELFinfo *elfinfo, Elf32_Off off,
+static inline int ELF32_valid_offset(struct ELF32info *elfinfo, Elf32_Off off,
 	Elf32_Off struct_size)
 {
 	return off + struct_size <= elfinfo->size;
 }
 
 /* Initialise in-memory ELF file */
-struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
+struct ELF32info *ELF32_initFromMem(uint8_t *elffile,
 				uint32_t size, int mmapped)
 {
 	Elf32_Shdr	*sec;
-	struct ELFinfo *elfinfo;
+	struct ELF32info *elfinfo;
 	int i;
 
-	elfinfo = (struct ELFinfo *)kmalloc(sizeof(struct ELFinfo), GFP_KERNEL);
+	elfinfo = (struct ELF32info *)kmalloc(sizeof(struct ELF32info),
+					GFP_KERNEL);
 
 	if (elfinfo == NULL)
 		return NULL;
@@ -52,7 +53,7 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 	if (size < sizeof(Elf32_Ehdr))
 		goto fail;
 
-	if (ELF_checkIdent((Elf32_Ehdr *)elffile))
+	if (ELF32_checkIdent((Elf32_Ehdr *)elffile))
 		goto fail;
 
 	/* Make sure it is 32 bit, little endian and current version */
@@ -94,9 +95,9 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 	}
 
 	/* Validate header offsets and sizes */
-	if (!ELF_valid_offset(elfinfo, elfinfo->header->e_shoff,
+	if (!ELF32_valid_offset(elfinfo, elfinfo->header->e_shoff,
 			      sizeof(Elf32_Shdr) * elfinfo->numsections) ||
-	    !ELF_valid_offset(elfinfo, elfinfo->header->e_phoff,
+	    !ELF32_valid_offset(elfinfo, elfinfo->header->e_phoff,
 			      sizeof(Elf32_Phdr) * elfinfo->numpheaders))
 		goto fail;
 
@@ -110,7 +111,7 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 	for (i = 0; i < elfinfo->numsections; i++) {
 		Elf32_Shdr *shdr;
 		shdr = &elfinfo->secbase[i];
-		if (!ELF_valid_offset(elfinfo, shdr->sh_offset,
+		if (!ELF32_valid_offset(elfinfo, shdr->sh_offset,
 				      shdr->sh_size))
 			goto fail;
 	}
@@ -119,7 +120,7 @@ struct ELFinfo *ELF_initFromMem(uint8_t *elffile,
 	for (i = 0; i < elfinfo->numpheaders; i++) {
 		Elf32_Phdr *phdr;
 		phdr = &elfinfo->progbase[i];
-		if (!ELF_valid_offset(elfinfo, phdr->p_offset,
+		if (!ELF32_valid_offset(elfinfo, phdr->p_offset,
 				      phdr->p_filesz))
 			goto fail;
 		if (phdr->p_filesz > phdr->p_memsz)
@@ -149,30 +150,31 @@ fail:
 	kfree(elfinfo);
 	return NULL;
 }
-EXPORT_SYMBOL(ELF_initFromMem);
+EXPORT_SYMBOL(ELF32_initFromMem);
 
 /* Free up memory-based resources */
-uint32_t ELF_free(struct ELFinfo *elfinfo)
+uint32_t ELF32_free(struct ELF32info *elfinfo)
 {
 	kfree((void *)elfinfo);
 
 	return 0;
 }
-EXPORT_SYMBOL(ELF_free);
+EXPORT_SYMBOL(ELF32_free);
 
-Elf32_Shdr *ELF_getSectionByIndex(const struct ELFinfo *elfinfo, uint32_t index)
+Elf32_Shdr *ELF32_getSectionByIndex(const struct ELF32info *elfinfo,
+				uint32_t index)
 {
 	return (Elf32_Shdr *)((uint8_t *)(elfinfo->secbase) +
 				((elfinfo->header)->e_shentsize * index));
 }
-EXPORT_SYMBOL(ELF_getSectionByIndex);
+EXPORT_SYMBOL(ELF32_getSectionByIndex);
 
 /*
  * Search for section starting from its name. Also shflag and shtype are given
  * to restrict search for those sections matching them.
  * No flags check will be performed if SHF_NULL and SHT_NULL will be given.
  */
-Elf32_Shdr *ELF_getSectionByNameCheck(const struct ELFinfo *elfinfo,
+Elf32_Shdr *ELF32_getSectionByNameCheck(const struct ELF32info *elfinfo,
 				 const char *secname,
 				 uint32_t *index, int shflag, int shtype)
 {
@@ -186,7 +188,7 @@ Elf32_Shdr *ELF_getSectionByNameCheck(const struct ELFinfo *elfinfo,
 	for (i = 0; i < elfinfo->numsections; i++) {
 		if ((elfinfo->secbase[i].sh_flags & ELF_CHECK_FLAG(shflag)) &&
 		(elfinfo->secbase[i].sh_type & ELF_CHECK_TYPE(shtype))) {
-			sec = ELF_getSectionByIndex(elfinfo, i);
+			sec = ELF32_getSectionByIndex(elfinfo, i);
 			str = elfinfo->strtab + sec->sh_name;
 			if (strcmp(secname, str) == 0) {
 				if (index)
@@ -198,9 +200,9 @@ Elf32_Shdr *ELF_getSectionByNameCheck(const struct ELFinfo *elfinfo,
 
 	return NULL;
 }
-EXPORT_SYMBOL(ELF_getSectionByNameCheck);
+EXPORT_SYMBOL(ELF32_getSectionByNameCheck);
 
-unsigned long ELF_findBaseAddrCheck(Elf32_Ehdr *hdr, Elf32_Shdr *sechdrs,
+unsigned long ELF32_findBaseAddrCheck(Elf32_Ehdr *hdr, Elf32_Shdr *sechdrs,
 				unsigned long *base, int shflag, int shtype)
 {
 	unsigned int i;
@@ -215,13 +217,13 @@ unsigned long ELF_findBaseAddrCheck(Elf32_Ehdr *hdr, Elf32_Shdr *sechdrs,
 		}
 	return prev_index;
 }
-EXPORT_SYMBOL(ELF_findBaseAddrCheck);
+EXPORT_SYMBOL(ELF32_findBaseAddrCheck);
 
 /*
  * Check if the given section is present in the elf file. This function
  * also returns the index where section was found, if it was.
  */
-int ELF_searchSectionType(const struct ELFinfo *elfinfo, const char *name,
+int ELF32_searchSectionType(const struct ELF32info *elfinfo, const char *name,
 				int *index)
 {
 	uint32_t	i, n;
@@ -229,7 +231,7 @@ int ELF_searchSectionType(const struct ELFinfo *elfinfo, const char *name,
 	struct typess   elftypes[] = {ELF_TYPES};
 
 	for (i = 0; i < elfinfo->numsections; i++) {
-		sec = ELF_getSectionByIndex(elfinfo, i);
+		sec = ELF32_getSectionByIndex(elfinfo, i);
 		for (n = 0; elftypes[n].name != NULL; n++)
 			if ((strcmp(elftypes[n].name, name) == 0) &&
 				(elftypes[n].val == sec->sh_type)) {
@@ -240,4 +242,4 @@ int ELF_searchSectionType(const struct ELFinfo *elfinfo, const char *name,
 	}
 	return 1;
 }
-EXPORT_SYMBOL(ELF_searchSectionType);
+EXPORT_SYMBOL(ELF32_searchSectionType);

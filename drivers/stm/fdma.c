@@ -603,7 +603,8 @@ static int fdma_segment_ok(signed long offset, unsigned long size,
 		((offset + size) <= (ram->offset + ram->size));
 }
 
-static int fdma_load_segment(struct fdma *fdma, struct ELFinfo *elfinfo, int i)
+static int fdma_load_segment(struct fdma *fdma, struct ELF32info *elfinfo,
+							 int i)
 {
 	Elf32_Phdr *phdr = &elfinfo->progbase[i];
 	void *data = elfinfo->base;
@@ -634,7 +635,7 @@ static int fdma_load_segment(struct fdma *fdma, struct ELFinfo *elfinfo, int i)
 
 static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 {
-	struct ELFinfo *elfinfo = NULL;
+	struct ELF32info *elfinfo = NULL;
 	int i;
 	int fw_major, fw_minor;
 	int hw_major, hw_minor;
@@ -645,7 +646,7 @@ static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 		return -EINVAL;
 	}
 
-	elfinfo = (struct ELFinfo *)ELF_initFromMem((uint8_t *)fw->data,
+	elfinfo = (struct ELF32info *)ELF32_initFromMem((uint8_t *)fw->data,
 							fw->size, 0);
 	if (elfinfo == NULL)
 		return -ENOMEM;
@@ -664,7 +665,7 @@ static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 				goto fail;
 		}
 
-	ELF_free(elfinfo);
+	ELF32_free(elfinfo);
 	fdma_get_hw_revision(fdma, &hw_major, &hw_minor);
 	fdma_get_fw_revision(fdma, &fw_major, &fw_minor);
 	fdma_info(fdma, "SLIM hw %d.%d, FDMA fw %d.%d\n",
@@ -677,7 +678,7 @@ static int fdma_load_elf(const struct firmware *fw, struct fdma *fdma)
 	return 1;
 
 fail:
-	ELF_free(elfinfo);
+	ELF32_free(elfinfo);
 	return res;
 }
 

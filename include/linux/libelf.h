@@ -2,14 +2,13 @@
 #define _LIBELF_H_
 
 #include <linux/elf.h>
-#include <linux/module.h>
 
 struct ELFinfo {
 	uint8_t	*base;	/* Base address of ELF image in memory  */
-	Elf_Ehdr	*header; /* Base address of ELF header in memory */
+	Elf32_Ehdr	*header; /* Base address of ELF header in memory */
 	uint32_t	size;	/* Total size of ELF data in bytes */
 	uint32_t	mmapped;	/* Set to 1 if ELF file mmapped */
-	Elf_Shdr	*secbase;	/* Section headers base address */
+	Elf32_Shdr	*secbase;	/* Section headers base address */
 	Elf32_Phdr	*progbase;	/* Program headers base address */
 	char		*strtab;	/* String table for section headers */
 	uint32_t	strtabsize;	/* Size of string table */

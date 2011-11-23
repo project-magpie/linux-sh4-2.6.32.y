@@ -38,7 +38,7 @@ static void __init b2039_setup(char **cmdline_p)
 	stxh205_configure_asc(STXH205_ASC(11), &(struct stxh205_asc_config) {
 			/*
 			 * Enabling hw flow control conflicts with FP_LED
-			 * and keyscan.
+			 * keyscan and PWM10.
 			 */
 			.hw_flow_control = 0,
 			.is_console = 1, });
@@ -83,6 +83,7 @@ static struct platform_device *b2039_devices[] __initdata = {
 
 static int __init device_init(void)
 {
+	/* This conflicts with PWM10, keyscan and ASC11 */
 	gpio_request(B2039_MII1_NOTRESET, "MII1_NORESET");
 	gpio_direction_output(B2039_MII1_NOTRESET, 0);
 
@@ -99,6 +100,36 @@ static int __init device_init(void)
 
 	/* Need to set J12 1-2 and J22 1-2 */
 	stxh205_configure_usb(1);
+
+	/* 1: FRONTEND (NIM), CN19, HDMI */
+	stxh205_configure_ssc_i2c(1, &(struct stxh205_ssc_config) {
+			.routing.ssc1.sclk = stxh205_ssc1_sclk_pio4_6,
+			.routing.ssc1.mtsr = stxh205_ssc1_mtsr_pio4_7, });
+	/* 2: FRONTEND_EXT (VPAV), CN28 */
+	stxh205_configure_ssc_i2c(2, &(struct stxh205_ssc_config) {
+			.routing.ssc1.sclk = stxh205_ssc2_sclk_pio9_4,
+			.routing.ssc1.mtsr = stxh205_ssc2_mtsr_pio9_5, });
+	/* 3: BACKEND (GMII (CN14), CN10, CN37), CN27 */
+	/* Fit jumpers J45 2-3, J46 2-3, J47 2-3 */
+	stxh205_configure_ssc_i2c(3, &(struct stxh205_ssc_config) {
+			.routing.ssc1.sclk = stxh205_ssc3_sclk_pio15_0,
+			.routing.ssc1.mtsr = stxh205_ssc3_mtsr_pio15_1, });
+
+	stxh205_configure_lirc(&(struct stxh205_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stxh205_lirc_rx_mode_uhf, });
+#else
+			.rx_mode = stxh205_lirc_rx_mode_ir, });
+#endif
+
+	stxh205_configure_pwm(&(struct stxh205_pwm_config) {
+			/*
+			 * 10: conflicts with SBC_SYS_CLKINALT, UART11 CTS
+			 *    keyscan and MII1 notReset.
+			 * 11: conflicts with ETH_RXCLK
+			 */
+			.out10_enabled = 0,
+			.out11_enabled = 0, });
 
 	return platform_add_devices(b2039_devices,
 			ARRAY_SIZE(b2039_devices));

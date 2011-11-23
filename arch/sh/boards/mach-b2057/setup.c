@@ -96,6 +96,31 @@ static int __init device_init(void)
 	stxh205_configure_usb(0);
 	stxh205_configure_usb(1);
 
+	/* SSC1: NIM */
+	stxh205_configure_ssc_i2c(1, &(struct stxh205_ssc_config) {
+			.routing.ssc1.sclk = stxh205_ssc1_sclk_pio12_0,
+			.routing.ssc1.mtsr = stxh205_ssc1_mtsr_pio12_1, });
+	/* SSC3: SYS - STV6440, EEPROM, Front panel, MII and JQ3 */
+	stxh205_configure_ssc_i2c(3, &(struct stxh205_ssc_config) {
+			.routing.ssc3.sclk = stxh205_ssc3_sclk_pio15_5,
+			.routing.ssc3.mtsr = stxh205_ssc3_mtsr_pio15_6, });
+	/* SSC11: HDMI */
+	stxh205_configure_ssc_i2c(STXH205_SSC(11), NULL);
+
+	stxh205_configure_lirc(&(struct stxh205_lirc_config) {
+#ifdef CONFIG_LIRC_STM_UHF
+			.rx_mode = stxh205_lirc_rx_mode_uhf, });
+#else
+			.rx_mode = stxh205_lirc_rx_mode_ir, });
+#endif
+
+	stxh205_configure_pwm(&(struct stxh205_pwm_config) {
+			/*
+			 * PWM10 is connected to 12V->1.2V power supply
+			 * for "debug purposes". Enable at your own risk!
+			 */
+			.out10_enabled = 0 });
+
 	return platform_add_devices(b2057_devices,
 			ARRAY_SIZE(b2057_devices));
 }

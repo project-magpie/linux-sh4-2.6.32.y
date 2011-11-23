@@ -21,6 +21,8 @@
 #define SYSCONF(x) \
 	SYSCONFG_GROUP(x), SYSCONF_OFFSET(x)
 
+#define LPM_SYSCONF_BANK	(4)
+
 struct stxh205_pio_config {
 	struct stm_pio_control_mode_config *mode;
 	struct stm_pio_control_retime_config *retime;

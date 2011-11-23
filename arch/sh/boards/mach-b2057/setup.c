@@ -71,6 +71,7 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 	.bus_id = 0,
 	.phy_reset = b2057_phy_reset,
 	.phy_mask = 0,
+	.probed_phy_irq = ILC_IRQ(25), /* MDINT */
 };
 
 static struct platform_device *b2057_devices[] __initdata = {
@@ -85,12 +86,15 @@ static int __init device_init(void)
 	gpio_direction_output(B2057_GPIO_POWER_ON_ETH, 0);
 
 	stxh205_configure_ethernet(&(struct stxh205_ethernet_config) {
-			.mode = stxh205_ethernet_mode_mii,
-			.ext_clk = 1,
+			.mode = stxh205_ethernet_mode_rmii,
+			.ext_clk = 0,
 			.phy_bus = 0,
 			.phy_addr = -1,
 			.mdio_bus_data = &stmmac_mdio_bus,
 		});
+
+	stxh205_configure_usb(0);
+	stxh205_configure_usb(1);
 
 	return platform_add_devices(b2057_devices,
 			ARRAY_SIZE(b2057_devices));

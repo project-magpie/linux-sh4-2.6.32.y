@@ -85,16 +85,12 @@ unsigned long sysconf_mask(struct sysconf_field *field);
 void sysconf_early_init(struct platform_device *pdevs, int pdevs_num);
 
 /**
- * sysconf_group_name - Return registers group name
- * @group: register group (ie. SYS_CFG, SYS_STA); SOC-specific
- */
-const char *sysconf_group_name(int group);
-
-/**
  * sysconf_reg_name - Return register name
+ * @name: buffer into which to write the name
+ * @size: size of buffer
  * @group: register group (ie. SYS_CFG, SYS_STA); SOC-specific
  * @num: register number
  */
-const char *sysconf_reg_name(int group, int num);
+void sysconf_reg_name(char *name, int size, int group, int num);
 
 #endif

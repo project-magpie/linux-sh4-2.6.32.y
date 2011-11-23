@@ -41,7 +41,7 @@ struct sysconf_field {
 struct sysconf_group {
 	void __iomem *base;
 	const char *name;
-	const char *(*reg_name)(int num);
+	void (*reg_name)(char *name, int size, int group, int num);
 	struct sysconf_block *block;
 };
 
@@ -312,21 +312,14 @@ unsigned long sysconf_mask(struct sysconf_field *field)
 }
 EXPORT_SYMBOL(sysconf_mask);
 
-const char *sysconf_group_name(int group)
+void sysconf_reg_name(char *name, int size, int group, int num)
 {
 	BUG_ON(group < 0 || group >= sysconf_groups_num);
 
-	return sysconf_groups[group].name;
-
-}
-EXPORT_SYMBOL(sysconf_group_name);
-
-const char *sysconf_reg_name(int group, int num)
-{
-	BUG_ON(group < 0 || group >= sysconf_groups_num);
-
-	return sysconf_groups[group].reg_name ?
-			sysconf_groups[group].reg_name(num) : NULL;
+	if (sysconf_groups[group].reg_name)
+		sysconf_groups[group].reg_name(name, size, group, num);
+	else
+		snprintf(name, size, "%s%d", sysconf_groups[group].name, num);
 }
 EXPORT_SYMBOL(sysconf_reg_name);
 
@@ -529,12 +522,10 @@ static int sysconf_seq_show_fields(struct seq_file *s)
 	spin_lock(&sysconf_fields_lock);
 
 	list_for_each_entry(field, &sysconf_fields, list) {
-		struct sysconf_group *group = &sysconf_groups[field->group];
+		char name[20];
 
-		if (group->reg_name)
-			seq_printf(s, "- %s[", group->reg_name(field->num));
-		else
-			seq_printf(s, "- %s%d[", group->name, field->num);
+		sysconf_reg_name(name, sizeof(name), field->group, field->num);
+		seq_printf(s, "- %s[", name);
 
 		if (field->msb == field->lsb)
 			seq_printf(s, "%d", field->msb);

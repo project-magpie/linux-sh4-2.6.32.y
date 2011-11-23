@@ -425,10 +425,13 @@ void __init fli7510_configure_mmc(void)
 #ifdef CONFIG_DEBUG_FS
 
 #define SYSCONF_REG(field) _SYSCONF_REG(#field, field)
-#define _SYSCONF_REG(name, group, num) case num: return name
+#define _SYSCONF_REG(name, group, num) case num: str = name; break
 
-static const char *fli7510_sysconf_PRB_PU_CFG_1(int num)
+static void fli7510_sysconf_PRB_PU_CFG_1(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_RESET_CTL);
 	SYSCONF_REG(CFG_BOOT_CTL);
@@ -440,11 +443,14 @@ static const char *fli7510_sysconf_PRB_PU_CFG_1(int num)
 	SYSCONF_REG(CFG_PCI_ROPC_STATUS);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_PRB_PU_CFG_2(int num)
+static void fli7510_sysconf_PRB_PU_CFG_2(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_ST40_HOST_BOOT_ADDR);
 	SYSCONF_REG(CFG_ST40_CTL_BOOT_ADDR);
@@ -456,11 +462,14 @@ static const char *fli7510_sysconf_PRB_PU_CFG_2(int num)
 	SYSCONF_REG(CFG_EMI_ROPC_STATUS);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_TRS_SPARE_REGS_0(int num)
+static void fli7510_sysconf_TRS_SPARE_REGS_0(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_COMMS_CONFIG_1);
 	SYSCONF_REG(CFG_TRS_CONFIG);
@@ -472,11 +481,14 @@ static const char *fli7510_sysconf_TRS_SPARE_REGS_0(int num)
 	SYSCONF_REG(CFG_EXTRA_ID1_LSB);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_TRS_SPARE_REGS_1(int num)
+static void fli7510_sysconf_TRS_SPARE_REGS_1(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_SPARE_1);
 	SYSCONF_REG(CFG_SPARE_2);
@@ -488,11 +500,14 @@ static const char *fli7510_sysconf_TRS_SPARE_REGS_1(int num)
 	SYSCONF_REG(CFG_EXTRA_ID1_MSB);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_VDEC_PU_CFG_0(int num)
+static void fli7510_sysconf_VDEC_PU_CFG_0(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_TOP_SPARE_REG1);
 	SYSCONF_REG(CFG_TOP_SPARE_REG2);
@@ -504,11 +519,14 @@ static const char *fli7510_sysconf_VDEC_PU_CFG_0(int num)
 	SYSCONF_REG(CFG_INTERRUPT);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_VDEC_PU_CFG_1(int num)
+static void fli7510_sysconf_VDEC_PU_CFG_1(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_ST231_DRA2_PERIPH_REG1);
 	SYSCONF_REG(CFG_ST231_DRA2_BOOT_REG2);
@@ -520,11 +538,14 @@ static const char *fli7510_sysconf_VDEC_PU_CFG_1(int num)
 	SYSCONF_REG(CFG_INTERRUPT_REG8);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_VOUT_SPARE_REGS(int num)
+static void fli7510_sysconf_VOUT_SPARE_REGS(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_REG1_VOUT_PIO_ALT_SEL);
 	SYSCONF_REG(CFG_REG2_VOUT_PIO_ALT_SEL);
@@ -535,21 +556,27 @@ static const char *fli7510_sysconf_VOUT_SPARE_REGS(int num)
 	SYSCONF_REG(CFG_REG7_UNUSED);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_CKG_DDR(int num)
+static void fli7510_sysconf_CKG_DDR(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CKG_DDR_CTL_PLL_DDR_FREQ);
 	SYSCONF_REG(CKG_DDR_STATUS_PLL_DDR);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *fli7510_sysconf_PCIE_SPARE_REGS(int num)
+static void fli7510_sysconf_PCIE_SPARE_REGS(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_REG1_PCIE_CORE_MIPHY_INIT);
 	SYSCONF_REG(CFG_REG2_SPARE_OUTPUT_REG);
@@ -561,7 +588,7 @@ static const char *fli7510_sysconf_PCIE_SPARE_REGS(int num)
 	SYSCONF_REG(CFG_REG8_PCIE_SYS_ERR_INTERRUPT);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
 #endif

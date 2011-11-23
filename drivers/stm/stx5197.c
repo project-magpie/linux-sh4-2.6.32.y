@@ -865,10 +865,13 @@ static int stx5197_pio_config(unsigned gpio,
 #ifdef CONFIG_DEBUG_FS
 
 #define SYSCONF_REG(field) _SYSCONF_REG(#field, field)
-#define _SYSCONF_REG(name, group, num) case num: return name
+#define _SYSCONF_REG(name, group, num) case num: str = name; break
 
-static const char *stx5197_sysconf_hd_reg_name(int num)
+static void stx5197_sysconf_hd_reg_name(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_CTRL_C);
 	SYSCONF_REG(CFG_CTRL_D);
@@ -907,11 +910,14 @@ static const char *stx5197_sysconf_hd_reg_name(int num)
 	SYSCONF_REG(CFG_MONITOR_R);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
-static const char *stx5197_sysconf_hs_reg_name(int num)
+static void stx5197_sysconf_hs_reg_name(char *name, int size,
+		int group, int num)
 {
+	char *str = "???";
+
 	switch (num) {
 	SYSCONF_REG(CFG_CTRL_A);
 	SYSCONF_REG(CFG_CTRL_B);
@@ -920,7 +926,7 @@ static const char *stx5197_sysconf_hs_reg_name(int num)
 	SYSCONF_REG(CFG_MONITOR_B);
 	}
 
-	return "???";
+	strlcpy(name, size, str);
 }
 
 #endif

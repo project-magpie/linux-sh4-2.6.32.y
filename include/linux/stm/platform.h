@@ -264,7 +264,7 @@ struct stm_plat_sysconf_group {
 	int group;
 	unsigned long offset;
 	const char *name;
-	const char *(*reg_name)(int num);
+	void (*reg_name)(char *name, int size, int group, int num);
 };
 
 struct stm_plat_sysconf_data {

@@ -627,23 +627,14 @@ static int stm_pad_seq_show(struct seq_file *s, void *v)
 
 	for (i = 0; i < config->sysconfs_num; i++) {
 		struct stm_pad_sysconf *sysconf = &config->sysconfs[i];
-		const char *name = sysconf_reg_name(sysconf->regtype,
-				sysconf->regnum);
+		char name[20];
 
 		if (i == 0)
 			seq_printf(s, "- System Configuration values:\n");
 
-		seq_printf(s, "  - ");
-		if (name) {
-			seq_printf(s, "%s", name);
-		} else {
-			name = sysconf_group_name(sysconf->regtype);
-			if (name)
-				seq_printf(s, "%s%d", name, sysconf->regnum);
-			else
-				seq_printf(s, "%d.%d", sysconf->regtype,
-						sysconf->regnum);
-		}
+		sysconf_reg_name(name, sizeof(name), sysconf->regtype,
+				sysconf->regnum);
+		seq_printf(s, "  - %s", name);
 
 		if (sysconf->msb == sysconf->lsb)
 			seq_printf(s, "[%d]", sysconf->lsb);

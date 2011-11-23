@@ -166,6 +166,13 @@ static void __init stxh205_pio_init(void)
 
 /* sysconf resources ------------------------------------------------------ */
 
+void stxh205_sysconf_reg_name(char *name, int size, int group, int num)
+{
+	if (group >= 3)
+		group++;
+	snprintf(name, size, "SYSCONF%d", (group * 100) + num);
+}
+
 static struct platform_device stxh205_sysconf_devices[] = {
 	{
 		/* SBC system configuration bank 0 registers */
@@ -183,6 +190,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 					.group = 0,
 					.offset = 0,
 					.name = "SYSCFG_SBC",
+					.reg_name = stxh205_sysconf_reg_name,
 				}
 			},
 		}
@@ -201,6 +209,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 					.group = 1,
 					.offset = 0,
 					.name = "SYSCFG_BANK1",
+					.reg_name = stxh205_sysconf_reg_name,
 				}
 			},
 		}
@@ -219,6 +228,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 					.group = 2,
 					.offset = 0,
 					.name = "SYSCFG_BANK2",
+					.reg_name = stxh205_sysconf_reg_name,
 				}
 			},
 		}
@@ -237,6 +247,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 					.group = 3,
 					.offset = 0,
 					.name = "SYSCFG_BANK3",
+					.reg_name = stxh205_sysconf_reg_name,
 				}
 			},
 		}

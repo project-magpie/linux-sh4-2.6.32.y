@@ -237,6 +237,24 @@ static struct platform_device stxh205_sysconf_devices[] = {
 				}
 			},
 		}
+	}, {
+		/* LPM Configuration registers */
+		.name		= "sysconf",
+		.id		= 4,
+		.num_resources	= 1,
+		.resource	= (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfe4b5100, 0x54),
+		},
+		.dev.platform_data = &(struct stm_plat_sysconf_data) {
+			.groups_num = 1,
+			.groups = (struct stm_plat_sysconf_group []) {
+				{
+					.group = 4,
+					.offset = 0,
+					.name = "LPM_CFG",
+				}
+			},
+		}
 	},
 };
 
@@ -296,6 +314,7 @@ static struct platform_device *stxh205_devices[] __initdata = {
 	&stxh205_sysconf_devices[1],
 	&stxh205_sysconf_devices[2],
 	&stxh205_sysconf_devices[3],
+	&stxh205_sysconf_devices[4],
 };
 
 static int __init stxh205_devices_setup(void)

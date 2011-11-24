@@ -85,13 +85,22 @@ static int __init device_init(void)
 	gpio_request(B2057_GPIO_POWER_ON_ETH, "POWER_ON_ETH");
 	gpio_direction_output(B2057_GPIO_POWER_ON_ETH, 0);
 
+#ifndef CONFIG_STM_B2057_JP1_NONE
 	stxh205_configure_ethernet(&(struct stxh205_ethernet_config) {
+#if defined(CONFIG_STM_B2057_JP1_B2032)
+			.mode = stxh205_ethernet_mode_mii,
+			.ext_clk = 1,
+#elif defined(CONFIG_STM_B2057_JP1_B2035)
 			.mode = stxh205_ethernet_mode_rmii,
 			.ext_clk = 0,
+#else
+#error Unknown PHY daughterboard
+#endif
 			.phy_bus = 0,
 			.phy_addr = -1,
 			.mdio_bus_data = &stmmac_mdio_bus,
 		});
+#endif
 
 	stxh205_configure_usb(0);
 	stxh205_configure_usb(1);

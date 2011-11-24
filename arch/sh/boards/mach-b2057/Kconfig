@@ -1,0 +1,32 @@
+if SH_ST_B2057
+
+menu "B2057: STxH207-HDK board options"
+
+choice
+	prompt "B2057: card selection on JP1 connector (Ethernet PHY)"
+	default STM_B2057_JP1_NONE
+	help
+	  Select the appropriate Ethernet PHY card.
+	  This controls the Ethernet connection mode with the PHY, and
+	  the corrisponding pad allocation and configuration.
+
+config STM_B2057_JP1_NONE
+       bool "None"
+       help
+         No Ethernet card is plugged into JP1 of the B2057.
+
+config STM_B2057_JP1_B2032
+	bool "B2032 IC+ IP1001 PHY card"
+	help
+	  B2032 Ethernet card on JP1 of B2057.
+
+config STM_B2057_JP1_B2035
+	bool "B2035 IC+ IP101 PHY card"
+	help
+	  B2035 connected to JP1 of B2057.
+
+endchoice
+
+endmenu
+
+endif

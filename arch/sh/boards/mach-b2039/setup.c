@@ -63,9 +63,11 @@ static struct platform_device b2039_leds = {
 /* Neet to fit J35 1-2 for this, disable UART11 CTS and keyscan and sysclkin */
 static int b2039_phy_reset(void *bus)
 {
+#ifdef CONFIG_STM_B2039_J35_PHY_RESET
 	gpio_set_value(B2039_MII1_NOTRESET, 0);
 	udelay(10000); /* 10 miliseconds is enough for everyone ;-) */
 	gpio_set_value(B2039_MII1_NOTRESET, 1);
+#endif
 
 	return 1;
 }
@@ -83,17 +85,28 @@ static struct platform_device *b2039_devices[] __initdata = {
 
 static int __init device_init(void)
 {
+#ifdef CONFIG_STM_B2039_J35_PHY_RESET
 	/* This conflicts with PWM10, keyscan and ASC11 */
 	gpio_request(B2039_MII1_NOTRESET, "MII1_NORESET");
 	gpio_direction_output(B2039_MII1_NOTRESET, 0);
+#endif
 
+#ifndef CONFIG_STM_B2039_CN14_NONE
 	stxh205_configure_ethernet(&(struct stxh205_ethernet_config) {
+#if defined(CONFIG_STM_B2039_CN14_B2032)
+			.mode = stxh205_ethernet_mode_mii,
+			.ext_clk = 1,
+#elif defined(CONFIG_STM_B2039_CN14_B2035)
 			.mode = stxh205_ethernet_mode_rmii,
 			.ext_clk = 0,
+#else
+#error Unknown PHY daughterboard
+#endif
 			.phy_bus = 0,
 			.phy_addr = -1,
 			.mdio_bus_data = &stmmac_mdio_bus,
 		});
+#endif
 
 	/* Need to set J17 1-2 and J19 1-2 */
 	stxh205_configure_usb(0);

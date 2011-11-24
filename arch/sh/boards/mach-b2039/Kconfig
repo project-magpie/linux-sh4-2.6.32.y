@@ -1,0 +1,45 @@
+if SH_ST_B2039
+
+menu "B2039: STxH207-HVK board options"
+
+choice
+	prompt "B2039: card selection on CN14 connector (Ethernet PHY)"
+	default STM_B2039_CN14_NONE
+	help
+	  Select the appropriate Ethernet PHY card.
+	  This controls the Ethernet connection mode with the PHY, and
+	  the corrisponding pad allocation and configuration.
+
+config STM_B2039_CN14_NONE
+       bool "None"
+       help
+         No Ethernet card is plugged into CN14 of the B2039.
+
+config STM_B2039_CN14_B2032
+	bool "B2032 IC+ IP1001 PHY card"
+	help
+	  B2032 Ethernet card on CN14 of B2039.
+
+	  Note in order to continue using UART10 it will be necessary
+	  to remove R256.
+
+config STM_B2039_CN14_B2035
+	bool "B2035 IC+ IP101 PHY card"
+	help
+	  B2035 connected to CN14 of B2039.
+
+endchoice
+
+config STM_B2039_J35_PHY_RESET
+	bool "Use PIO3[0] as a PHY reset signal"
+	default y
+	help
+	  Set this option to use PIO3[0] as a PHY reset signal. This requires
+	  fitting J35 in position 1-2 (which prevents the use of this pin
+	  as SBC_SYS_CLK_IN), and also disconnecting CN12 (which prevents
+	  the use of UART11). This also conflicts with the keyscan and
+	  PWM10 use of this pin.
+
+endmenu
+
+endif

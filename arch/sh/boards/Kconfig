@@ -787,8 +787,6 @@ config SH_ST_MB705_FPBUTTON
 	  Select this option to enable a simple driver for the front
 	  pannel button on the mb705.
 
-endmenu
-
 source "arch/sh/boards/mach-r2d/Kconfig"
 source "arch/sh/boards/mach-highlander/Kconfig"
 source "arch/sh/boards/mach-sdk7780/Kconfig"
@@ -801,6 +799,8 @@ source "arch/sh/boards/mach-mb671/Kconfig"
 source "arch/sh/boards/mach-hdk7106/Kconfig"
 source "arch/sh/boards/mach-hdk7108/Kconfig"
 source "arch/sh/boards/mach-adi7108/Kconfig"
+
+endmenu
 
 if SH_MAGIC_PANEL_R2
 

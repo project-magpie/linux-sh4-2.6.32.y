@@ -23,21 +23,21 @@ unsigned int ELFW(checkIdent)(ElfW(Ehdr) *hdr)
 }
 EXPORT_SYMBOL(ELFW(checkIdent));
 
-static inline int ELFW(valid_offset)(struct ELF32info *elfinfo, ElfW(Off) off,
+static inline int ELFW(valid_offset)(struct ELFW(info) *elfinfo, ElfW(Off) off,
 	ElfW(Off) struct_size)
 {
 	return off + struct_size <= elfinfo->size;
 }
 
 /* Initialise in-memory ELF file */
-struct ELF32info *ELFW(initFromMem)(uint8_t *elffile,
+struct ELFW(info) *ELFW(initFromMem)(uint8_t *elffile,
 				uint32_t size, int mmapped)
 {
 	ElfW(Shdr)	*sec;
-	struct ELF32info *elfinfo;
+	struct ELFW(info) *elfinfo;
 	int i;
 
-	elfinfo = (struct ELF32info *)kmalloc(sizeof(struct ELF32info),
+	elfinfo = (struct ELFW(info) *)kmalloc(sizeof(struct ELFW(info)),
 				GFP_KERNEL);
 
 	if (elfinfo == NULL)
@@ -154,7 +154,7 @@ fail:
 EXPORT_SYMBOL(ELFW(initFromMem));
 
 /* Free up memory-based resources */
-uint32_t ELFW(free)(struct ELF32info *elfinfo)
+uint32_t ELFW(free)(struct ELFW(info) *elfinfo)
 {
 	kfree((void *)elfinfo);
 
@@ -162,7 +162,7 @@ uint32_t ELFW(free)(struct ELF32info *elfinfo)
 }
 EXPORT_SYMBOL(ELFW(free));
 
-ElfW(Shdr) *ELFW(getSectionByIndex)(const struct ELF32info *elfinfo,
+ElfW(Shdr) *ELFW(getSectionByIndex)(const struct ELFW(info) *elfinfo,
 				uint32_t index)
 {
 	return (ElfW(Shdr) *)((uint8_t *)(elfinfo->secbase) +
@@ -175,7 +175,7 @@ EXPORT_SYMBOL(ELFW(getSectionByIndex));
  * to restrict search for those sections matching them.
  * No flags check will be performed if SHF_NULL and SHT_NULL will be given.
  */
-ElfW(Shdr) *ELFW(getSectionByNameCheck)(const struct ELF32info *elfinfo,
+ElfW(Shdr) *ELFW(getSectionByNameCheck)(const struct ELFW(info) *elfinfo,
 				 const char *secname,
 				 uint32_t *index, int shflag, int shtype)
 {
@@ -224,7 +224,7 @@ EXPORT_SYMBOL(ELFW(findBaseAddrCheck));
  * Check if the given section is present in the elf file. This function
  * also returns the index where section was found, if it was.
  */
-int ELFW(searchSectionType)(const struct ELF32info *elfinfo, const char *name,
+int ELFW(searchSectionType)(const struct ELFW(info) *elfinfo, const char *name,
 				int *index)
 {
 	uint32_t	i, n;

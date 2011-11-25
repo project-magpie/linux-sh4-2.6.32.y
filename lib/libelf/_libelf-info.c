@@ -13,7 +13,7 @@
 #include <linux/module.h>
 
 /* Useful for debug, this function shows elf header informations */
-void ELFW(printHeaderInfo)(const struct ELF32info *elfinfo)
+void ELFW(printHeaderInfo)(const struct ELFW(info) *elfinfo)
 {
 	char *typestr[] = {"NONE", "REL", "EXEC", "DYN", "CORE"};
 	char *osstr[] = {"NONE", "HPUX", "NETBSD", "Linux", "unknown",
@@ -47,7 +47,7 @@ void ELFW(printHeaderInfo)(const struct ELF32info *elfinfo)
 EXPORT_SYMBOL(ELFW(printHeaderInfo));
 
 /* Useful for debug, this function shows elf section informations */
-void ELFW(printSectionInfo)(const struct ELF32info *elfinfo)
+void ELFW(printSectionInfo)(const struct ELFW(info) *elfinfo)
 {
 	uint32_t 	i, n;
 	char 		*str, *type = NULL;

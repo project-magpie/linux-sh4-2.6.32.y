@@ -16,7 +16,7 @@
 #define _ELFW(e, w, f)    _ELFW_1(e, w, _##f)
 #define _ELFW_1(e, w, f)  e##w##f
 
-struct ELF32info {
+struct ELF32_info {
 	uint8_t	*base;	/* Base address of ELF image in memory  */
 	Elf32_Ehdr	*header; /* Base address of ELF header in memory */
 	uint32_t	size;	/* Total size of ELF data in bytes */
@@ -61,22 +61,22 @@ struct typess {
 	{0xffffffff, NULL}
 
 extern unsigned int ELF32_checkIdent(Elf32_Ehdr *);
-extern struct ELF32info *ELF32_initFromMem(uint8_t *, uint32_t, int);
-extern uint32_t ELF32_free(struct ELF32info *);
-extern Elf32_Shdr *ELF32_getSectionByIndex(const struct ELF32info *, uint32_t);
-extern Elf32_Shdr *ELF32_getSectionByNameCheck(const struct ELF32info *,
+extern struct ELF32_info *ELF32_initFromMem(uint8_t *, uint32_t, int);
+extern uint32_t ELF32_free(struct ELF32_info *);
+extern Elf32_Shdr *ELF32_getSectionByIndex(const struct ELF32_info *, uint32_t);
+extern Elf32_Shdr *ELF32_getSectionByNameCheck(const struct ELF32_info *,
 					const char *, uint32_t *, int, int);
-extern void ELF32_printHeaderInfo(const struct ELF32info *);
-extern void ELF32_printSectionInfo(const struct ELF32info *);
+extern void ELF32_printHeaderInfo(const struct ELF32_info *);
+extern void ELF32_printSectionInfo(const struct ELF32_info *);
 extern unsigned long ELF32_findBaseAddrCheck(Elf32_Ehdr *, Elf32_Shdr *,
 					unsigned long *, int, int);
-extern int ELF32_searchSectionType(const struct ELF32info *, const char *,
+extern int ELF32_searchSectionType(const struct ELF32_info *, const char *,
 				int *);
-extern unsigned long ELF32_checkPhMemSize(const struct ELF32info *);
-extern unsigned long ELF32_checkPhMinVaddr(const struct ELF32info *);
+extern unsigned long ELF32_checkPhMemSize(const struct ELF32_info *);
+extern unsigned long ELF32_checkPhMinVaddr(const struct ELF32_info *);
 
 static inline Elf32_Shdr *ELF32_getSectionByName(
-					const struct ELF32info *elfinfo,
+					const struct ELF32_info *elfinfo,
 					const char *secname, uint32_t *index)
 {
 	return ELF32_getSectionByNameCheck(elfinfo, secname, index,

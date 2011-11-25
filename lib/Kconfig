@@ -117,7 +117,7 @@ config DECOMPRESS_BZIP2
 config DECOMPRESS_LZMA
 	tristate
 
-config LIBELF
+config LIBELF_32
 	bool
 
 #
@@ -131,7 +131,7 @@ config GENERIC_ALLOCATOR
 #
 config REED_SOLOMON
 	tristate
-	
+
 config REED_SOLOMON_ENC8
 	boolean
 

@@ -1,10 +1,11 @@
 /*
- * File     : lib/libelf/info.c
+ * File     : lib/libelf/_libelf-info.c
  * Synopsis : Utility library for handling ELF files (info functions)
  * Author   : Carl Shaw <carl.shaw@st.com>
  * Author   : Giuseppe Condorelli <giuseppe.condorelli@st.com>
+ * Contrib  : Carmelo Amoroso <carmelo.amoroso@st.com>
  *
- * Copyright (c) 2008 STMicroelectronics Limited.
+ * Copyright (c) 2008, 2011 STMicroelectronics Limited.
  *
  */
 
@@ -12,7 +13,7 @@
 #include <linux/module.h>
 
 /* Useful for debug, this function shows elf header informations */
-void ELF32_printHeaderInfo(const struct ELF32info *elfinfo)
+void ELFW(printHeaderInfo)(const struct ELF32info *elfinfo)
 {
 	char *typestr[] = {"NONE", "REL", "EXEC", "DYN", "CORE"};
 	char *osstr[] = {"NONE", "HPUX", "NETBSD", "Linux", "unknown",
@@ -43,20 +44,20 @@ void ELF32_printHeaderInfo(const struct ELF32info *elfinfo)
 	else if ((elfinfo->header)->e_ident[EI_OSABI] == 255)
 		printk(KERN_INFO"OS         : STANDALONE\n");
 }
-EXPORT_SYMBOL(ELF32_printHeaderInfo);
+EXPORT_SYMBOL(ELFW(printHeaderInfo));
 
 /* Useful for debug, this function shows elf section informations */
-void ELF32_printSectionInfo(const struct ELF32info *elfinfo)
+void ELFW(printSectionInfo)(const struct ELF32info *elfinfo)
 {
 	uint32_t 	i, n;
 	char 		*str, *type = NULL;
-	Elf32_Shdr	*sec;
+	ElfW(Shdr)	*sec;
 	char		flags[10];
 	struct typess	elftypes[] = {ELF_TYPES};
 
 	printk(KERN_INFO"Number of sections: %u\n", elfinfo->numsections);
 	for (i = 0; i < elfinfo->numsections; i++) {
-		sec = ELF32_getSectionByIndex(elfinfo, i);
+		sec = ELFW(getSectionByIndex)(elfinfo, i);
 		if (*str == '\0')
 			str = "<no name>";
 
@@ -86,4 +87,4 @@ void ELF32_printSectionInfo(const struct ELF32info *elfinfo)
 		printk(KERN_INFO"[%02u] %s %s %s \n", i, str, type, flags);
 	}
 }
-EXPORT_SYMBOL(ELF32_printSectionInfo);
+EXPORT_SYMBOL(ELFW(printSectionInfo));

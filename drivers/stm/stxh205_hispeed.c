@@ -291,43 +291,68 @@ void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 /* USB resources ---------------------------------------------------------- */
 
 #define USB_HOST_PWR		"USB_HOST_PWR"
-#define USB_PHY_INDCSHIFT	"USB_PHY_INDCSHIFT"
-#define USB_PHY_INEDGECTL	"USB_PHY_INEDGECTL"
 #define USB_PWR_ACK		"USB_PWR_ACK"
 
 static DEFINE_MUTEX(stxh205_usb_phy_mutex);
-static struct sysconf_field *stxh205_usb_phy_sc;
 static int stxh205_usb_phy_count;
+struct stm_pad_state *stxh205_usb_phy_state;
 
-/* FIXME: replace this with a clock when we have a proper clock setup */
+static struct stm_pad_config stxh205_usb_phy_pad_config = {
+	.sysconfs_num = 19,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		STM_PAD_SYSCONF(SYSCONF(501),  1,  3, 4), /* COMPDISTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(501),  4,  6, 4), /* COMPDISTUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(501),  7,  7, 1), /* OTGDISABLE0 */
+		STM_PAD_SYSCONF(SYSCONF(501),  8, 10, 4), /* OTGTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(501), 11, 11, 1), /* SLEEPM0 */
+		STM_PAD_SYSCONF(SYSCONF(501), 12, 12, 1), /* SLEEPM1 */
+		STM_PAD_SYSCONF(SYSCONF(501), 13, 15, 3), /* SQRXTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(501), 16, 18, 3), /* SQRXTUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(501), 19, 22, 3), /* TXFSLSTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(501), 23, 23, 0), /* TXPREEMPHASISTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(501), 24, 24, 0), /* TXPREEMPHASISTUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(501), 25, 25, 0), /* TXRISETUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(501), 26, 26, 0), /* TXRISETUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(501), 27, 30, 8), /* TXVREFTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(502),  0,  3, 8), /* TXVREFTUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(502),  4,  7, 3), /* TXFSLSTUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(502),  8,  9, 3), /* TXHSXVTUNE0 */
+		STM_PAD_SYSCONF(SYSCONF(502), 10, 11, 3), /* TXHSXVTUNE1 */
+		STM_PAD_SYSCONF(SYSCONF(501),  0,  0, 0), /* COMMONONN */
+	}
+};
 
 static int stxh205_usb_init(struct stm_device_state *device_state)
 {
 	int result = 0;
 
 	mutex_lock(&stxh205_usb_phy_mutex);
-	if (!stxh205_usb_phy_sc) {
-		stxh205_usb_phy_sc = sysconf_claim(SYSCONF(501), 0, 0, "usb");
-		if (!stxh205_usb_phy_sc) {
+
+	if (stxh205_usb_phy_count == 0) {
+		stxh205_usb_phy_state = stm_pad_claim(
+			&stxh205_usb_phy_pad_config, "USBPHY");
+		if (!stxh205_usb_phy_state) {
 			result = -EBUSY;
 			goto err;
 		}
-		sysconf_write(stxh205_usb_phy_sc, 0);
 	}
 	stxh205_usb_phy_count++;
+
 err:
 	mutex_unlock(&stxh205_usb_phy_mutex);
+
 	return result;
 }
 
 static int stxh205_usb_exit(struct stm_device_state *device_state)
 {
 	mutex_lock(&stxh205_usb_phy_mutex);
-	if (--stxh205_usb_phy_count == 0) {
-		sysconf_write(stxh205_usb_phy_sc, 0);
-		sysconf_release(stxh205_usb_phy_sc);
-	}
+
+	if (--stxh205_usb_phy_count == 0)
+		stm_pad_release(stxh205_usb_phy_state);
+
 	mutex_unlock(&stxh205_usb_phy_mutex);
+
 	return 0;
 }
 

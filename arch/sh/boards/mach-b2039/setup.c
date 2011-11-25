@@ -32,16 +32,27 @@ static void __init b2039_setup(char **cmdline_p)
 	 * UART0: CN43
 	 * UART1: CN41
 	 * UART2: CN29
-	 * UART10: CN22
-	 * UART11: CN21
+	 * UART10: CN22 -> b2001 CN3 (COM1)
+	 * UART11: CN21 -> b2001 CN2 (COM0)
 	 */
-	stxh205_configure_asc(STXH205_ASC(11), &(struct stxh205_asc_config) {
+	stxh205_configure_asc(STXH205_ASC(10), &(struct stxh205_asc_config) {
 			/*
-			 * Enabling hw flow control conflicts with FP_LED
-			 * keyscan and PWM10.
+			 * Enabling hw flow control conflicts with IRB_IN,
+			 * keyscan and PWR_ENABLE GPIO pin.
 			 */
 			.hw_flow_control = 0,
 			.is_console = 1, });
+	/*
+	 * We disable UART11 as the muxing with MII1_notRESET can cause
+	 * problems even when flow control is disabled.
+	 *
+	 * Enabling hw flow control conflicts with FP_LED,
+	 * keyscan and PWM10.
+	 *
+	 * stxh205_configure_asc(STXH205_ASC(11), &(struct stxh205_asc_config) {
+	 * 		.hw_flow_control = 0,
+	 * 		.is_console = 1, });
+	 */
 }
 
 static struct platform_device b2039_leds = {
@@ -60,7 +71,11 @@ static struct platform_device b2039_leds = {
 	},
 };
 
-/* Neet to fit J35 1-2 for this, disable UART11 CTS and keyscan and sysclkin */
+/*
+ * Need to fit J35 1-2 for this, disconnect CN21 to prevert the
+ * level converter trying to drive UART11 CTS and disable keyscan
+ * and sysclkin.
+ */
 static int b2039_phy_reset(void *bus)
 {
 #ifdef CONFIG_STM_B2039_J35_PHY_RESET

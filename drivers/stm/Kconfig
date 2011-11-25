@@ -67,7 +67,7 @@ config STPIO
 config STM_DMA
 	bool "STMicroelectronics DMA API"
 	select SH_DMA_API
-	select LIBELF
+	select LIBELF_32
 	default y
 	---help---
 	  Selecting this option will provide support for STMicroelectronics'

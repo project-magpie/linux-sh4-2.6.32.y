@@ -3,6 +3,19 @@
 
 #include <linux/elf.h>
 
+/*
+ * We use this macro to refer to ELF types independent of the wordsize.
+ * `ElfW(TYPE)' is used in place of `Elf32_TYPE' or `Elf64_TYPE'.
+ */
+#define ElfW(type)  _ElfW(Elf, __LIBELF_WORDSIZE, type)
+#define _ElfW(e, w, t)    _ElfW_1(e, w, _##t)
+#define _ElfW_1(e, w, t)  e##w##t
+
+
+#define ELFW(func)  _ELFW(ELF, __LIBELF_WORDSIZE, func)
+#define _ELFW(e, w, f)    _ELFW_1(e, w, _##f)
+#define _ELFW_1(e, w, f)  e##w##f
+
 struct ELF32info {
 	uint8_t	*base;	/* Base address of ELF image in memory  */
 	Elf32_Ehdr	*header; /* Base address of ELF header in memory */

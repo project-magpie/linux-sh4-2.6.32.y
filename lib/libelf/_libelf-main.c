@@ -16,6 +16,10 @@
 #define ELF_CHECK_FLAG(x)	({x ? x : ~SHF_NULL; })
 #define ELF_CHECK_TYPE(x)	({x ? x : ~SHT_NULL; })
 
+#define __elfclass_concat1(class, size)	class##size
+#define __elfclass_concat(class, size)	__elfclass_concat1(class, size)
+#define LIBELF_ELFCLASS	__elfclass_concat(ELFCLASS, __LIBELF_WORDSIZE)
+
 /* Check elf file identity */
 unsigned int ELFW(checkIdent)(ElfW(Ehdr) *hdr)
 {
@@ -36,7 +40,6 @@ struct ELFW(info) *ELFW(initFromMem)(uint8_t *elffile,
 	ElfW(Shdr)	*sec;
 	struct ELFW(info) *elfinfo;
 	int i;
-
 	elfinfo = (struct ELFW(info) *)kmalloc(sizeof(struct ELFW(info)),
 				GFP_KERNEL);
 
@@ -57,8 +60,8 @@ struct ELFW(info) *ELFW(initFromMem)(uint8_t *elffile,
 	if (ELFW(checkIdent)((ElfW(Ehdr) *)elffile))
 		goto fail;
 
-	/* Make sure it is 32 bit, little endian and current version */
-	if (elffile[EI_CLASS] != ELFCLASS32 ||
+	/* Make sure it is 32 or 64 bit, little endian and current version */
+	if (elffile[EI_CLASS] != LIBELF_ELFCLASS ||
 		elffile[EI_DATA] != ELFDATA2LSB ||
 		elffile[EI_VERSION] != EV_CURRENT)
 		goto fail;

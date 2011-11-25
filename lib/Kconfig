@@ -120,6 +120,9 @@ config DECOMPRESS_LZMA
 config LIBELF_32
 	bool
 
+config LIBELF_64
+	bool
+
 #
 # Generic allocator support is selected if needed
 #

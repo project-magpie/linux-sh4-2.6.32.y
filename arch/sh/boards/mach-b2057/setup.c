@@ -60,9 +60,15 @@ static struct platform_device b2057_leds = {
 
 static int b2057_phy_reset(void *bus)
 {
+	/*
+	 * IC+ IP101 datasheet specifies 10mS low period and device usable
+	 * 2.5mS after rising edge. However experimentally it appear
+	 * 10mS is required for reliable functioning.
+	 */
 	gpio_set_value(B2057_GPIO_POWER_ON_ETH, 0);
-	udelay(10000); /* 10 miliseconds is enough for everyone ;-) */
+	mdelay(10);
 	gpio_set_value(B2057_GPIO_POWER_ON_ETH, 1);
+	mdelay(10);
 
 	return 1;
 }

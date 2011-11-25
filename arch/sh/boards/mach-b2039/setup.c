@@ -64,9 +64,16 @@ static struct platform_device b2039_leds = {
 static int b2039_phy_reset(void *bus)
 {
 #ifdef CONFIG_STM_B2039_J35_PHY_RESET
+	/*
+	 * IC+ IP101 datasheet specifies 10mS low period and device
+	 * usable 2.5mS after rising edge of notReset. However
+	 * experimentally it appear 10mS is required for reliable
+	 * functioning.
+	 */
 	gpio_set_value(B2039_MII1_NOTRESET, 0);
-	udelay(10000); /* 10 miliseconds is enough for everyone ;-) */
+	mdelay(10);
 	gpio_set_value(B2039_MII1_NOTRESET, 1);
+	mdelay(10);
 #endif
 
 	return 1;

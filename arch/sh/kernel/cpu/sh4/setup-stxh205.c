@@ -24,7 +24,7 @@ static struct platform_device stxh205_ilc3_device = {
 	.num_resources	= 3,
 	.resource	= (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0xfda34000, 0x900),
-		STM_PLAT_RESOURCE_MEM(0xfd542000, 0x2000),
+		STM_PLAT_RESOURCE_MEM(0xfd542000, 0x1000),
 		/* Currently we route all ILC3 interrupts to the 0'th output,
 		 * which is connected to INTC2: group 0 interrupt 0 (INTEVT
 		 * code 0xa00) */

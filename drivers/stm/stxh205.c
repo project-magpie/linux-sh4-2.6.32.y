@@ -28,10 +28,10 @@
 	[_num] = {							\
 		.name = "stm-gpio",					\
 		.id = _num,						\
-		.num_resources = 1,					\
+		.num_resources = 2,					\
 		.resource = (struct resource[]) {			\
 			STM_PLAT_RESOURCE_MEM(_base, 0x100),		\
-			STM_PLAT_RESOURCE_IRQ(_irq, -1),		\
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(_irq), -1),	\
 		},							\
 	}
 

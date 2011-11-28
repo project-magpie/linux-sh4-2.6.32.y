@@ -112,4 +112,37 @@ struct tm1668_platform_data {
 		{ '-', 0x040 }, \
 		{ '.', 0x080 }
 
+/*
+ * Basic Latin alphabetic characters, most legible irrespective
+ * of upper or lower case.
+ * http://en.wikipedia.org/wiki/Seven-segment_display_character_representations
+ */
+#define TM1668_7_SEG_LETTERS \
+		/*       76543210 */ \
+		{ 'A', 0b01110111 }, \
+		{ 'B', 0b01111100 }, \
+		{ 'C', 0b00111001 }, \
+		{ 'D', 0b01011110 }, \
+		{ 'E', 0b01111001 }, \
+		{ 'F', 0b01110001 }, \
+		{ 'G', 0b01101111 }, \
+		{ 'H', 0b01110110 }, \
+		{ 'I', 0b00110000 }, \
+		{ 'J', 0b00011110 }, \
+		{ 'K', 0b01110101 }, \
+		{ 'L', 0b00111000 }, \
+		{ 'M', 0b01010101 }, \
+		{ 'N', 0b01010100 }, \
+		{ 'O', 0b00111111 }, \
+		{ 'P', 0b01110011 }, \
+		{ 'Q', 0b01100111 }, \
+		{ 'R', 0b01010000 }, \
+		{ 'S', 0b01101101 }, \
+		{ 'T', 0b01111000 }, \
+		{ 'U', 0b00011100 }, \
+		{ 'V', 0b00111110 }, \
+		{ 'W', 0b00011101 }, \
+		{ 'X', 0b01110110 }, \
+		{ 'Y', 0b01101110 }, \
+		{ 'Z', 0b01011011 }
 #endif

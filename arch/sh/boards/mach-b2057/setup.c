@@ -15,6 +15,7 @@
 #include <linux/phy.h>
 #include <linux/gpio.h>
 #include <linux/leds.h>
+#include <linux/tm1668.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stxh205.h>
 #include <linux/stm/sysconf.h>
@@ -58,6 +59,41 @@ static struct platform_device b2057_leds = {
 	},
 };
 
+static struct tm1668_key b2057_front_panel_keys[] = {
+	{ 0x00001000, KEY_UP, "Up (SWF2)" },
+	{ 0x00800000, KEY_DOWN, "Down (SWF7)" },
+	{ 0x00008000, KEY_LEFT, "Left (SWF6)" },
+	{ 0x00000010, KEY_RIGHT, "Right (SWF5)" },
+	{ 0x00000080, KEY_ENTER, "Enter (SWF1)" },
+	{ 0x00100000, KEY_ESC, "Escape (SWF4)" },
+};
+
+static struct tm1668_character b2057_front_panel_characters[] = {
+	TM1668_7_SEG_HEX_DIGITS,
+	TM1668_7_SEG_SEGMENTS,
+	TM1668_7_SEG_LETTERS
+};
+
+static struct platform_device b2057_front_panel = {
+	.name = "tm1668",
+	.id = -1,
+	.dev.platform_data = &(struct tm1668_platform_data) {
+		.gpio_dio = stm_gpio(15, 4),
+		.gpio_sclk = stm_gpio(14, 7),
+		.gpio_stb = stm_gpio(14, 4),
+		.config = tm1668_config_6_digits_12_segments,
+
+		.keys_num = ARRAY_SIZE(b2057_front_panel_keys),
+		.keys = b2057_front_panel_keys,
+		.keys_poll_period = DIV_ROUND_UP(HZ, 5),
+
+		.brightness = 8,
+		.characters_num = ARRAY_SIZE(b2057_front_panel_characters),
+		.characters = b2057_front_panel_characters,
+		.text = "H207",
+	},
+};
+
 static int b2057_phy_reset(void *bus)
 {
 	/*
@@ -82,6 +118,7 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 
 static struct platform_device *b2057_devices[] __initdata = {
 	&b2057_leds,
+	&b2057_front_panel,
 };
 
 static int __init device_init(void)

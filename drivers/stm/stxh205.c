@@ -303,7 +303,43 @@ void __init stxh205_early_device_init(void)
 	disable_hlt();
 }
 
+/*
+ * EMI
+ */
+static void stxh205_emi_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int i;
+	int value = (power == stm_device_power_on) ? 0 : 1;
 
+	stm_device_sysconf_write(device_state, "EMI_PWR", value);
+	for (i = 5; i; --i) {
+		if (stm_device_sysconf_read(device_state, "EMI_ACK")
+			== value)
+			break;
+		mdelay(10);
+	}
+
+	return;
+}
+
+static struct platform_device stxh205_emi = {
+	.name = "emi",
+	.id = -1,
+	.num_resources = 2,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0, 256 * 1024 * 1024),
+		STM_PLAT_RESOURCE_MEM(0xfdaa8000, 0x874),
+	},
+	.dev.platform_data = &(struct stm_device_config){
+		.sysconfs_num = 2,
+		.sysconfs = (struct stm_device_sysconf []){
+			STM_DEVICE_SYSCONF(SYSCONF(401), 0, 0, "EMI_PWR"),
+			STM_DEVICE_SYSCONF(SYSCONF(423), 0, 0, "EMI_ACK"),
+		},
+		.power = stxh205_emi_power,
+	}
+};
 
 /* Pre-arch initialisation ------------------------------------------------ */
 
@@ -313,6 +349,8 @@ static int __init stxh205_postcore_setup(void)
 
 	for (i = 0; i < ARRAY_SIZE(stxh205_pio_devices); i++)
 		platform_device_register(&stxh205_pio_devices[i]);
+
+	platform_device_register(&stxh205_emi);
 
 	return 0;
 }

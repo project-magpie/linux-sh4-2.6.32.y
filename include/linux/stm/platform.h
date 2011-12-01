@@ -102,6 +102,7 @@ struct stm_plat_rtc_lpc {
 	unsigned int need_wdt_reset:1;	/* W/A on 7141 */
 	unsigned char irq_edge_level;
 	char *clk_id;
+	unsigned long force_clk_rate;
 };
 
 /*** SSC platform data ***/

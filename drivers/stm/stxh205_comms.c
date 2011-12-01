@@ -659,3 +659,34 @@ void __init stxh205_configure_pwm(struct stxh205_pwm_config *config)
 
 	platform_device_register(&stxh205_pwm_device);
 }
+
+static struct platform_device stxh205_lpc_device = {
+	.name	= "stm-rtc",
+	.id	= -1,
+	.num_resources  = 2,
+	.resource = (struct resource[]){
+		STM_PLAT_RESOURCE_MEM(0xfd543000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(6), -1),
+	},
+	.dev.platform_data = &(struct stm_plat_rtc_lpc) {
+		.need_wdt_reset = 1,
+		.irq_edge_level = IRQ_TYPE_EDGE_FALLING,
+		/*
+		 * the lpc_clk is initialize @ 1 MHz
+		 */
+		.force_clk_rate = 1000000,
+	}
+};
+
+/* Late initialisation ---------------------------------------------------- */
+
+static struct platform_device *stxh205_devices[] __initdata = {
+	&stxh205_lpc_device,
+};
+
+static int __init stxh205_devices_setup(void)
+{
+	return platform_add_devices(stxh205_devices,
+			ARRAY_SIZE(stxh205_devices));
+}
+device_initcall(stxh205_devices_setup);

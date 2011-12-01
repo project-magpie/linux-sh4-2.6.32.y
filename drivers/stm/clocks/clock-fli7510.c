@@ -25,7 +25,6 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
-#include "clock-utils.h"
 
 static int clkgena_set_parent(clk_t *clk_p, clk_t *src_p);
 static int clkgena_set_rate(clk_t *clk_p, unsigned long freq);
@@ -378,7 +377,7 @@ static int clkgena_recalc(clk_t *clk_p)
 		break;
 	case CLKA_PLL0HS:
 		data = CLK_READ(clkgen_a_base + CKGA_PLL0_CFG);
-		err = clk_pll1600_get_rate(clk_p->parent->rate, data & 0x7,
+		err = clk_pll1600c65_get_rate(clk_p->parent->rate, data & 0x7,
 				(data >> 8) & 0xff, &clk_p->rate);
 		return err;
 	case CLKA_PLL0LS:
@@ -386,7 +385,7 @@ static int clkgena_recalc(clk_t *clk_p)
 		return 0;
 	case CLKA_PLL1:
 		data = CLK_READ(clkgen_a_base + CKGA_PLL1_CFG);
-		return clk_pll800_get_rate(clk_p->parent->rate, data & 0xff,
+		return clk_pll800c65_get_rate(clk_p->parent->rate, data & 0xff,
 			(data >> 8) & 0xff, (data >> 16) & 0x7, &clk_p->rate);
 
 	default:
@@ -469,7 +468,7 @@ static int clkgen_audio_set_rate(struct clk *clk, unsigned long rate)
 	if (divider)
 		rate *= divider;
 
-	if (clk_fsyn_get_params(clk_get_rate(clk->parent), rate,
+	if (clk_fs216c65_get_params(clk_get_rate(clk->parent), rate,
 			&md, &pe, &sdiv) != 0)
 		return -EINVAL;
 
@@ -488,7 +487,7 @@ static int clkgen_audio_set_rate(struct clk *clk, unsigned long rate)
 	writel(value, CTL_SYNTH4X_AUD_N(clkgen_audio_base,
 		clk->id - CLKC_FS_FREE_RUN + 1));
 
-	if (clk_fsyn_get_rate(clk_get_rate(clk->parent), pe, md,
+	if (clk_fs216c65_get_rate(clk_get_rate(clk->parent), pe, md,
 		sdiv, &clk->rate))
 		return -EINVAL;
 

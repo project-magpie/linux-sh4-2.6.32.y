@@ -15,7 +15,6 @@
 #include <linux/io.h>
 #include <asm-generic/div64.h>
 
-#include "clock-utils.h"
 #include "clock-oslayer.h"
 #include "clock-common.h"
 
@@ -258,7 +257,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(clkgenc_base + CKGC_FS_PE(0, channel));
 	md = CLK_READ(clkgenc_base + CKGC_FS_MD(0, channel));
 	sdiv = CLK_READ(clkgenc_base + CKGC_FS_SDIV(0, channel));
-	err = clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+	err = clk_fs216c65_get_rate(clk_p->parent->rate, pe, md,
 				sdiv, &clk_p->rate);
 
 	return err;
@@ -278,7 +277,7 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+	if (clk_fs216c65_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	reg_value = CLK_READ(clkgenc_base + CKGC_FS_CFG(0));

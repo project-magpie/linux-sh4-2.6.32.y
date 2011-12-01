@@ -35,7 +35,6 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
-#include "clock-utils.h"
 
 #define CRYSTAL  30000000
 
@@ -279,7 +278,7 @@ static unsigned long clkgen_pll_eval(unsigned long input, int id)
 	if (config1 & CLK_PLL_CONFIG1_POFF)
 		return 0;
 
-	if (clk_pll800_get_rate(input, config0 & 0xff, (config0 >> 8) & 0xff,
+	if (clk_pll800c65_get_rate(input, config0 & 0xff, (config0 >> 8) & 0xff,
 	    config1 & 0x7, &rate) != 0)
 		return 0;
 	return rate;
@@ -513,8 +512,7 @@ static int clkgen_fs_set_rate(clk_t *clk_p, unsigned long rate)
 	if (!clk_p || clk_p->id < FSA_SPARE || clk_p->id > FSB_USB)
 		return CLK_ERR_BAD_PARAMETER;
 
-	if ((clk_fsyn_get_params(clk_p->parent->rate, rate, &md, &pe, &sdiv)) !=
-	 0)
+	if (clk_fs216c65_get_params(clk_p->parent->rate, rate, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	setup0 = CLK_FS_SETUP(clk_p->id - FSA_SPARE);
@@ -662,7 +660,7 @@ static int clkgen_fs_recalc(clk_t *clk_p)
 	sdiv &= val;		/* 6-8 bits */
 	sdiv >>= 6;
 	pe &= CLK_READ(SYS_SERVICE_ADDR + setup0 + 4);
-	return clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+	return clk_fs216c65_get_rate(clk_p->parent->rate, pe, md,
 					sdiv, &clk_p->rate);
 }
 

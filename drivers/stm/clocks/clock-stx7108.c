@@ -51,7 +51,6 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
-#include "clock-utils.h"
 
 static int clkgena1_observe(clk_t *clk_p, unsigned long *div_p);
 static int clkgena0_observe(clk_t *clk_p, unsigned long *div_p);
@@ -707,7 +706,7 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 	case CLKA0_PLL0LS:
 		if (clk_p->id == CLKA0_PLL0LS)
 			freq = freq * 2;
-		err = clk_pll1600_get_params(clk_clocks[CLKA0_REF].rate,
+		err = clk_pll1600c65_get_params(clk_clocks[CLKA0_REF].rate,
 					     freq, &mdiv, &ndiv);
 		if (err != 0)
 			break;
@@ -719,7 +718,7 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 			err = clkgenax_recalc(&clk_clocks[CLKA0_PLL0HS]);
 		break;
 	case CLKA0_PLL1:
-		err = clk_pll800_get_params(clk_clocks[CLKA0_REF].rate,
+		err = clk_pll800c65_get_params(clk_clocks[CLKA0_REF].rate,
 					     freq, &mdiv, &ndiv, &pdiv);
 		if (err != 0)
 			break;
@@ -770,7 +769,7 @@ static int clkgenax_recalc(clk_t *clk_p)
 	case CLKA1_PLL0HS:
 		data = CLK_READ(base_address + CKGA_PLL0_CFG);
 		err =
-			clk_pll1600_get_rate(clk_p->parent->rate, data & 0x7,
+			clk_pll1600c65_get_rate(clk_p->parent->rate, data & 0x7,
 					(data >> 8) & 0xff, &clk_p->rate);
 		return err;
 	case CLKA0_PLL0LS:
@@ -780,7 +779,7 @@ static int clkgenax_recalc(clk_t *clk_p)
 	case CLKA0_PLL1:
 	case CLKA1_PLL1:
 		data = CLK_READ(base_address + CKGA_PLL1_CFG);
-		return clk_pll800_get_rate(clk_p->parent->rate, data & 0xff,
+		return clk_pll800c65_get_rate(clk_p->parent->rate, data & 0xff,
 					   (data >> 8) & 0xff,
 					   (data >> 16) & 0x7, &clk_p->rate);
 
@@ -963,7 +962,7 @@ static int clkgena1_set_rate(clk_t *clk_p, unsigned long freq)
 	case CLKA1_PLL0LS:
 		if (clk_p->id == CLKA1_PLL0LS)
 			freq = freq * 2;
-		err = clk_pll1600_get_params(clk_clocks[CLKA1_REF].rate,
+		err = clk_pll1600c65_get_params(clk_clocks[CLKA1_REF].rate,
 					     freq, &mdiv, &ndiv);
 		if (err != 0)
 			break;
@@ -975,7 +974,7 @@ static int clkgena1_set_rate(clk_t *clk_p, unsigned long freq)
 			err = clkgenax_recalc(&clk_clocks[CLKA1_PLL0HS]);
 		break;
 	case CLKA1_PLL1:
-		err = clk_pll800_get_params(clk_clocks[CLKA1_REF].rate,
+		err = clk_pll800c65_get_params(clk_clocks[CLKA1_REF].rate,
 					     freq, &mdiv, &ndiv, &pdiv);
 		if (err != 0)
 			break;
@@ -1405,7 +1404,7 @@ static int clkgenb_set_fsclock(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+	if (clk_fs216c65_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	bank = (clk_p->id - CLKB_FS0_CH1) / 4;
@@ -1664,7 +1663,7 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_PE(bank, channel));
 	md = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_MD(bank, channel));
 	sdiv = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_SDIV(bank, channel));
-	return clk_fsyn_get_rate(clk_p->parent->rate,
+	return clk_fs216c65_get_rate(clk_p->parent->rate,
 				pe, md, sdiv, &clk_p->rate);
 }
 
@@ -1926,7 +1925,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_PE(0, channel));
 	md = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_MD(0, channel));
 	sdiv = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_SDIV(0, channel));
-	err = clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+	err = clk_fs216c65_get_rate(clk_p->parent->rate, pe, md,
 				sdiv, &clk_p->rate);
 
 	return err;
@@ -1976,7 +1975,7 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+	if (clk_fs216c65_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	reg_value = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS0_CFG);
@@ -2181,7 +2180,7 @@ static int clkgend_recalc(clk_t *clk_p)
 		pdiv = SYSCONF_READ(SYS_CFG_BANK1, 4, 24, 26);
 		ndiv = SYSCONF_READ(SYS_CFG_BANK1, 4, 16, 23);
 		mdiv = SYSCONF_READ(SYS_CFG_BANK1, 4, 8, 15);
-		return clk_pll800_get_rate
+		return clk_pll800c65_get_rate
 			(clk_p->parent->rate, mdiv, ndiv, pdiv,
 			 &(clk_p->rate));
 	} else if (clk_p->id == CLKD_DDR)

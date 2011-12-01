@@ -51,7 +51,6 @@
 
 #include "clock-oslayer.h"
 #include "clock-common.h"
-#include "clock-utils.h"
 
 static int clkgena_observe(clk_t *clk_p, unsigned long *div_p);
 static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p);
@@ -659,7 +658,7 @@ static int clkgena_recalc(clk_t *clk_p)
 		break;
 	case CLKA_PLL0HS:
 		data = CLK_READ(CKGA_BASE_ADDRESS + CKGA_PLL0_CFG);
-		err = clk_pll1600_get_rate(clk_p->parent->rate, data & 0x7,
+		err = clk_pll1600c65_get_rate(clk_p->parent->rate, data & 0x7,
 				(data >> 8) & 0xff, &clk_p->rate);
 		return err;
 	case CLKA_PLL0LS:
@@ -667,7 +666,7 @@ static int clkgena_recalc(clk_t *clk_p)
 		return 0;
 	case CLKA_PLL1:
 		data = CLK_READ(CKGA_BASE_ADDRESS + CKGA_PLL1_CFG);
-		return clk_pll800_get_rate(clk_p->parent->rate, data & 0xff,
+		return clk_pll800c65_get_rate(clk_p->parent->rate, data & 0xff,
 			(data >> 8) & 0xff, (data >> 16) & 0x7, &clk_p->rate);
 
 	default:
@@ -1086,7 +1085,7 @@ static int clkgenb_set_fsclock(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+	if (clk_fs216c65_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	bank = (clk_p->id - CLKB_FS0_CH1) / 4;
@@ -1294,7 +1293,7 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_PE(bank, channel));
 	md = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_MD(bank, channel));
 	sdiv = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_SDIV(bank, channel));
-	return clk_fsyn_get_rate(clk_p->parent->rate,
+	return clk_fs216c65_get_rate(clk_p->parent->rate,
 				pe, md, sdiv, &clk_p->rate);
 }
 
@@ -1518,7 +1517,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_PE(0, channel));
 	md = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_MD(0, channel));
 	sdiv = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_SDIV(0, channel));
-	err = clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+	err = clk_fs216c65_get_rate(clk_p->parent->rate, pe, md,
 					sdiv, &clk_p->rate);
 
 	return err;
@@ -1567,7 +1566,7 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+	if (clk_fs216c65_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	reg_value = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_CFG(0));

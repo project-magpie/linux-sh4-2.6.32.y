@@ -15,7 +15,6 @@
 #include <linux/stm/clk.h>
 
 #include "clock-common.h"
-#include "clock-utils.h"
 #include "clock-oslayer.h"
 
 #include "clock-stx7200.h"
@@ -650,7 +649,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_PE(bank, channel));
 	md = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_MD(bank, channel));
 	sdiv = CLK_READ(CLOCKGENC_BASE_ADDR + CKGC_FS_SDIV(bank, channel));
-	err = clk_fsyn_get_rate(clk_p->parent->rate, pe, md,
+	err = clk_fs216c65_get_rate(clk_p->parent->rate, pe, md,
 					sdiv, &clk_p->rate);
 
 	return err;
@@ -701,7 +700,7 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_BAD_PARAMETER;
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fsyn_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
+	if (clk_fs216c65_get_params(clk_p->parent->rate, freq, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	bank = (clk_p->id - CLKC_FS0_CH1) / 4;

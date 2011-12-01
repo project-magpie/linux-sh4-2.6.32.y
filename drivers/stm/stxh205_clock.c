@@ -48,5 +48,7 @@ int __init plat_clk_alias_init(void)
 	clk_add_alias("sata_clk", NULL, "CLK_A0_IC_REG_LP_OFF", NULL);
 	clk_add_alias("pcie_clk", NULL, "CLK_A0_IC_REG_LP_OFF", NULL);
 
+	/* LPC */
+	clk_add_alias("lpc_clk", NULL, "CLK_C_LPM", NULL);
 	return 0;
 }

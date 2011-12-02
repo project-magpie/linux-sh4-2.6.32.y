@@ -65,6 +65,7 @@ cpufreq-$(CONFIG_CPU_SUBTYPE_STX7200)	+= cpufreq-stx7200.o
 obj-$(CONFIG_STM_CPU_FREQ)		+= $(cpufreq-y)
 
 suspend-y				:= stm_suspend.o stm_suspend-core.o
+suspend-$(CONFIG_CPU_SUBTYPE_STXH205)	+= suspend-stxh205.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX5197)	+= suspend-stx5197.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX5206)	+= suspend-stx5206.o
 suspend-$(CONFIG_CPU_SUBTYPE_STX7100)	+= suspend-stx7100.o

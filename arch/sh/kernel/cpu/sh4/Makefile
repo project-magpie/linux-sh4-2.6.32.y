@@ -55,6 +55,7 @@ obj-$(CONFIG_CPU_SUBTYPE_ST40)		+= stm-tmu.o
 
 cpufreq-y				:= cpufreq-stm.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= cpufreq-stm_cpu_clk.o
+cpufreq-$(CONFIG_CPU_SUBTYPE_STXH205)	:= cpufreq-stm_cpu_clk.o cpufreq-stxh205.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX5206)	+= cpufreq-stm_cpu_clk.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX7105)	+= cpufreq-stm_cpu_clk.o
 cpufreq-$(CONFIG_CPU_SUBTYPE_STX7108)	+= cpufreq-stm_cpu_clk.o

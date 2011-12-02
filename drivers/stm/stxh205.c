@@ -344,6 +344,35 @@ static struct platform_device stxh205_emi = {
 	}
 };
 
+/*
+ * Temperature sensor
+ */
+static void stxh205_temp_power(struct stm_device_state *device_state,
+		enum stm_device_power_state power)
+{
+	int value = (power == stm_device_power_on) ? 1 : 0;
+
+	stm_device_sysconf_write(device_state, "TEMP_PWR", value);
+}
+
+static struct platform_device sth205_temp = {
+	.name	= "stm-temp",
+	.id	= 0,
+	.dev.platform_data = &(struct plat_stm_temp_data) {
+		.dcorrect = { SYSCONF(140), 4, 8 },
+		.overflow = { SYSCONF(148), 9, 9 },
+		.data = { SYSCONF(148), 11, 18 },
+		.device_config = &(struct stm_device_config) {
+			.sysconfs_num = 1,
+			.power = stxh205_temp_power,
+			.sysconfs = (struct stm_device_sysconf []){
+				STM_DEVICE_SYSCONF(SYSCONF(140),
+					9, 9, "TEMP_PWR"),
+				},
+			},
+		},
+};
+
 /* Pre-arch initialisation ------------------------------------------------ */
 
 static int __init stxh205_postcore_setup(void)
@@ -367,6 +396,7 @@ static struct platform_device *stxh205_devices[] __initdata = {
 	&stxh205_sysconf_devices[2],
 	&stxh205_sysconf_devices[3],
 	&stxh205_sysconf_devices[4],
+	&sth205_temp,
 };
 
 static int __init stxh205_devices_setup(void)

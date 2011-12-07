@@ -138,6 +138,7 @@ struct stxh205_ethernet_config {
 		stxh205_ethernet_mode_rmii,
 		stxh205_ethernet_mode_reverse_mii
 	} mode;
+	int no_txer;
 	int ext_clk;
 	int phy_bus;
 	int phy_addr;

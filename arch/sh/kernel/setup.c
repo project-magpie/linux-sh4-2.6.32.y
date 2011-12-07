@@ -584,6 +584,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 	seq_printf(m, "processor\t: %d\n", cpu);
 	seq_printf(m, "cpu family\t: %s\n", init_utsname()->machine);
+	seq_printf(m, "cpu variant\t: %s\n", get_cpu_variant(c));
 	seq_printf(m, "cpu type\t: %s\n", get_cpu_subtype(c));
 	if (c->cut_major == -1)
 		seq_printf(m, "cut\t\t: unknown\n");

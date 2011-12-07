@@ -50,6 +50,18 @@ static u64 stxh205_dma_mask = DMA_BIT_MASK(32);
 		}, \
 	}
 
+/* Give TXER a name so we can refer to it later. */
+#define TXER(_port, _pin, _func, _retiming) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_out, \
+		.function = _func, \
+		.name = "TXER", \
+		.priv = &(struct stxh205_pio_config) { \
+			.retime = _retiming, \
+		}, \
+	}
+
 /*
  * On some boards the MDIO line is missing a pull-up resistor. Enabling
  * weak internal pull-up overcomes the issue.
@@ -108,7 +120,7 @@ static struct stm_pad_config stxh205_ethernet_mii_pad_config = {
 		DATA_OUT(0, 1, 1, RET_BYPASS(0)),/* TXD[1] */
 		DATA_OUT(0, 2, 1, RET_BYPASS(0)),/* TXD[2] */
 		DATA_OUT(0, 3, 1, RET_BYPASS(0)),/* TXD[3] */
-		DATA_OUT(0, 4, 1, RET_BYPASS(0)),/* TXER */
+		TXER(0, 4, 1, RET_BYPASS(0)),/* TXER */
 		DATA_OUT(0, 5, 1, RET_BYPASS(0)),/* TXEN */
 		CLOCK_IN(0, 6, 1, RET_NICLK(0)),/* TXCLK */
 		DATA_IN(0, 7, 1, RET_BYPASS(0)),/* COL */
@@ -186,7 +198,7 @@ static struct stm_pad_config stxh205_ethernet_reverse_mii_pad_config = {
 		DATA_OUT(0, 1, 1, RET_BYPASS(0)),/* TXD[1] */
 		DATA_OUT(0, 2, 1, RET_BYPASS(0)),/* TXD[2] */
 		DATA_OUT(0, 3, 1, RET_BYPASS(0)),/* TXD[3] */
-		DATA_OUT(0, 4, 1, RET_BYPASS(0)),/* TXER */
+		TXER(0, 4, 1, RET_BYPASS(0)),/* TXER */
 		DATA_OUT(0, 5, 1, RET_BYPASS(0)),/* TXEN */
 		CLOCK_IN(0, 6, 1, RET_NICLK(0)),/* TXCLK */
 		DATA_OUT(0, 7, 1, RET_BYPASS(0)),/* COL */
@@ -269,6 +281,8 @@ void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
 		else
 			stm_pad_set_pio_out(pad_config, "PHYCLK", 1);
+		if (config->no_txer)
+			stm_pad_set_pio_ignored(pad_config, "TXER");
 		interface = PHY_INTERFACE_MODE_MII;
 		break;
 	case stxh205_ethernet_mode_rmii:
@@ -291,6 +305,8 @@ void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
 		else
 			stm_pad_set_pio_out(pad_config, "PHYCLK", 1);
+		if (config->no_txer)
+			stm_pad_set_pio_ignored(pad_config, "TXER");
 		interface = PHY_INTERFACE_MODE_MII;
 		break;
 	default:

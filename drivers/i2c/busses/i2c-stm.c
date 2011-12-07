@@ -983,9 +983,9 @@ static void iic_stm_setup_timing(struct iic_ssc *adap)
 #endif
 	unsigned long ns_per_clk, clock ;
 
+	clock = clk_get_rate(adap->clk) + 500000; /* +0.5 Mhz for rounding */
 	dbg_print("Assuming %lu MHz for the Timing Setup\n", clock / 1000000);
 
-	clock = clk_get_rate(adap->clk) + 500000; /* +0.5 Mhz for rounding */
 	ns_per_clk = NANOSEC_PER_SEC / clock;
 
 	if (check_fastmode(adap)) {

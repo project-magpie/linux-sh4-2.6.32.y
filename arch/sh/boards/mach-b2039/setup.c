@@ -21,6 +21,7 @@
 #include <asm/irq-ilc.h>
 
 #define B2039_MII1_NOTRESET		stm_gpio(3, 0)
+#define B2039_MII1_TXER			stm_gpio(0, 4)
 
 static void __init b2039_setup(char **cmdline_p)
 {
@@ -113,16 +114,40 @@ static int __init device_init(void)
 	gpio_direction_output(B2039_MII1_NOTRESET, 0);
 #endif
 
-#ifndef CONFIG_STM_B2039_CN14_NONE
+#ifdef CONFIG_STM_B2039_INT_PHY_IC101A
+	/*
+	 * This is a work around for the problem that on parts with an
+	 * IC+101A, the pin marked as TX_ER_FXSD (AA23) is actually
+	 * ISOL, which appears to be driven high at boot time despite the
+	 * internal pull down in the IC+101A.
+	 * In MII mode this doesn't appear to be a problem because the
+	 * STxH207 is driving the pin, and so it remains low, however
+	 * just in case the GMAC were to assert this sgnal for whatever
+	 * reason, we still drive treat it as a gpio pin.
+	 */
+	gpio_request(B2039_MII1_TXER, "MII1_TXER");
+	gpio_direction_output(B2039_MII1_TXER, 0);
+#endif
+
+#if defined(CONFIG_STM_B2039_INT_PHY_IC101A) || \
+    !defined(CONFIG_STM_B2039_CN14_NONE)
 	stxh205_configure_ethernet(&(struct stxh205_ethernet_config) {
-#if defined(CONFIG_STM_B2039_CN14_B2032)
+#if defined(CONFIG_STM_B2039_IC101_MII) || \
+    defined(CONFIG_STM_B2039_CN14_B2032)
 			.mode = stxh205_ethernet_mode_mii,
 			.ext_clk = 1,
-#elif defined(CONFIG_STM_B2039_CN14_B2035)
+#elif defined(CONFIG_STM_B2039_IC101_RMII_EXTCLK)
+			.mode = stxh205_ethernet_mode_rmii,
+			.ext_clk = 1,
+#elif defined(CONFIG_STM_B2039_IC101_RMII_NO_EXTCLK) || \
+      defined(CONFIG_STM_B2039_CN14_B2035)
 			.mode = stxh205_ethernet_mode_rmii,
 			.ext_clk = 0,
 #else
-#error Unknown PHY daughterboard
+#error Unknown PHY configuration
+#endif
+#if defined(CONFIG_STM_B2039_INT_PHY_IC101A)
+			.no_txer = 1,
 #endif
 			.phy_bus = 0,
 			.phy_addr = -1,

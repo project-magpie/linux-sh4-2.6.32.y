@@ -58,9 +58,9 @@ choice
 	  the corrisponding pad allocation and configuration.
 
 config STM_B2039_CN14_NONE
-       bool "None"
-       help
-         No Ethernet card is plugged into CN14 of the B2039.
+	bool "None"
+	help
+	  No Ethernet card is plugged into CN14 of the B2039.
 
 config STM_B2039_CN14_B2032
 	bool "B2032 IC+ IP1001 PHY card"

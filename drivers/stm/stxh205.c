@@ -329,7 +329,8 @@ static struct platform_device stxh205_emi = {
 	.num_resources = 2,
 	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0, 256 * 1024 * 1024),
-		STM_PLAT_RESOURCE_MEM(0xfdaa8000, 0x874),
+		//STM_PLAT_RESOURCE_MEM(0xfdaa8000, 0x874),
+		STM_PLAT_RESOURCE_MEM(0xfe900000, 0x874),
 	},
 	.dev.platform_data = &(struct stm_device_config){
 		.sysconfs_num = 2,

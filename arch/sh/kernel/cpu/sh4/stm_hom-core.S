@@ -357,7 +357,7 @@ SwitchJumpTable:
 
 #ifdef CONFIG_HOM_DEBUG
 .macro MARK_STEP	x
-	mova	hom_mark,	r0
+	mov.l	103f,	r0
 	mov	#(\x),	r1
 	mov.l	r1,	@r0
 	ocbp	@r0
@@ -471,5 +471,5 @@ ENTRY(stm_defrost_kernel)	! This function returns
 101:	.long	stm_hom_boot_stack		! a temporary stack
 102:	.long	THREAD_SIZE
 #ifdef CONFIG_HOM_DEBUG
-hom_mark:	.long	0			! just for debug
+103: 	.long	hom_debug_marker		! just for debug
 #endif

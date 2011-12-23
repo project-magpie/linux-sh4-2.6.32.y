@@ -40,6 +40,8 @@
 #define SH_TMU_IOBASE		0xffd80000
 
 #ifdef CONFIG_HOM_DEBUG
+unsigned long hom_debug_marker;
+
 static int enable_hom_printk;
 void hom_printk(char *buf, ...)
 {
@@ -307,9 +309,9 @@ static int stm_hom_enter(void)
 #ifdef CONFIG_HOM_DEBUG
 	enable_hom_printk = 1;
 	stm_hom_check_pmb();
-#endif
-
+#else
 	memset(empty_zero_page, 0, 0x1000); /* clear the empty_zero_page */
+#endif
 	return 0;
 }
 

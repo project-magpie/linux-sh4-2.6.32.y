@@ -375,7 +375,9 @@ static struct platform_device sth205_temp = {
 
 /* MMC/SD */
 static struct sdhci_pltfm_data stxh205_mmc_platform_data = {
-		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
+		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC |
+			  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
+			  SDHCI_QUIRK_FORCE_MAX_VDD,
 };
 
 static struct platform_device stxh205_mmc_device = {

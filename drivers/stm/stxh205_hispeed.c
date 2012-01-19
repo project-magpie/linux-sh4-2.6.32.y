@@ -247,10 +247,11 @@ static struct plat_stmmacenet_data stxh205_ethernet_platform_data = {
 static struct platform_device stxh205_ethernet_device = {
 	.name = "stmmaceth",
 	.id = 0,
-	.num_resources = 2,
+	.num_resources = 3,
 	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM(0xfda88000, 0x8000),
 		STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(21), -1),
+		STM_PLAT_RESOURCE_IRQ_NAMED("eth_wake_irq", ILC_IRQ(22), -1),
 	},
 	.dev = {
 		.dma_mask = &stxh205_dma_mask,

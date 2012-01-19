@@ -31,7 +31,21 @@ struct stm_wakeup_devices {
 	int hdmi_can_wakeup:1;		/* hdmi_clk == 100 MHz		*/
 	int eth_phy_can_wakeup:1;	/* eth_phy_clk ~= 25 MHz	*/
 	int eth1_phy_can_wakeup:1;
+	int hdmi_cec:1;
+	int hdmi_hotplug:1;
+	int kscan:1;
+	int asc:1;
+	int rtc:1;
 };
 
 int stm_check_wakeup_devices(struct stm_wakeup_devices *dev_wk);
+
+int stm_get_wakeup_reason(void);
+void __stm_set_wakeup_reason(int wk_irq);
+
+/*
+ * Wrapper around LPM
+ */
+int stm_notify_wakeup_devices(struct stm_wakeup_devices *wkd);
+int stm_retrieve_wakeup_reason(void);
 #endif

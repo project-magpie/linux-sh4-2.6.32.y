@@ -23,6 +23,7 @@
 #include <linux/io.h>
 
 #include <linux/stm/pm_notify.h>
+#include <linux/stm/wakeup_devices.h>
 
 #include <asm/system.h>
 #include <asm/cacheflush.h>
@@ -42,8 +43,6 @@
 
 static struct stm_platform_suspend_t *platform_suspend;
 
-unsigned int wokenup_by;
-
 static unsigned long stm_read_intevt(void)
 {
 	return ctrl_inl(INTEVT);
@@ -58,7 +57,7 @@ static int stm_suspend_enter(suspend_state_t state)
 	enum stm_pm_type type = (state == PM_SUSPEND_STANDBY) ?
 		STM_PM_SUSPEND : STM_PM_MEMSUSPEND;
 	enum stm_pm_notify_return notify_ret;
-	int err = 0;
+	int err = 0, wokenup_by = 0;
 
 	/* Must wait for serial buffers to clear */
 	printk(KERN_INFO "CPU is sleeping\n");
@@ -109,6 +108,8 @@ __stm_again_suspend:
 		wokenup_by = platform_suspend->evt_to_irq(wokenup_by);
 	else
 		wokenup_by = evt2irq(wokenup_by);
+
+	__stm_set_wakeup_reason(wokenup_by);
 
 __stm_skip_suspend:
 	notify_ret = stm_pm_post_enter(type, wokenup_by);

@@ -10,6 +10,7 @@
  * ------------------------------------------------------------------------- */
 
 #include <linux/stm/pms.h>
+#include <linux/stm/wakeup_devices.h>
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
 #include <linux/suspend.h>
@@ -873,7 +874,6 @@ char *pms_get_current_state(void)
 }
 EXPORT_SYMBOL(pms_get_current_state);
 
-extern unsigned int wokenup_by;
 int pms_global_standby(enum pms_standby_e state)
 {
 	int ret = -EINVAL;
@@ -884,7 +884,7 @@ int pms_global_standby(enum pms_standby_e state)
 		ret = pm_suspend(state == PMS_GLOBAL_STANDBY ?
 				 PM_SUSPEND_STANDBY : PM_SUSPEND_MEM);
 		if (ret >= 0)
-			ret = (int)wokenup_by;
+			ret = stm_get_wakeup_reason();
 		break;
 #endif
 #ifdef CONFIG_HIBERNATION

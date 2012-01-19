@@ -29,6 +29,7 @@
 #include "stm_hom.h"
 #include <linux/stm/poke_table.h>
 #include <linux/stm/synopsys_dwc_ddr32.h>
+#include <linux/stm/wakeup_devices.h>
 
 
 #define DDR3SS_REG		0xfde50000
@@ -40,6 +41,22 @@
 #define SBC_MBX				0xfe4b4000
 #define SBC_MBX_WRITE_STATUS(x)		(SBC_MBX + 0x4 + 0x4 * (x))
 
+#ifdef CONFIG_LPM
+/*
+ * This vercor is used to translate the sbc_wake_reason_bitmap
+ * coming from the SBC to the interrupt number Linux uses
+ */
+int platform_lpm_to_irq[8] = {
+	ILC_IRQ(5),	/* IRB */
+	ILC_IRQ(31),	/* HDMI_CEC */
+	ILC_IRQ(49),	/* Kscan */
+	ILC_IRQ(22),	/* Wol */
+	ILC_IRQ(6),	/* RTC */
+	ILC_IRQ(43),	/* ASC */
+	ILC_IRQ(107),	/* HDMI_HotPlug */
+	0,		/* NMI (-2)?... */
+};
+#endif
 
 static unsigned long stxh205_hom_table[] __cacheline_aligned = {
 synopsys_ddr32_in_hom(DDR3SS_REG),
@@ -54,6 +71,16 @@ END_MARKER,
 };
 
 static void __iomem *early_console_base;
+static struct stm_wakeup_devices stxh205_wkd;
+
+static int stxh205_hom_begin(suspend_state_t state)
+{
+	pr_info("[STM][PM] Analyzing the wakeup devices\n");
+
+	stm_check_wakeup_devices(&stxh205_wkd);
+
+	return 0;
+}
 
 static void stxh205_hom_early_console(void)
 {
@@ -69,20 +96,23 @@ static void stxh205_hom_early_console(void)
 	pr_info("Early console ready\n");
 }
 
-static char buf[16 * 4];
+static char hom_dirty_dtu_buf[16 * 4];
 
 static int stxh205_hom_prepare(void)
 {
 	stm_freeze_board(NULL);
 
-	memcpy(buf, 0x80004080, 16 * 4);
+	/* Notify the wakeup device to the external micro */
+	stm_notify_wakeup_devices(&stxh205_wkd);
+
+	memcpy(hom_dirty_dtu_buf, 0x80004080, 16 * 4);
 
 	return 0;
 }
 
 static int stxh205_hom_complete(void)
 {
-	memcpy(0x80004080, buf, 16 * 4);
+	memcpy(0x80004080, hom_dirty_dtu_buf, 16 * 4);
 
 	/* Enable the INTC2 */
 	writel(7, 0xfda30000 + 0x00);	/* INTPRI00 */
@@ -90,6 +120,7 @@ static int stxh205_hom_complete(void)
 
 	stm_defrost_board(NULL);
 
+	__stm_set_wakeup_reason(stm_retrieve_wakeup_reason());
 	return 0;
 }
 
@@ -99,6 +130,7 @@ static struct stm_mem_hibernation stxh205_hom = {
 	.tbl_size = DIV_ROUND_UP(ARRAY_SIZE(stxh205_hom_table) *
 			sizeof(long), L1_CACHE_BYTES),
 
+	.ops.begin = stxh205_hom_begin,
 	.ops.prepare = stxh205_hom_prepare,
 	.ops.complete = stxh205_hom_complete,
 };

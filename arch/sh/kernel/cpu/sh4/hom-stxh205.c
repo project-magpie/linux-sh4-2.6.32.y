@@ -39,7 +39,7 @@
 
 #define SBC_MBX				0xfe4b4000
 #define SBC_MBX_WRITE_STATUS(x)		(SBC_MBX + 0x4 + 0x4 * (x))
-#define SBC_MBX_INT_SET_ENABLE		(SBC_MBX + 0x184)
+
 
 static unsigned long stxh205_hom_table[] __cacheline_aligned = {
 synopsys_ddr32_in_hom(DDR3SS_REG),
@@ -69,15 +69,21 @@ static void stxh205_hom_early_console(void)
 	pr_info("Early console ready\n");
 }
 
+static char buf[16 * 4];
+
 static int stxh205_hom_prepare(void)
 {
 	stm_freeze_board(NULL);
+
+	memcpy(buf, 0x80004080, 16 * 4);
 
 	return 0;
 }
 
 static int stxh205_hom_complete(void)
 {
+	memcpy(0x80004080, buf, 16 * 4);
+
 	/* Enable the INTC2 */
 	writel(7, 0xfda30000 + 0x00);	/* INTPRI00 */
 	writel(1, 0xfda30000 + 0x60);	/* INTMSKCLR00 */

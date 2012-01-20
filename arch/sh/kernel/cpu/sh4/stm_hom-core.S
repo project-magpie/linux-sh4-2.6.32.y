@@ -48,6 +48,7 @@
 	81:
 
 .text
+.section	.uncached.text,		"ax"
 ENTRY(stm_hom_exec_table)
 	mov.l   r14, @-r15
 	mov.l   r13, @-r15

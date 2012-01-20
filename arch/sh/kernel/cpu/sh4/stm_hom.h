@@ -12,6 +12,9 @@
 
 #include <linux/hom.h>
 
+#define hom_uc_code noinline __attribute__ ((__section__ (".uncached.text")))
+#define hom_uc_data __attribute__ ((__section__ (".uncached.data")))
+
 struct stm_mem_hibernation {
 	long flags;
 	long tbl_addr;

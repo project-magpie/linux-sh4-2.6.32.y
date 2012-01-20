@@ -97,9 +97,9 @@ END_MARKER,
 
 };
 
-static void __iomem *early_console_base;
+static void __iomem *early_console_base hom_uc_data;
 
-static void stx7108_hom_early_console(void)
+static hom_uc_code void stx7108_hom_early_console(void)
 {
 	writel(0x1189 & ~0x80, early_console_base + 0x0c); /* ctrl */
 	writel(BAUDRATE_VAL_M1(115200), early_console_base); /* baud */
@@ -110,7 +110,7 @@ static void stx7108_hom_early_console(void)
 	pr_info("Early console ready\n");
 }
 
-static int stx7108_hom_prepare(void)
+static int hom_uc_code stx7108_hom_prepare(void)
 {
 	stm_freeze_board(NULL);
 
@@ -124,7 +124,7 @@ static int stx7108_hom_prepare(void)
 	return 0;
 }
 
-static int stx7108_hom_complete(void)
+static int hom_uc_code stx7108_hom_complete(void)
 {
 	hom_printk("%s - Enter ", __func__);
 	/* Enable the INTC2 */

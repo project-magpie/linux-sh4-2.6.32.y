@@ -107,13 +107,12 @@ void hom_printk(char *buf, ...)
 #endif
 
 
-static struct stm_mem_hibernation *platform_hom;
-unsigned long stm_hom_saved_stack_value;
+static struct stm_mem_hibernation *platform_hom hom_uc_data;
+unsigned long stm_hom_saved_stack_value hom_uc_data;
 /*
  * stm_hom_boot_stack is a mini stack in uncached.data
  */
-unsigned long stm_hom_boot_stack[THREAD_SIZE / 4]
-		__attribute__ ((__section__ (".uncached.data")));
+unsigned long stm_hom_boot_stack[THREAD_SIZE / 4] hom_uc_data;
 
 static long linux_marker[] = {	0x7a6f7266,	/* froz */
 				0x6c5f6e65,	/* en_l */
@@ -135,7 +134,7 @@ int __weak stm_defrost_board(void *data)
  * managed via clock_event API while the TMU_1 has no initialization
  * via clock_source API therefore the initialization is done here.
  */
-static void stm_hom_tmu1_restart(void)
+static void hom_uc_code stm_hom_tmu1_restart(void)
 {
 	unsigned char tmp;
 	iowrite32(0xffffffff, SH_TMU_IOBASE + 0x14); /* TMU1.TCOR */
@@ -147,7 +146,7 @@ static void stm_hom_tmu1_restart(void)
 /*
  * Initialize the cache
  */
-void __uses_jump_to_uncached stm_hom_cache_init(void)
+void hom_uc_code stm_hom_cache_init(void)
 {
 	unsigned long ccr, flags;
 
@@ -200,7 +199,7 @@ void __uses_jump_to_uncached stm_hom_cache_init(void)
  * This function restores the orginal pgd value
  * based on the current running process
  */
-static void stm_hom_pgd_setup(void)
+static void hom_uc_code stm_hom_pgd_setup(void)
 {
 	struct thread_info *ctf = current_thread_info();
 	struct task_struct *task = ctf->task;
@@ -209,7 +208,7 @@ static void stm_hom_pgd_setup(void)
 	set_TTB(current_mm->pgd);
 }
 
-static int stm_hom_enter(void)
+static int hom_uc_code stm_hom_enter(void)
 {
 	unsigned long *_ztext = (unsigned long *)
 		(CONFIG_HOM_TAG_VIRTUAL_ADDRESS);

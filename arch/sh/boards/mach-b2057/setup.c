@@ -23,6 +23,7 @@
 
 #define B2057_GPIO_POWER_ON_ETH		stm_gpio(2, 5)
 #define B2057_MII1_TXER			stm_gpio(0, 4)
+#define B2057_POWER_ON			stm_gpio(3, 7)
 
 static void __init b2057_setup(char **cmdline_p)
 {
@@ -128,6 +129,9 @@ static int __init device_init(void)
 	 * but it isn't... ;-) */
 	gpio_request(B2057_GPIO_POWER_ON_ETH, "POWER_ON_ETH");
 	gpio_direction_output(B2057_GPIO_POWER_ON_ETH, 0);
+#warning "UnComment below lines if Host needs to configure PIO"
+	gpio_request(B2057_POWER_ON, "POWER_ON");
+	gpio_direction_output(B2057_POWER_ON, 0);
 
 #ifdef CONFIG_STM_B2057_INT_PHY_IC101A
 	/*
@@ -218,3 +222,18 @@ struct sh_machine_vector mv_b2057 __initmv = {
 	.mv_nr_irqs = NR_IRQS,
 	.mv_ioport_map = b2057_ioport_map,
 };
+
+#if defined(CONFIG_HIBERNATION_ON_MEMORY)
+int stm_freeze_board(void *data)
+{
+	gpio_set_value(B2057_GPIO_POWER_ON_ETH, 0);
+	return 0;
+}
+
+int stm_defrost_board(void *data)
+{
+	b2057_phy_reset(NULL);
+	return 0;
+}
+#endif
+

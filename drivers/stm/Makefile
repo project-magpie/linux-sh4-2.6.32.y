@@ -29,6 +29,9 @@ obj-$(CONFIG_PM_RUNTIME)		+= pm_runtime.o
 obj-$(CONFIG_STM_PCI_EMISS)		+= pci-emiss.o
 obj-$(CONFIG_STM_PCIE)			+= pcie.o
 
+ifdef CONFIG_STM_LPM
+endif
+
 obj-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= fli7510.o fli7510_clock.o fli7510_audio.o fli7510_comms.o fli7510_hispeed.o fli7510_pci.o
 obj-$(CONFIG_CPU_SUBTYPE_STXH205)	+= stxh205.o stxh205_clock.o stxh205_comms.o stxh205_hispeed.o pio-control.o
 obj-$(CONFIG_CPU_SUBTYPE_STX5197)	+= stx5197.o stx5197_clock.o

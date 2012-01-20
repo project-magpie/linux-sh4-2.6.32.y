@@ -213,4 +213,18 @@ config PMS_DEBUG
 	help
 	  Enable this option to print out information about the PMS
 
+
+config STM_LPM
+	bool "STM Low Power Monitor"
+	depends on CPU_SUBTYPE_STXH205
+	default n
+	---help---
+	  This option adds support for the hardware low power monitor.
+
+config STM_LPM_DEBUG
+	bool "STM Low Power Monitor debug"
+	depends on STM_LPM
+	default n
+	---help---
+	  Enable this option to print out information about the LPM
 endmenu

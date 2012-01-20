@@ -183,7 +183,11 @@ struct stm_plat_usb_data {
 	struct stm_device_config *device_config;
 };
 
-
+struct stm_plat_lpm_data {
+	int number_i2c;
+	int number_gpio;
+	int status_gpio;
+};
 
 /*** TAP platform data ***/
 

@@ -217,6 +217,7 @@ config PMS_DEBUG
 config STM_LPM
 	bool "STM Low Power Monitor"
 	depends on CPU_SUBTYPE_STXH205
+	select LIBELF_64
 	default n
 	---help---
 	  This option adds support for the hardware low power monitor.

@@ -70,6 +70,8 @@
  *             Angelo Castello <angelo.castello@st.com>
  * Feb	2011:  Fixed IR-RX handler routine to manage the input data overrun.
  *             Angelo Castello <angelo.castello@st.com>
+ * Jan 	2012:  Fixed wrong RX buffer management within RX interrupt handler.
+ *             Angelo Castello <angelo.castello@st.com>
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -133,7 +135,10 @@ struct lirc_buffer lirc_stm_rbuf;
 
 #define LIRC_STM_MINOR			0
 #define LIRC_STM_MAX_SYMBOLS		100
-#define LIRC_STM_BUFSIZE		(LIRC_STM_MAX_SYMBOLS*sizeof(lirc_t))
+#define LIRC_STM_SCD_MAX_SYMBOLS        32
+#define LIRC_STM_BUFSIZE		((LIRC_STM_SCD_MAX_SYMBOLS + \
+					LIRC_STM_MAX_SYMBOLS) * \
+					sizeof(lirc_t))
 
 /* Bit settings */
 #define LIRC_STM_IS_OVERRUN	 	0x04
@@ -237,7 +242,6 @@ static struct lirc_stm_rx_data_s rx;	/* RX data config */
  * The nominal symbol duration is 500us, code length 4 and code Ob1101.
  */
 
-#define LIRC_STM_SCD_MAX_SYMBOLS        32
 #define LIRC_STM_SCD_BUFSIZE            ((LIRC_STM_SCD_MAX_SYMBOLS/2+1) * \
 						sizeof(lirc_t))
 #define LIRC_STM_SCD_TOLERANCE          25
@@ -891,7 +895,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 	while (RX_WORDS_IN_FIFO_OR_OVERRUN()) {
 		/* discard the entire collection in case of errors!  */
 		if (unlikely(readl(IRB_RX_INT_STATUS) & LIRC_STM_IS_OVERRUN)) {
-			pr_info(LIRC_STM_NAME ": IR RX overrun\n");
+			pr_info(LIRC_STM_NAME ": RX overrun\n");
 			writel(LIRC_STM_CLEAR_OVERRUN, IRB_RX_INT_CLEAR);
 			rx.error = 1;
 		}
@@ -910,7 +914,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 
 		if (rx.off_rbuf >= LIRC_STM_MAX_SYMBOLS) {
 			pr_info(LIRC_STM_NAME
-			       ": IR too many symbols (max %d)\n",
+			       ": RX too many symbols (max %d)\n",
 			       LIRC_STM_MAX_SYMBOLS);
 			rx.error = 1;
 		}
@@ -945,10 +949,10 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 			 * For a pulse in LIRC MODE2, we need to set the
 			 * PULSE_BIT ON
 			 */
-			rx.rbuf[(rx.off_rbuf * 2)] = mark | PULSE_BIT;
-			rx.rbuf[(rx.off_rbuf * 2) + 1] = symbol;
+			rx.rbuf[rx.off_rbuf] = mark | PULSE_BIT;
+			rx.rbuf[rx.off_rbuf + 1] = symbol;
 			rx.sumUs += mark + symbol;
-			rx.off_rbuf++;
+			rx.off_rbuf += 2;
 
 			if (lastSymbol) {
 				/* move the entire collection into user
@@ -959,7 +963,8 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 				 */
 				if (likely(lirc_buffer_available
 					   (&lirc_stm_rbuf) >=
-					   ((2 * rx.off_rbuf) + 32))) {
+						(rx.off_rbuf +
+						LIRC_STM_SCD_MAX_SYMBOLS))) {
 					struct timeval now;
 					lirc_t syncSpace;
 
@@ -989,8 +994,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 						     rx.sync.tv_usec);
 						syncSpace -=
 						    (rx.sumUs -
-						     rx.rbuf[((rx.off_rbuf -
-							       1) * 2) + 1]);
+						     rx.rbuf[(rx.off_rbuf-1)]);
 						if (syncSpace < 0)
 							syncSpace = 0;
 						else if (syncSpace > PULSE_MASK)
@@ -1015,7 +1019,7 @@ static void lirc_stm_rx_interrupt(int irq, void *dev_id)
 					lirc_buffer_write_n
 					    (&lirc_stm_rbuf,
 					     (unsigned char *)rx.rbuf,
-					     (2 * rx.off_rbuf) - 1);
+					     (rx.off_rbuf) - 1);
 					wake_up_interruptible
 					    (&lirc_stm_rbuf.wait_poll);
 				} else
@@ -1571,7 +1575,8 @@ static int __init lirc_stm_init(void)
 
 	/* inform the top level driver that we use our own user buffer */
 	if (lirc_buffer_init(&lirc_stm_rbuf, sizeof(lirc_t),
-			     (2 * LIRC_STM_MAX_SYMBOLS))) {
+			     (LIRC_STM_MAX_SYMBOLS +
+				LIRC_STM_SCD_MAX_SYMBOLS))) {
 		pr_err(LIRC_STM_NAME ": buffer init failed\n");
 		platform_driver_unregister(&lirc_device_driver);
 		goto out_err;

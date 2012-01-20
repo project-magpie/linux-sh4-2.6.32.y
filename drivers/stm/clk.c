@@ -481,6 +481,16 @@ module_init(clk_proc_init);
 #endif
 
 #ifdef CONFIG_HIBERNATION
+/*
+ * platform_allow_pm_clk
+ * Every platform implementation of this function has to check if
+ * a specific clk can be managed or not in the PM core code
+ */
+int __weak platform_allow_pm_clk(struct clk *clk, int freezing)
+{
+	return 1;
+}
+
 static void clk_resume_from_hibernation(struct clk *clk)
 {
 	unsigned long rate = clk->rate;
@@ -510,7 +520,8 @@ static int clks_restore(void)
 	struct clk *clkp;
 
 	list_for_each_entry(clkp, &clks_list, node)
-		clk_resume_from_hibernation(clkp);
+		if (platform_allow_pm_clk(clkp, 0))
+			clk_resume_from_hibernation(clkp);
 
 	return 0;
 }

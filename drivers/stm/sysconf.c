@@ -326,6 +326,17 @@ EXPORT_SYMBOL(sysconf_reg_name);
 
 
 #ifdef CONFIG_HIBERNATION
+/*
+ * platform_allow_pm_sysconf
+ * Every platform implementation of this function has to check if
+ * a specific register in a bank can be managed or not in the PM core code
+ */
+int __weak platform_allow_pm_sysconf(struct device *dev,
+	int reg_nr, int freezing)
+{
+	return 1;
+}
+
 static int sysconf_pm_freeze(void)
 {
 	int result = 0;
@@ -345,9 +356,12 @@ static int sysconf_pm_freeze(void)
 			continue;
 		}
 
-		for (j = 0; j < block->size; j += sizeof(unsigned long))
+		for (j = 0; j < block->size; j += sizeof(unsigned long)) {
+			if (!platform_allow_pm_sysconf(&block->pdev->dev, j, 1))
+				continue;
 			block->snapshot[j / sizeof(unsigned long)] =
 					readl(block->base + j);
+		}
 	}
 
 	pr_debug("%s()=%d\n", __func__, result);
@@ -373,10 +387,13 @@ static int sysconf_pm_restore(void)
 			continue;
 		}
 
-		for (j = 0; j < block->size; j += sizeof(unsigned long))
+		for (j = 0; j < block->size; j += sizeof(unsigned long)) {
+			if (!platform_allow_pm_sysconf(&block->pdev->dev,
+				j, 0))
+				continue;
 			writel(block->snapshot[j / sizeof(unsigned long)],
 					block->base + j);
-
+		}
 		kfree(block->snapshot);
 		block->snapshot = NULL;
 	}

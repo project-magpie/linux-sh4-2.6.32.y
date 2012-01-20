@@ -921,12 +921,26 @@ static struct platform_driver stm_gpio_irqmux_driver = {
 
 #ifdef CONFIG_PM
 #ifdef CONFIG_HIBERNATION
+/*
+ * platform_allow_pm_gpio
+ * Every platform implementation of this function has to check if
+ * a specific gpio_pin can be managed or not in the PM core code
+ */
+int __weak platform_allow_pm_gpio(int gpio, int freezing)
+{
+	return 1;
+}
+
 static int stm_gpio_port_restore(struct stm_gpio_port *port)
 {
 	int pin_no;
 
 	for (pin_no = 0; pin_no < port->gpio_chip.ngpio; ++pin_no) {
 		struct stm_gpio_pin *pin = &port->pins[pin_no];
+
+		if (!platform_allow_pm_gpio(
+			stm_gpio(port - stm_gpio_ports, pin_no), 0))
+			continue;
 		/*
 		 * Direction can not be zero! Zero means 'un-claimed'
 		 */

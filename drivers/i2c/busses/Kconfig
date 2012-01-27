@@ -576,12 +576,17 @@ config I2C_STM_HW_GLITCH
         help
           Enable this option to add filter glitch suppression support in the
           STM I2C (SSC) device driver.
-          Set the glitch width in MICROSECONDS or use the default value of 1uS.
+          Set the glitch width in MICROSECONDS or use the default value of 5uS.
 
-config HW_GLITCH_WIDTH
+config HW_GLITCH_CLK_WIDTH
         depends on I2C_STM_HW_GLITCH
-        int "Glitch suppression width in uS"
-        default "1"
+        int "Clock glitch suppression width in uS"
+        default "0"
+
+config HW_GLITCH_DATA_WIDTH
+        depends on I2C_STM_HW_GLITCH
+        int "Data glitch suppression width in uS"
+        default "5"
 
 config I2C_STU300
 	tristate "ST Microelectronics DDC I2C interface"

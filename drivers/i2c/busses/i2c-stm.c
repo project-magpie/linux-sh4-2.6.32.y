@@ -142,10 +142,15 @@
 #endif
 
 #ifdef CONFIG_I2C_STM_HW_GLITCH
-#if CONFIG_HW_GLITCH_WIDTH > 0
-#define HW_GLITCH_WIDTH			CONFIG_HW_GLITCH_WIDTH
+#if CONFIG_HW_GLITCH_CLK_WIDTH > 0
+#define HW_GLITCH_CLK_WIDTH			CONFIG_HW_GLITCH_CLK_WIDTH
 #else
-#define HW_GLITCH_WIDTH			1	/* in microseconds */
+#define HW_GLITCH_CLK_WIDTH			0	/* in microseconds */
+#endif
+#if CONFIG_HW_GLITCH_DATA_WIDTH > 0
+#define HW_GLITCH_DATA_WIDTH			CONFIG_HW_GLITCH_DATA_WIDTH
+#else
+#define HW_GLITCH_DATA_WIDTH			5	/* in microseconds */
 #endif
 #endif
 
@@ -1052,19 +1057,13 @@ static void iic_stm_setup_timing(struct iic_ssc *adap)
 	ssc_store32(adap, SSC_SLAD, 0x7f);
 
 #ifdef CONFIG_I2C_STM_HW_GLITCH
-	/* See DDTS GNBvd40668 */
-	iic_prescaler = 1;
-	iic_glitch_width = HW_GLITCH_WIDTH * clock / 100000000;	/* in uS */
-	iic_glitch_width_dataout = 1;
+	/* Apply I2C settings for glitch filter as suggested by Validation team
+	   Refer to Bugzilla 14906 */
+	iic_prescaler = clock / 10000000;
+	/* glicth widths (clk/data) are expressed in uS */
+	iic_glitch_width = HW_GLITCH_CLK_WIDTH * clock / 100000000;
+	iic_glitch_width_dataout = HW_GLITCH_DATA_WIDTH * clock / 100000000;
 	iic_prescaler_dataout = clock / 10000000;
-
-/*  This should work, but causes lock-up after repstart
-    iic_prescaler = clock / 10000000;
-    iic_glitch_width = HW_GLITCH_WIDTH;
-    iic_glitch_width_dataout = 1;
-    iic_prescaler_dataout = clock / 10000000;
-    printk("*** iic_prescaler = %d *** \n", iic_prescaler);
-*/
 
 	ssc_store32(adap, SSC_PRSCALER, iic_prescaler);
 	ssc_store32(adap, SSC_NOISE_SUPP_WIDTH, iic_glitch_width);

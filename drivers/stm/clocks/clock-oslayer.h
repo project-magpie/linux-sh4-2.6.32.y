@@ -40,6 +40,7 @@
 	sysconf_write(sys_##type##_##num##_##lsb##_##msb, value)
 
 #define __mdelay(x)			mdelay(x)
+#define CLK_DELAYMS(x)			mdelay(x)
 /*
  * New ST chips use a unique ID number for all the sysconf registers
  * On these chips (to maintain the sysconf API Linus has) the

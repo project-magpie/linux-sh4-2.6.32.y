@@ -194,7 +194,19 @@ int clk_fs660c32_vco_get_params(unsigned long input, unsigned long output,
    ======================================================================== */
 
 int clk_fs660c32_dig_get_params(unsigned long input, unsigned long output,
-				unsigned long nsdiv, unsigned long *md,
+			     unsigned long nsdiv, unsigned long *md,
+			     unsigned long *pe, unsigned long *sdiv);
+
+/* ========================================================================
+   Name:	clk_fs660liege_dig_get_params ()
+   Description: Compute params for digital part of FS660
+   Input:       input=VCO freq, output=requested freq (Hz) & nsdiv
+   Output:      updated *md, *pe & *sdiv registers values.
+   Return:      'clk_err_t' error code
+   ======================================================================== */
+
+int clk_fs660liege_dig_get_params(unsigned long input, unsigned long output,
+				unsigned long *nsdiv, unsigned long *md,
 				unsigned long *pe, unsigned long *sdiv);
 
 /* ========================================================================
@@ -217,6 +229,14 @@ int clk_fs660c32_get_rate(unsigned long input, unsigned long nsdiv,
 
 int clk_fs660c32_vco_get_rate(unsigned long input, unsigned long ndiv,
 			      unsigned long *rate);
+/* ========================================================================
+   Name:        clk_err_string
+   Description: Convert LLA error code to string.
+   Returns:     const char *ErrMessage
+   ======================================================================== */
+#ifdef ST_OS21
+const char *clk_err_string(int err);
+#endif
 
 /* ========================================================================
    Name:        clk_register_table

@@ -33,7 +33,6 @@
 	  replace clk_pll800_freq() & clk_pll1600c65_freq().
 */
 
-
 #include <linux/clk.h>
 #include <asm-generic/div64.h>
 #include <linux/clkdev.h>
@@ -352,7 +351,7 @@ int clk_pll1600c45_get_params(unsigned long input, unsigned long output,
 			   unsigned long *idf, unsigned long *ndiv,
 			   unsigned long *cp)
 {
-	unsigned long i, n; /* IDF, NDIV values */
+	unsigned long i, n = 0; /* IDF, NDIV values */
 	unsigned long deviation = 0xffffffff;
 	unsigned long new_freq;
 	long new_deviation;
@@ -591,7 +590,7 @@ int clk_pll3200c32_get_params(unsigned long input, unsigned long output,
 			   unsigned long *idf, unsigned long *ndiv,
 			   unsigned long *cp)
 {
-	unsigned long i, n;
+	unsigned long i, n = 0;
 	unsigned long deviation = 0xffffffff;
 	unsigned long new_freq;
 	long new_deviation;
@@ -804,7 +803,6 @@ int clk_fs660c32_vco_get_params(unsigned long input, unsigned long output,
 
 	return 0;
 }
-
 /* ========================================================================
    Name:	clk_fs660c32_dig_get_params()
    Description: Compute params for digital part of FS660
@@ -812,8 +810,10 @@ int clk_fs660c32_vco_get_params(unsigned long input, unsigned long output,
    Output:      updated *md, *pe & *sdiv registers values.
    Return:      'clk_err_t' error code
    ======================================================================== */
+#define p20		(1 << 20)
 
-#define p20	1048576
+/* We use Fixed-point arithmetic in order to avoid "float" functions.*/
+#define SCALING_FACTOR	2048LL
 
 int clk_fs660c32_dig_get_params(unsigned long input, unsigned long output,
 			     unsigned long nsdiv, unsigned long *md,
@@ -846,14 +846,12 @@ int clk_fs660c32_dig_get_params(unsigned long input, unsigned long output,
 		s = (1 << si);
 		for (m = 0; (m < 32) && deviation; m++) {
 			p = (input * 2048) ;
-			p = p - 2048 * (s * ns * output) - (s * ns * output) *
-				(m * (2048 / 32));
+			p = p - 2048 * (s * ns * output) - (s * ns * output) * (m * (2048 / 32));
 			p = p * (p20 / 2048);
 			p = p / (s * ns * output);
 			if (p > 32767)
 				continue;
-			new_freq = (input * 2048) / (s * ns * (2048 +
-				   (m * (2048 / 32)) + ((p * 2048) / p20)));
+			new_freq = (input * 2048) / (s * ns * (2048 + (m * (2048 / 32)) + ((p * 2048) / p20)));
 			if (new_freq < output)
 				new_deviation = output - new_freq;
 			else
@@ -863,6 +861,85 @@ int clk_fs660c32_dig_get_params(unsigned long input, unsigned long output,
 				*pe = p;
 				*md = m;
 				*sdiv = si;
+				deviation = new_deviation;
+			}
+		}
+	}
+
+	if (deviation == 0xffffffff) /* No solution found */
+		return CLK_ERR_BAD_PARAMETER;
+
+	return 0;
+}
+
+/* ========================================================================
+   Name:	clk_fs660liege_dig_get_params()
+   Description: Compute params for digital part of FS660
+   Input:       input=VCO freq, output=requested freq (Hz) & nsdiv
+   Output:      updated *md, *pe & *sdiv registers values.
+   Return:      'clk_err_t' error code
+   ======================================================================== */
+#define P20		(uint64_t)(1 << 20)
+int clk_fs660liege_dig_get_params(unsigned long input, unsigned long output,
+			     unsigned long *nsdiv, unsigned long *md,
+			     unsigned long *pe, unsigned long *sdiv)
+{
+	int si;
+	unsigned long ns; /* nsdiv value (1 or 3) */
+	unsigned long s; /* sdiv value = 1 << sdiv_reg_value */
+	unsigned long m; /* md value */
+	unsigned long new_freq, new_deviation;
+	/* initial condition to say: "infinite deviation" */
+	unsigned long deviation = 0xffffffff;
+	uint64_t p; /* pe value */
+
+	/*
+	 * nsdiv is a register value ('BIN') which is translated
+	 * to a decimal value
+	 * moreover on some chip this register is totally hard-wired on silicon
+	 * while on other chip it's programmable
+	 *  following the below table:
+	 *
+	 *    *nsdiv        ns.bin       	  ns.dec
+	 * 	-1	  programmable
+	 *       0          0-silicon               3
+	 *       1          1-silicon               1
+	 */
+	if (*nsdiv != -1) {
+		ns = (*nsdiv ? 1 : 3);
+		goto skip_ns_programming;
+	}
+
+	for (ns = 1; ns < 4; ns += 2)
+
+skip_ns_programming:
+
+	for (si = 0; (si < 9) && deviation; si++) {
+		s = (1 << si);
+		for (m = 0; (m < 32) && deviation; m++) {
+			p = (uint64_t)input * SCALING_FACTOR;
+			p = p - SCALING_FACTOR * ((uint64_t)s * (uint64_t)ns * (uint64_t)output) -
+				 ((uint64_t)s * (uint64_t)ns * (uint64_t)output) *
+				 ((uint64_t)m * (SCALING_FACTOR / 32LL));
+			p = p * (P20 / SCALING_FACTOR);
+			p = div64_u64(p, (uint64_t)((uint64_t)s * (uint64_t)ns * (uint64_t)output));
+
+			if (p > 32767LL)
+				continue;
+
+			clk_fs660c32_get_rate(input, (ns == 1) ? 1 : 0, m,
+					(unsigned long)p, si, &new_freq);
+
+			if (new_freq < output)
+				new_deviation = output - new_freq;
+			else
+				new_deviation = new_freq - output;
+			/* Check if this is a better solution */
+			if (new_deviation < deviation) {
+				*pe = (unsigned long)p;
+				*md = m;
+				*sdiv = si;
+				*nsdiv = (ns == 1) ? 1 : 0;
 				deviation = new_deviation;
 			}
 		}
@@ -885,26 +962,25 @@ int clk_fs660c32_get_rate(unsigned long input, unsigned long nsdiv,
 			unsigned long md, unsigned long pe,
 			unsigned long sdiv, unsigned long *rate)
 {
+
 	unsigned long s = (1 << sdiv); /* sdiv value = 1 << sdiv_reg_value */
-	unsigned long ns; /* nsdiv value (1 or 3) */
+	unsigned long ns;  /* nsdiv value (1 or 3) */
 
 	/*
 	 * ns is a binary value which is translated to a decimal value
 	 * following the below table:
 	 *
-	 *	    ns.bin	     ns.dec
+	 *	    nsdiv.bin	     ns.dec
 	 *		0		3
 	 *		1		1
 	 */
 
-	ns = (nsdiv ? 1 : 3);
+	ns = (nsdiv == 1) ? 1 : 3;
 
-	/* Reduce freq to prevent overflow */
-	input /= 20000;
-	*rate = (input * 100000) / (s * ns * (100000 + (md * 100000 / 32) +
-		(pe * 100000 / p20)));
-	*rate *= 20000;
-
+	*rate = (unsigned long) div64_u64(((uint64_t)input * SCALING_FACTOR),
+		   (uint64_t)((uint64_t)s * (uint64_t)ns *
+		    (SCALING_FACTOR + ((uint64_t)md * SCALING_FACTOR / 32LL) +
+		    ((uint64_t)pe * SCALING_FACTOR / P20))));
 	return 0;
 }
 
@@ -925,3 +1001,4 @@ int clk_fs660c32_vco_get_rate(unsigned long input, unsigned long ndiv,
 
 	return 0;
 }
+

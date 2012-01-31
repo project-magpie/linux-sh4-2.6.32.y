@@ -14,6 +14,7 @@
 #include <linux/io.h>
 #include <linux/phy.h>
 #include <linux/gpio.h>
+#include <linux/gpio_keys.h>
 #include <linux/leds.h>
 #include <linux/tm1668.h>
 #include <linux/stm/platform.h>
@@ -65,8 +66,9 @@ static struct tm1668_key b2057_front_panel_keys[] = {
 	{ 0x00800000, KEY_DOWN, "Down (SWF7)" },
 	{ 0x00008000, KEY_LEFT, "Left (SWF6)" },
 	{ 0x00000010, KEY_RIGHT, "Right (SWF5)" },
-	{ 0x00000080, KEY_ENTER, "Enter (SWF1)" },
-	{ 0x00100000, KEY_ESC, "Escape (SWF4)" },
+	{ 0x00000080, KEY_OK, "Menu/OK (SWF1)" },
+	{ 0x00100000, KEY_BACK, "Back (SWF4)" },
+	{ 0x80000000, KEY_TV, "DOXTV (SWF9)" },
 };
 
 static struct tm1668_character b2057_front_panel_characters[] = {
@@ -95,6 +97,24 @@ static struct platform_device b2057_front_panel = {
 	},
 };
 
+static struct gpio_keys_button b2057_fp_gpio_keys_button = {
+	.code = KEY_SUSPEND,
+	.gpio = stm_gpio(15, 7),
+	.desc = "Standby",
+};
+
+static struct platform_device b2057_fp_gpio_keys = {
+        .name = "gpio-keys",
+        .id = -1,
+        .num_resources = 0,
+        .dev = {
+                .platform_data = &(struct gpio_keys_platform_data){
+			.buttons = &b2057_fp_gpio_keys_button,
+			.nbuttons = 1,
+		}
+        }
+};
+
 static int b2057_phy_reset(void *bus)
 {
 	/*
@@ -120,6 +140,7 @@ static struct stmmac_mdio_bus_data stmmac_mdio_bus = {
 static struct platform_device *b2057_devices[] __initdata = {
 	&b2057_leds,
 	&b2057_front_panel,
+	&b2057_fp_gpio_keys,
 };
 
 static int __init device_init(void)

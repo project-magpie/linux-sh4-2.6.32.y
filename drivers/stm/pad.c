@@ -33,6 +33,9 @@ static unsigned char stm_pad_static_buffer[STM_PAD_STATIC_BUFFER_SIZE];
 static unsigned char *stm_pad_static_buffer_pointer = stm_pad_static_buffer;
 static int stm_pad_static_buffer_avail = sizeof(stm_pad_static_buffer);
 
+static struct stm_pad_gpio *stm_pad_find_gpio(struct stm_pad_config *config,
+		const char *name);
+
 static void *stm_pad_alloc(int size)
 {
 	void *result = NULL;
@@ -315,6 +318,52 @@ EXPORT_SYMBOL(devm_stm_pad_release);
 
 
 
+int stm_pad_update_gpio(struct stm_pad_state *state, const char* name,
+		enum stm_pad_gpio_direction direction,
+		int out_value, int function, void *priv)
+{
+	struct stm_pad_gpio *pad_gpio = stm_pad_find_gpio(state->config, name);
+	int result;
+
+	if (!pad_gpio)
+		return -EINVAL;
+
+	mutex_lock(&stm_pad_mutex);
+
+	if ((stm_pad_gpios[pad_gpio->gpio] != stm_pad_gpio_claimed) ||
+	    (pad_gpio->direction == stm_pad_gpio_direction_ignored)) {
+		result = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (direction == stm_pad_gpio_direction_ignored)
+		direction = pad_gpio->direction;
+
+	if (function < 0)
+		function = pad_gpio->function;
+
+	if (!priv)
+		priv = pad_gpio->priv;
+
+	result = stm_pad_gpio_config(pad_gpio->gpio, direction,
+			function, priv);
+
+	if (result == 0) {
+		pad_gpio->direction = direction;
+		pad_gpio->out_value = out_value;
+		pad_gpio->function = function;
+		pad_gpio->priv = priv;
+	}
+
+out_unlock:
+	mutex_unlock(&stm_pad_mutex);
+
+	return result;
+}
+EXPORT_SYMBOL(stm_pad_update_gpio);
+
+
+
 /* Private interface for GPIO driver */
 
 int stm_pad_claim_gpio(unsigned gpio)
@@ -421,9 +470,6 @@ const char *stm_pad_get_gpio_owner(unsigned gpio)
 
 
 /* GPIO interface */
-
-static struct stm_pad_gpio *stm_pad_find_gpio(struct stm_pad_config *config,
-		const char *name);
 
 static int __stm_pad_gpio_request(struct stm_pad_gpio *pad_gpio,
 		const char *owner)

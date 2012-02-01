@@ -217,6 +217,10 @@ struct stm_pad_state *devm_stm_pad_claim(struct device *dev,
 		struct stm_pad_config *config, const char *owner);
 void devm_stm_pad_release(struct device *dev, struct stm_pad_state *state);
 
+int stm_pad_update_gpio(struct stm_pad_state *state, const char* name,
+		enum stm_pad_gpio_direction direction,
+		int out_value, int function, void *priv);
+
 /* Functions below are private methods, for the GPIO driver use only! */
 int stm_pad_claim_gpio(unsigned gpio);
 void stm_pad_configure_gpio(unsigned gpio, unsigned direction);

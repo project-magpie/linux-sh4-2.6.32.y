@@ -5,36 +5,14 @@
  * License.  See linux/COPYING for more information.
  */
 
+#ifndef __STM_COPROCESSOR_H__
+#define __STM_COPROCESSOR_H__
+
 #include <linux/ioctl.h>
+
+#ifdef __KERNEL__
 #include <linux/platform_device.h>
 #include <asm/addrspace.h>
-
-#define	MEGA			(1024 * 1024)
-typedef unsigned long kaddr_t;
-
-/* IOCTL parameters */
-
-typedef struct {
-	char	    name[16];		/* coprocessor name		    */
-	u_int	    flags;		/* control flags 		    */
-					/* Coprocessor region:              */
-	kaddr_t	    ram_start;		/*   Host effective address         */
-	u_int	    ram_size;		/*   region size (in bytes)         */
-	kaddr_t	    cp_ram_start;	/*   coprocessor effective address  */
-
-} cop_properties_t;
-
-#define ST_IOCTL_BASE		'l'
-#define STCOP_GRANT		_IOR(ST_IOCTL_BASE, 0, u_int)
-#define STCOP_RESET		_IOR(ST_IOCTL_BASE, 1, u_int)
-#define STCOP_START             STCOP_GRANT
-#define STCOP_PEEK		_IOR(ST_IOCTL_BASE, 2, void*)
-#define STCOP_POKE		_IOW(ST_IOCTL_BASE, 3, void*)
-#define STCOP_GET_PROPERTIES	_IOR(ST_IOCTL_BASE, 4, cop_properties_t*)
-#define STCOP_SET_PROPERTIES	_IOW(ST_IOCTL_BASE, 5, cop_properties_t*)
-
-#define NO_DATA		0xdeadbeef
-#define UNDEFINED_DATA	NO_DATA
 
 /* ---------------------------------------------------------------------------
  *     Generic macros
@@ -106,3 +84,32 @@ extern int coproc_cpu_release(coproc_t *);
 extern int coproc_cpu_reset(coproc_t *);
 extern int coproc_check_area(u_long, u_long, int, coproc_t *);
 extern void coproc_proc_other_info(coproc_t *, struct seq_file *);
+#endif /* __KERNEL__ */
+
+/* IOCTL parameters */
+typedef unsigned long kaddr_t;
+typedef struct {
+	char	    name[16];		/* coprocessor name		    */
+	u_int	    flags;		/* control flags 		    */
+					/* Coprocessor region:              */
+	kaddr_t	    ram_start;		/*   Host effective address         */
+	u_int	    ram_size;		/*   region size (in bytes)         */
+	kaddr_t	    cp_ram_start;	/*   coprocessor effective address  */
+
+} cop_properties_t;
+
+#define	MEGA			(1024 * 1024)
+
+#define ST_IOCTL_BASE		'l'
+#define STCOP_GRANT		_IOR(ST_IOCTL_BASE, 0, u_int)
+#define STCOP_RESET		_IOR(ST_IOCTL_BASE, 1, u_int)
+#define STCOP_START             STCOP_GRANT
+#define STCOP_PEEK		_IOR(ST_IOCTL_BASE, 2, void*)
+#define STCOP_POKE		_IOW(ST_IOCTL_BASE, 3, void*)
+#define STCOP_GET_PROPERTIES	_IOR(ST_IOCTL_BASE, 4, cop_properties_t*)
+#define STCOP_SET_PROPERTIES	_IOW(ST_IOCTL_BASE, 5, cop_properties_t*)
+
+#define NO_DATA		0xdeadbeef
+#define UNDEFINED_DATA	NO_DATA
+
+#endif /* __STM_COPROCESSOR_H__ */

@@ -7,6 +7,7 @@ header-y += mmc/
 header-y += nfsd/
 header-y += raid/
 header-y += spi/
+header-y += stm/
 header-y += sunrpc/
 header-y += tc_act/
 header-y += tc_ematch/

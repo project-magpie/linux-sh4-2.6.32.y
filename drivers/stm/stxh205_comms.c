@@ -672,9 +672,9 @@ static struct platform_device stxh205_lpc_device = {
 		.need_wdt_reset = 1,
 		.irq_edge_level = IRQ_TYPE_EDGE_FALLING,
 		/*
-		 * the lpc_clk is initialize @ 1 MHz
+		 * the lpc_clk is initialize @ 350KHz
 		 */
-		.force_clk_rate = 1000000,
+		.force_clk_rate = 350000,
 	}
 };
 

@@ -837,6 +837,17 @@ static int stmmac_open(struct net_device *dev)
 		goto open_error;
 	}
 
+	/* Request the Wake IRQ in case of another line is used for WoL */
+	if (priv->wol_irq != dev->irq) {
+		ret = request_irq(priv->wol_irq, stmmac_interrupt,
+						  IRQF_SHARED, dev->name, dev);
+		if (unlikely(ret < 0)) {
+			pr_err("%s: ERROR: allocating the ext WoL IRQ %d "
+				   "(error: %d)\n",	__func__, priv->wol_irq, ret);
+			goto open_error_wolirq;
+		}
+	}
+
 	/* Enable the MAC Rx/Tx */
 	stmmac_enable_mac(priv->ioaddr);
 
@@ -870,6 +881,9 @@ static int stmmac_open(struct net_device *dev)
 	netif_start_queue(dev);
 
 	return 0;
+
+open_error_wolirq:
+	free_irq(dev->irq, dev);
 
 open_error:
 #ifdef CONFIG_STMMAC_TIMER
@@ -911,6 +925,8 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Free the IRQ lines */
 	free_irq(dev->irq, dev);
+	if(priv->wol_irq != dev->irq)
+		free_irq(priv->wol_irq, dev);
 
 	/* Stop TX/RX DMA and clear the descriptors */
 	priv->hw->dma->stop_tx(priv->ioaddr);
@@ -1636,6 +1652,18 @@ static int stmmac_dvr_probe(struct platform_device *pdev)
 		pr_info("\tPMT module supported\n");
 		device_set_wakeup_capable(&pdev->dev, 1);
 	}
+	/*
+	 * On some platforms e.g. SPEAr the wake up irq differs from the mac irq
+	 * The external wake up irq can be passed through the platform code
+	 * named as "eth_wake_irq"
+	 *
+	 * In case the wake up interrupt is not passed from the platform
+	 * so the driver will continue to use the mac irq (ndev->irq)
+	 */
+	priv->wol_irq = platform_get_irq_byname(pdev, "eth_wake_irq");
+	if (priv->wol_irq == -ENXIO)
+		priv->wol_irq = ndev->irq;
+
 
 	platform_set_drvdata(pdev, ndev);
 

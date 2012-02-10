@@ -112,6 +112,8 @@ static int __check_wakeup_device(struct device *dev, void *data)
 			wkd->rtc = 1;
 		else if (!strcmp(dev_name(dev), "stm-asc"))
 			wkd->asc = 1;
+		else if (!strncmp(dev_name(dev), "stm-asc.", 8))
+			wkd->asc = 1;
 
 	}
 	return 0;

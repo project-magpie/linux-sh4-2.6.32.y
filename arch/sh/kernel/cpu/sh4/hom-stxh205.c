@@ -41,7 +41,7 @@
 #define SBC_MBX				0xfe4b4000
 #define SBC_MBX_WRITE_STATUS(x)		(SBC_MBX + 0x4 + 0x4 * (x))
 
-#ifdef CONFIG_LPM
+#ifdef CONFIG_STM_LPM
 /*
  * This vercor is used to translate the sbc_wake_reason_bitmap
  * coming from the SBC to the interrupt number Linux uses

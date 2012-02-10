@@ -73,7 +73,7 @@ END_MARKER,
 static void __iomem *early_console_base;
 static struct stm_wakeup_devices stxh205_wkd;
 
-static int stxh205_hom_begin(suspend_state_t state)
+static int stxh205_hom_begin(void)
 {
 	pr_info("[STM][PM] Analyzing the wakeup devices\n");
 

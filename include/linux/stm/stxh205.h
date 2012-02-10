@@ -148,4 +148,6 @@ void stxh205_configure_ethernet(struct stxh205_ethernet_config *config);
 
 void stxh205_configure_usb(int port);
 
+void stxh205_configure_mmc(int emmc);
+
 #endif

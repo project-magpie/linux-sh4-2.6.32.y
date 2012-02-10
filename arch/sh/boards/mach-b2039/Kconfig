@@ -93,6 +93,34 @@ config STM_B2039_J35_PHY_RESET
 	  the use of UART11). This also conflicts with the keyscan and
 	  PWM10 use of this pin.
 
+config STM_MMC_B2048A_CARD
+	bool "B2048A - eMMC/MMC Module"
+	help
+	  B2048A connected to CN38 of B2039.
+	  There are two versions of this modules:
+	  a card with the embedded MMC and onther one
+	  with the MMC/SD slot.
+
+choice
+	prompt  "B2048A slot/eMMC selection"
+	depends on STM_MMC_B2048A_CARD
+	default STM_B2048A_MMC_EMMC
+	help
+	  Select if the board has the eMMC or the MMC/SD slot.
+
+config	STM_B2048A_MMC_SLOT
+	bool "Multi Media Card slot on daughter board"
+	depends on STM_MMC_B2048A_CARD
+	help
+	  Select this option if the board has an MMC card slot.
+
+config	STM_B2048A_MMC_EMMC
+	bool "Embedded Multi Media Card (eMMC) on daughter board"
+	help
+	  Select this option if the board has an eMMC device.
+
+endchoice
+
 endmenu
 
 endif

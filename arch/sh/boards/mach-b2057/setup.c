@@ -218,6 +218,8 @@ static int __init device_init(void)
 			 */
 			.out10_enabled = 0 });
 
+	stxh205_configure_mmc(0);
+
 	return platform_add_devices(b2057_devices,
 			ARRAY_SIZE(b2057_devices));
 }

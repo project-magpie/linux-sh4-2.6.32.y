@@ -191,6 +191,11 @@ static int __init device_init(void)
 			.out10_enabled = 0,
 			.out11_enabled = 0, });
 
+#ifdef CONFIG_STM_B2048A_MMC_SLOT
+	stxh205_configure_mmc(0);
+#elif defined(CONFIG_STM_B2048A_MMC_EMMC)
+	stxh205_configure_mmc(1);
+#endif
 	return platform_add_devices(b2039_devices,
 			ARRAY_SIZE(b2039_devices));
 }

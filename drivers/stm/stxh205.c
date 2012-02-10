@@ -373,6 +373,37 @@ static struct platform_device sth205_temp = {
 		},
 };
 
+/* MMC/SD */
+static struct sdhci_pltfm_data stxh205_mmc_platform_data = {
+		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
+};
+
+static struct platform_device stxh205_mmc_device = {
+		.name = "sdhci",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xFDABA000, 0x1000),
+			STM_PLAT_RESOURCE_IRQ_NAMED("mmcirq",
+						    ILC_IRQ(120), -1),
+		},
+		.dev = {
+			.platform_data = &stxh205_mmc_platform_data,
+		}
+};
+
+void __init stxh205_configure_mmc(int emmc)
+{
+	struct sdhci_pltfm_data *plat_data;
+
+	plat_data = &stxh205_mmc_platform_data;
+
+	if (unlikely(emmc))
+		plat_data->quirks |= SDHCI_QUIRK_NONREMOVABLE_CARD;
+
+	platform_device_register(&stxh205_mmc_device);
+}
+
 /* Pre-arch initialisation ------------------------------------------------ */
 
 static int __init stxh205_postcore_setup(void)

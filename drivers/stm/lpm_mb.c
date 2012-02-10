@@ -476,7 +476,7 @@ static int __init stm_lpm_probe(struct platform_device *pdev)
 		return -ENODEV;
 	lpm_debug("mem: res->start %x %x \n", res->start, res->end);
 	if (!devm_request_mem_region(&pdev->dev, res->start,
-		res->end - res->start, "stlpm")) {
+		res->end - res->start, "stm-lpm")) {
 
 		printk(KERN_ERR "%s: Request mem 0x%x region not done\n",
 				__func__, res->start);
@@ -562,7 +562,7 @@ static int stm_lpm_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver stm_lpm_driver = {
-	.driver.name	= "stlpm",
+	.driver.name	= "stm-lpm",
 	.driver.owner	= THIS_MODULE,
 	.probe		= stm_lpm_probe,
 	.remove		= stm_lpm_remove,

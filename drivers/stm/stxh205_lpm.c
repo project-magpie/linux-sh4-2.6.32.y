@@ -21,7 +21,7 @@
 #define MAILBOX_IRQ_NUM   (176+64)
 
 static struct platform_device stm_lpm_device = {
-	.name = "stlpm",
+	.name = "stm-lpm",
 	.id = 0,
 	.num_resources = 2,
 	.resource = (struct resource[]) {

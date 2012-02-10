@@ -20,6 +20,13 @@ config STM_B2039_INT_PHY_IC101A
 	  Select this option if using an STxH207 which has an IC+101A
 	  Ethernet PHY mounted alongside the SoC inside the package.
 
+config STM_B2039_INT_PHY_IC101G
+	bool "IC+101G"
+	default y
+	help
+	  Select this option if using an STxH207 which has an IC+101G
+	  Ethernet PHY mounted alongside the SoC inside the package.
+
 endchoice
 
 choice
@@ -44,6 +51,7 @@ config STM_B2039_IC101_RMII_EXTCLK
 	bool "RMII connection with external clock"
 
 config STM_B2039_IC101_RMII_NO_EXTCLK
+	depends on STM_B2039_INT_PHY_IC101A
 	bool "RMII connection with no external clock"
 
 endchoice

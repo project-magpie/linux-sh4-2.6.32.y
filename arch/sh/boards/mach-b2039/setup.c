@@ -129,7 +129,7 @@ static int __init device_init(void)
 	gpio_direction_output(B2039_MII1_TXER, 0);
 #endif
 
-#if defined(CONFIG_STM_B2039_INT_PHY_IC101A) || \
+#if !defined(CONFIG_STM_B2039_INT_PHY_NONE) || \
     !defined(CONFIG_STM_B2039_CN14_NONE)
 	stxh205_configure_ethernet(&(struct stxh205_ethernet_config) {
 #if defined(CONFIG_STM_B2039_IC101_MII) || \

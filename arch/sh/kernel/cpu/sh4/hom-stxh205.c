@@ -104,15 +104,14 @@ static int stxh205_hom_prepare(void)
 
 	/* Notify the wakeup device to the external micro */
 	stm_notify_wakeup_devices(&stxh205_wkd);
-
-	memcpy(hom_dirty_dtu_buf, 0x80004080, 16 * 4);
+	memcpy(hom_dirty_dtu_buf, (void *)0x80004080, 16 * 4);
 
 	return 0;
 }
 
 static int stxh205_hom_complete(void)
 {
-	memcpy(0x80004080, hom_dirty_dtu_buf, 16 * 4);
+	memcpy((void *)0x80004080, hom_dirty_dtu_buf, 16 * 4);
 
 	/* Enable the INTC2 */
 	writel(7, 0xfda30000 + 0x00);	/* INTPRI00 */

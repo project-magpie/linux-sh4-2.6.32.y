@@ -15,14 +15,12 @@ config STM_B2057_INT_PHY_NONE
 
 config STM_B2057_INT_PHY_IC101A
 	bool "IC+101A"
-	default y
 	help
 	  Select this option if using an STxH207 which has an IC+101A
 	  Ethernet PHY mounted alongside the SoC inside the package.
 
 config STM_B2057_INT_PHY_IC101G
 	bool "IC+101G"
-	default y
 	help
 	  Select this option if using an STxH207 which has an IC+101G
 	  Ethernet PHY mounted alongside the SoC inside the package.

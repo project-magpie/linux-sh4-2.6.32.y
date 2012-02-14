@@ -182,7 +182,7 @@ static int __init stm_usb_probe(struct platform_device *pdev)
 	struct drv_usb_data *dr_data;
 	struct device *dev = &pdev->dev;
 	struct resource *res;
-	int ret = 0, i;
+	int i;
 	static char __initdata *usb_clks_n[USB_CLKS_NR] = {
 		[USB_48_CLK] = "usb_48_clk",
 		[USB_IC_CLK] = "usb_ic_clk",

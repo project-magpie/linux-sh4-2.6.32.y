@@ -216,7 +216,7 @@ int stm_ehci_hcd_unregister(struct platform_device *dev)
 	ret = ehci_hcd_stm_remove(dev);
 	mutex_unlock(&stm_ehci_usb_mutex);
 	if (ret)
-		dgb_print("[STM][USB] Error on %s 0x%x\n", __func__, dev);
+		dgb_print("[STM][USB] Error on %s %p\n", __func__, dev);
 	return ret;
 
 }
@@ -230,7 +230,7 @@ int stm_ehci_hcd_register(struct platform_device *dev)
 	ret = ehci_hcd_stm_probe(dev);
 	mutex_unlock(&stm_ehci_usb_mutex);
 	if (ret)
-		dgb_print("[STM][USB] Error on %s 0x%x\n", __func__, dev);
+		dgb_print("[STM][USB] Error on %s %p\n", __func__, dev);
 	return ret;
 }
 EXPORT_SYMBOL(stm_ehci_hcd_register);

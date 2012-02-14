@@ -136,7 +136,7 @@ static int stxh205_suspend_core(suspend_state_t state, int suspending)
 				;
 
 	/* Wait A1.Plls lock */
-	while (ioread32(SYSTEM_STATUS_160) & 3 != 3)
+	while ((ioread32(SYSTEM_STATUS_160) & 3) != 3)
 		;
 
 	/* apply the original parents */

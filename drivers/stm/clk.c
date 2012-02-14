@@ -508,10 +508,10 @@ static void clk_resume_from_hibernation(struct clk *clk)
 		__clk_disable(clk);
 
 	if (clk_get_rate(clk) != rate)
-		pr_warning("[STM][CLK]: %s wrong final rate (%u/%u)\n",
+		pr_warning("[STM][CLK]: %s wrong final rate (%lu/%lu)\n",
 			clk->name, clk_get_rate(clk), rate);
 	if (clk_get_parent(clk) != old_parent)
-		pr_warning("[STM][CLK]: %s wrong final parent (%u/%u)\n",
+		pr_warning("[STM][CLK]: %s wrong final parent (%p/%p)\n",
 			clk->name, clk_get_parent(clk), old_parent);
 }
 

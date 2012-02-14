@@ -35,7 +35,7 @@ static u32 stm_rng_read_reg(int reg)
 	return __raw_readl(rng_base + reg);
 }
 
-static int stm_rng_data_present(struct hwrng *rng)
+static int stm_rng_data_present(struct hwrng *rng, int wait)
 {
 	return ((stm_rng_read_reg(STM_RNG_STATUS_REG) & 3) == 0);
 }

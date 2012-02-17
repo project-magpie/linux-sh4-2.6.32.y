@@ -116,14 +116,14 @@ static struct dentry *produced_control;
 static struct dentry *consumed_control;
 
 /* control file fileop declarations */
-static struct file_operations enabled_fops;
-static struct file_operations create_fops;
-static struct file_operations subbuf_size_fops;
-static struct file_operations n_subbufs_fops;
-static struct file_operations dropped_fops;
+static const struct file_operations enabled_fops;
+static const struct file_operations create_fops;
+static const struct file_operations subbuf_size_fops;
+static const struct file_operations n_subbufs_fops;
+static const struct file_operations dropped_fops;
 static const struct file_operations overwrite_fops;
-static struct file_operations produced_fops;
-static struct file_operations consumed_fops;
+static const struct file_operations produced_fops;
+static const struct file_operations consumed_fops;
 
 /* forward declarations */
 static int create_controls(void);
@@ -2546,7 +2546,7 @@ static ssize_t enabled_write(struct file *filp, const char __user * buffer,
  *
  *  toggles logging to the relay channel
  */
-static struct file_operations enabled_fops = {
+static const struct file_operations enabled_fops = {
 	.owner = THIS_MODULE,
 	.read = enabled_read,
 	.write = enabled_write,
@@ -2597,7 +2597,7 @@ static ssize_t create_write(struct file *filp, const char __user * buffer,
  *
  *  creates/destroys the relay channel
  */
-static struct file_operations create_fops = {
+static const struct file_operations create_fops = {
 	.owner = THIS_MODULE,
 	.read = create_read,
 	.write = create_write,
@@ -2643,7 +2643,7 @@ static ssize_t subbuf_size_write(struct file *filp, const char __user * buffer,
  *
  *  gets/sets the subbuffer size to use in channel creation
  */
-static struct file_operations subbuf_size_fops = {
+static const struct file_operations subbuf_size_fops = {
 	.owner = THIS_MODULE,
 	.read = subbuf_size_read,
 	.write = subbuf_size_write,
@@ -2689,7 +2689,7 @@ static ssize_t n_subbufs_write(struct file *filp, const char __user * buffer,
  *
  *  gets/sets the number of subbuffers to use in channel creation
  */
-static struct file_operations n_subbufs_fops = {
+static const struct file_operations n_subbufs_fops = {
 	.owner = THIS_MODULE,
 	.read = n_subbufs_read,
 	.write = n_subbufs_write,
@@ -2736,7 +2736,7 @@ static const struct file_operations overwrite_fops = {
  *
  *  gets the number of dropped events seen
  */
-static struct file_operations dropped_fops = {
+static const struct file_operations dropped_fops = {
 	.owner = THIS_MODULE,
 	.read = dropped_read,
 };
@@ -2769,7 +2769,7 @@ static ssize_t produced_read(struct file *filp, char __user * buffer,
  *  Reading a .produced file returns the number of sub-buffers so far
  *  produced for the associated relay buffer.
  */
-static struct file_operations produced_fops = {
+static const struct file_operations produced_fops = {
 	.owner = THIS_MODULE,
 	.open = produced_open,
 	.read = produced_read
@@ -2815,7 +2815,7 @@ static ssize_t consumed_write(struct file *filp, const char __user * buffer,
  *  Reading a .consumed file returns the number of sub-buffers so far
  *  consumed for the associated relay buffer.
  */
-static struct file_operations consumed_fops = {
+static const struct file_operations consumed_fops = {
 	.owner = THIS_MODULE,
 	.open = consumed_open,
 	.read = consumed_read,

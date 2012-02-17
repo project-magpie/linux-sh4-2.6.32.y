@@ -9,7 +9,6 @@
  *
  */
 
-#include <linux/libelf.h>
 #include <linux/module.h>
 
 /* Useful for debug, this function shows elf header informations */
@@ -26,7 +25,11 @@ void ELFW(printHeaderInfo)(const struct ELFW(info) *elfinfo)
 	else
 		printk(KERN_INFO"type       : %u\n", (elfinfo->header)->e_type);
 	printk(KERN_INFO"machine    : %u\n", (elfinfo->header)->e_machine);
+#if __LIBELF_WORDSIZE == 32
 	printk(KERN_INFO"entry      : 0x%08x\n", (elfinfo->header)->e_entry);
+#else
+	printk(KERN_INFO"entry      : 0x%08llx\n", (elfinfo->header)->e_entry);
+#endif
 	printk(KERN_INFO"flags      : %u\n", (elfinfo->header)->e_flags);
 	printk(KERN_INFO"sections   : %u\n", elfinfo->numsections);
 	printk(KERN_INFO"segments   : %u\n", elfinfo->numpheaders);

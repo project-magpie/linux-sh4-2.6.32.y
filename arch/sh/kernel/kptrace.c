@@ -100,6 +100,8 @@ static size_t n_subbufs = 4;
 static size_t overwrite_subbufs;
 #define KPTRACE_MAXSUBBUFSIZE 16777216
 #define KPTRACE_MAXSUBBUFS 256
+#define MAX_BUFFER_FULL_WARNINGS 10
+static int buffer_full_warning_ratelimit = MAX_BUFFER_FULL_WARNINGS;
 
 /* channel-management control files */
 static struct dentry *enabled_control;
@@ -776,6 +778,8 @@ static void start_tracing(void)
 				arch_arm_kprobe(&tp->kp);
 		}
 	}
+
+	buffer_full_warning_ratelimit = MAX_BUFFER_FULL_WARNINGS;
 
 	logging = 1;
 }
@@ -2290,6 +2294,16 @@ cleanup_control_files:
 
 /*
  * subbuf_start() relay callback.
+ *
+ * If all the sub-buffers are full, we don't overwrite them - no
+ * more trace is recorded until userspace has consumed some of the
+ * existing sub-buffers. The exception is in flight-recorder mode, where
+ * the whole point is that nothing is consumed until the end.
+ *
+ * We printk a warning if the buffer is full, as trace data is being lost
+ * (and a larger buffer would prevent it). Those messages can be frequent if
+ * the buffer fills, so we limit the number of warnings emitted per trace
+ * session.
  */
 static int subbuf_start_handler(struct rchan_buf *buf,
 				void *subbuf,
@@ -2297,6 +2311,18 @@ static int subbuf_start_handler(struct rchan_buf *buf,
 {
 	if (prev_subbuf)
 		*((unsigned *)prev_subbuf) = prev_padding;
+
+	if (!overwrite_subbufs && relay_buf_full(buf)) {
+		if (buffer_full_warning_ratelimit) {
+			printk(KERN_WARNING "kptrace: trace buffer full. "
+				"Consider increasing the buffer size.\n");
+			buffer_full_warning_ratelimit--;
+			if (!buffer_full_warning_ratelimit)
+				printk(KERN_WARNING "kptrace: disabling "
+						"buffer full warnings.\n");
+		}
+		return 0;
+	}
 
 	subbuf_start_reserve(buf, sizeof(unsigned int));
 

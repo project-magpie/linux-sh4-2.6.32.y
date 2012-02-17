@@ -97,6 +97,7 @@ static int suspended;
 static size_t dropped;
 static size_t subbuf_size = 262144;
 static size_t n_subbufs = 4;
+static size_t overwrite_subbufs;
 #define KPTRACE_MAXSUBBUFSIZE 16777216
 #define KPTRACE_MAXSUBBUFS 256
 
@@ -106,6 +107,7 @@ static struct dentry *create_control;
 static struct dentry *subbuf_size_control;
 static struct dentry *n_subbufs_control;
 static struct dentry *dropped_control;
+static struct dentry *overwrite_control;
 
 /* produced/consumed control files */
 static struct dentry *produced_control;
@@ -117,6 +119,7 @@ static struct file_operations create_fops;
 static struct file_operations subbuf_size_fops;
 static struct file_operations n_subbufs_fops;
 static struct file_operations dropped_fops;
+static const struct file_operations overwrite_fops;
 static struct file_operations produced_fops;
 static struct file_operations consumed_fops;
 
@@ -2403,6 +2406,9 @@ static void remove_controls(void)
 
 	if (dropped_control)
 		debugfs_remove(dropped_control);
+
+	if (overwrite_control)
+		debugfs_remove(overwrite_control);
 }
 
 /**
@@ -2445,6 +2451,14 @@ static int create_controls(void)
 					      NULL, &dropped_fops);
 	if (!dropped_control) {
 		printk("Couldn't create relay control file 'dropped'.\n");
+		goto fail;
+	}
+
+	overwrite_control = debugfs_create_file("overwrite", 0, dir,
+					      NULL, &overwrite_fops);
+	if (!overwrite_control) {
+		printk(KERN_WARNING "Couldn't create relay control "
+					"file 'overwrite'.\n");
 		goto fail;
 	}
 
@@ -2664,6 +2678,32 @@ static ssize_t dropped_read(struct file *filp, char __user * buffer,
 
 	return simple_read_from_buffer(buffer, count, ppos, buf, strlen(buf));
 }
+
+static ssize_t overwrite_write(struct file *filp, const char __user *buffer,
+			       size_t count, loff_t *ppos)
+{
+	char buf;
+
+	if (count > 1)
+		return -EINVAL;
+
+	if (copy_from_user(&buf, buffer, count))
+		return -EFAULT;
+
+	if (buf == '0')
+		overwrite_subbufs = 0;
+	else if (buf == '1')
+		overwrite_subbufs = 1;
+	else
+		return -EINVAL;
+
+	return count;
+}
+
+static const struct file_operations overwrite_fops = {
+	.owner = THIS_MODULE,
+	.write = overwrite_write,
+};
 
 /*
  * 'dropped' file operations - r

@@ -521,6 +521,7 @@ unsigned stm_pad_gpio_request_input(struct stm_pad_state *state,
 
 	return result;
 }
+EXPORT_SYMBOL(stm_pad_gpio_request_input);
 
 unsigned stm_pad_gpio_request_output(struct stm_pad_state *state,
 		const char *name, int value)

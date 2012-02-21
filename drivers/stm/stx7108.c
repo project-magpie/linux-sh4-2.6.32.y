@@ -758,6 +758,14 @@ static void __init stx7108_pio_init(void)
 				.pu = 1, \
 				.od = 1, \
 			}, \
+			.retime = &(struct stm_pio_control_retime_config) { \
+				.retime = -1, \
+				.clk1notclk0 = -1, \
+				.clknotdata = 1, \
+				.double_edge = -1, \
+				.invertclk = -1, \
+				.delay_input = -1, \
+			}, \
 		}, \
 	}
 
@@ -847,14 +855,7 @@ static struct platform_device stx7108_mmc_device = {
 
 void __init stx7108_configure_mmc(int emmc)
 {
-	struct sysconf_field **regs;
-	unsigned long value;
 	struct sdhci_pltfm_data *plat_data;
-
-	regs = stx7108_pio_1_retime;
-	value = sysconf_read(regs[0]);
-	value |= PIO1_CFG_CLKNODATA; /* Output clock */
-	sysconf_write(regs[0], value);
 
 	plat_data = &stx7108_mmc_platform_data;
 

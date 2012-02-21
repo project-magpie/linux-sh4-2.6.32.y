@@ -95,6 +95,16 @@ struct stmmac_extra_stats {
 	unsigned long poll_n;
 	unsigned long sched_timer_n;
 	unsigned long normal_irq_n;
+	unsigned long mmc_tx_irq_n;
+	unsigned long mmc_rx_irq_n;
+	unsigned long mmc_rx_csum_offload_irq_n;
+	/* EEE */
+	unsigned long irq_receive_pmt_irq_n;
+	unsigned long irq_tx_path_in_lpi_mode_n;
+	unsigned long irq_tx_path_exit_lpi_mode_n;
+	unsigned long irq_rx_path_in_lpi_mode_n;
+	unsigned long irq_rx_path_exit_lpi_mode_n;
+	unsigned long phy_eee_wakeup_error_n;
 };
 
 #define HASH_TABLE_SIZE 64
@@ -149,6 +159,17 @@ enum tx_dma_irq_status {
 	tx_hard_error = 1,
 	tx_hard_error_bump_tc = 2,
 	handle_tx_rx = 3,
+};
+
+enum core_specific_irq_mask {
+	core_mmc_tx_irq = 1,
+	core_mmc_rx_irq = 2,
+	core_mmc_rx_csum_offload_irq = 4,
+	core_irq_receive_pmt_irq = 8,
+	core_irq_tx_path_in_lpi_mode = 16,
+	core_irq_tx_path_exit_lpi_mode = 32,
+	core_irq_rx_path_in_lpi_mode = 64,
+	core_irq_rx_path_exit_lpi_mode = 128,
 };
 
 /* DMA HW capabilities */
@@ -266,7 +287,7 @@ struct stmmac_ops {
 	/* Dump MAC registers */
 	void (*dump_regs) (void __iomem *ioaddr);
 	/* Handle extra events on specific interrupts hw dependent */
-	void (*host_irq_status) (void __iomem *ioaddr);
+	int (*host_irq_status) (void __iomem *ioaddr);
 	/* Multicast filter setting */
 	void (*set_filter) (struct net_device *dev);
 	/* Flow control setting */
@@ -279,6 +300,10 @@ struct stmmac_ops {
 			       unsigned int reg_n);
 	void (*get_umac_addr) (void __iomem *ioaddr, unsigned char *addr,
 			       unsigned int reg_n);
+	void (*set_eee_mode) (void __iomem *ioaddr);
+	void (*reset_eee_mode) (void __iomem *ioaddr);
+	void (*set_eee_timer) (void __iomem *ioaddr, int ls, int tw);
+	void (*set_eee_pls) (void __iomem *ioaddr, int link);
 };
 
 struct mac_link {

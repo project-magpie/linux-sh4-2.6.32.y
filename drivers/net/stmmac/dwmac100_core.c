@@ -71,9 +71,9 @@ static void dwmac100_dump_mac_regs(void __iomem *ioaddr)
 		readl(ioaddr + MAC_VLAN2));
 }
 
-static void dwmac100_irq_status(void __iomem *ioaddr)
+static int dwmac100_irq_status(void __iomem *ioaddr)
 {
-	return;
+	return 0;
 }
 
 static void dwmac100_set_umac_addr(void __iomem *ioaddr, unsigned char *addr,

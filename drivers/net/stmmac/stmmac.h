@@ -84,6 +84,10 @@ struct stmmac_priv {
 	struct stmmac_counters mmc;
 	struct dma_features dma_cap;
 	int hw_cap_support;
+	struct timer_list eee_ctrl_timer;
+	bool tx_path_in_lpi_mode;
+	bool eee_enabled;
+	int lpi_irq;
 };
 
 extern int phyaddr;
@@ -102,3 +106,6 @@ int stmmac_dvr_remove(struct net_device *ndev);
 struct stmmac_priv *stmmac_dvr_probe(struct device *device,
 				     struct plat_stmmacenet_data *plat_dat,
 				     void __iomem *addr);
+void stmmac_disable_eee_mode(struct stmmac_priv *priv);
+bool stmmac_eee_init(struct stmmac_priv *priv);
+

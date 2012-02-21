@@ -33,6 +33,7 @@ struct ethtool_cmd {
 	__u8	eth_tp_mdix;
 	__u8	reserved2;
 	__u32	lp_advertising;	/* Features the link partner advertises */
+	__u32	eee;		/* Energy-Efficient Etehrnet */
 	__u32	reserved[2];
 };
 
@@ -497,6 +498,8 @@ struct ethtool_ops {
 	u32     (*get_priv_flags)(struct net_device *);
 	int     (*set_priv_flags)(struct net_device *, u32);
 	int	(*get_sset_count)(struct net_device *, int);
+	int	(*get_eee) (struct net_device *, struct ethtool_value *);
+	int	(*set_eee) (struct net_device *, struct ethtool_value *);
 
 	/* the following hooks are obsolete */
 	int	(*self_test_count)(struct net_device *);/* use get_sset_count */
@@ -561,6 +564,8 @@ struct ethtool_ops {
 #define	ETHTOOL_SRXCLSRLDEL	0x00000031 /* Delete RX classification rule */
 #define	ETHTOOL_SRXCLSRLINS	0x00000032 /* Insert RX classification rule */
 #define	ETHTOOL_FLASHDEV	0x00000033 /* Flash firmware to device */
+#define ETHTOOL_GEEE		0x00000041 /* Get EEE */
+#define ETHTOOL_SEEE		0x00000042 /* Set EEE */
 
 /* compatibility with older code */
 #define SPARC_ETH_GSET		ETHTOOL_GSET

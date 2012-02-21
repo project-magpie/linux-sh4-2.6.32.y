@@ -504,6 +504,9 @@ int phy_register_fixup_for_uid(u32 phy_uid, u32 phy_uid_mask,
 		int (*run)(struct phy_device *));
 int phy_scan_fixups(struct phy_device *phydev);
 
+int phy_check_eee(struct phy_device *phydev);
+int phy_get_eee_err(struct phy_device *phydev);
+
 int __init mdio_bus_init(void);
 void mdio_bus_exit(void);
 

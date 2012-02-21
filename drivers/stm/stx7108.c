@@ -685,6 +685,16 @@ static const struct stm_pio_control_config stx7108_pio_control_configs[27] = {
 
 static struct stm_pio_control stx7108_pio_controls[27];
 
+static const struct stm_pio_control_retime_offset stx7108_pio_retime_offset = {
+	.clk1notclk0_offset 	= 0,
+	.clknotdata_offset	= 1,
+	.delay_lsb_offset	= 2,
+	.double_edge_offset	= 3,
+	.invertclk_offset	= 4,
+	.retime_offset		= 5,
+	.delay_msb_offset	= 6,
+};
+
 static int stx7108_pio_config(unsigned gpio,
 		enum stm_pad_gpio_direction direction, int function, void *priv)
 {
@@ -720,24 +730,9 @@ static int stx7108_pio_config(unsigned gpio,
 
 	stm_pio_control_config_function(pio_control, pin, function);
 
-	if (config && config->retime) {
-		struct stm_pio_control_retime_config *retime = config->retime;
-		unsigned long mask =
-			(retime->clk1notclk0 > 0 ? 1<<0 : 0) |
-			(retime->clknotdata  > 0 ? 1<<1 : 0) |
-			(retime->delay_input > 0 ? 1<<2 : 0) |
-			(retime->double_edge > 0 ? 1<<3 : 0) |
-			(retime->invertclk   > 0 ? 1<<4 : 0) |
-			(retime->retime      > 0 ? 1<<5 : 0);
-		unsigned long config =
-			(retime->clk1notclk0 ? 1<<0 : 0) |
-			(retime->clknotdata  ? 1<<1 : 0) |
-			(retime->delay_input ? 1<<2 : 0) |
-			(retime->double_edge ? 1<<3 : 0) |
-			(retime->invertclk   ? 1<<4 : 0) |
-			(retime->retime      ? 1<<5 : 0);
-		stm_pio_control_config_retime(pio_control, pin, mask, config);
-	}
+	if (config && config->retime)
+		stm_pio_control_config_retime(pio_control,
+			&stx7108_pio_retime_offset, pin, config->retime);
 
 	return 0;
 }

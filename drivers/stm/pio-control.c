@@ -107,13 +107,32 @@ void stm_pio_control_config_function(struct stm_pio_control *pio_control,
 }
 
 void stm_pio_control_config_retime(struct stm_pio_control *pio_control,
-		int pin, unsigned long retime_mask,
-		unsigned long retime_config)
+		const struct stm_pio_control_retime_offset *offset,
+		int pin, struct stm_pio_control_retime_config *rt)
 {
 	struct sysconf_field **regs;
 	unsigned long values[2];
 	unsigned long mask;
 	int i, j;
+
+	unsigned long retime_mask =
+		(rt->clk1notclk0   > 0 ? 1<<offset->clk1notclk0_offset : 0) |
+		(rt->clknotdata    > 0 ? 1<<offset->clknotdata_offset : 0) |
+		((rt->delay_input & 1) ? 1<<offset->delay_lsb_offset : 0) |
+		((rt->delay_input & 2) ? 1<<offset->delay_msb_offset : 0) |
+		(rt->double_edge   > 0 ? 1<<offset->double_edge_offset : 0) |
+		(rt->invertclk     > 0 ? 1<<offset->invertclk_offset : 0) |
+		(rt->retime        > 0 ? 1<<offset->retime_offset : 0);
+
+	unsigned long retime_config =
+		(rt->clk1notclk0       ? 1<<offset->clk1notclk0_offset : 0) |
+		(rt->clknotdata        ? 1<<offset->clknotdata_offset : 0) |
+		((rt->delay_input & 1) ? 1<<offset->delay_lsb_offset : 0) |
+		((rt->delay_input & 2) ? 1<<offset->delay_msb_offset : 0) |
+		(rt->double_edge       ? 1<<offset->double_edge_offset : 0) |
+		(rt->invertclk         ? 1<<offset->invertclk_offset : 0) |
+		(rt->retime            ? 1<<offset->retime_offset : 0);
+
 
 	pr_debug("%s(pin=%d, retime_mask=%02lx, retime_config=%02lx)\n",
 		 __func__, pin, retime_mask, retime_config);

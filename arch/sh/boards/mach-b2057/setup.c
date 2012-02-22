@@ -239,3 +239,18 @@ struct sh_machine_vector mv_b2057 __initmv = {
 	.mv_nr_irqs = NR_IRQS,
 	.mv_ioport_map = b2057_ioport_map,
 };
+
+#if defined(CONFIG_HIBERNATION_ON_MEMORY)
+int stm_freeze_board(void *data)
+{
+	gpio_set_value(B2057_GPIO_POWER_ON_ETH, 0);
+	return 0;
+}
+
+int stm_defrost_board(void *data)
+{
+	b2057_phy_reset(NULL);
+	return 0;
+}
+#endif
+

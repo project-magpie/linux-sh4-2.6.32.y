@@ -52,12 +52,14 @@ static inline int gpio_get_value(unsigned gpio)
 
 static inline void gpio_set_value(unsigned gpio, int value)
 {
+#ifndef CONFIG_HIBERNATION
 	if (likely(gpio < stm_gpio_num))
 		writel(1 << stm_gpio_pin(gpio),
 				stm_gpio_bases[stm_gpio_port(gpio)] +
 				(value ? STM_GPIO_REG_SET_POUT :
 				STM_GPIO_REG_CLR_POUT));
 	else
+#endif
 		__gpio_set_value(gpio, value);
 }
 

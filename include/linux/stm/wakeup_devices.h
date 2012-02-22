@@ -31,6 +31,11 @@ struct stm_wakeup_devices {
 	unsigned int hdmi_can_wakeup:1;		/* hdmi_clk == 100 MHz	 */
 	unsigned int eth_phy_can_wakeup:1;	/* eth_phy_clk ~= 25 MHz */
 	unsigned int eth1_phy_can_wakeup:1;
+	unsigned int hdmi_cec:1;
+	unsigned int hdmi_hotplug:1;
+	unsigned int kscan:1;
+	unsigned int asc:1;
+	unsigned int rtc:1;
 };
 
 int stm_check_wakeup_devices(struct stm_wakeup_devices *dev_wk);

@@ -78,5 +78,6 @@ suspend-$(CONFIG_CPU_SUBTYPE_FLI7510)	+= suspend-fli7510.o
 obj-$(CONFIG_SUSPEND)			+= $(suspend-y)
 
 hom-y					:= stm_hom.o stm_hom-core.o
+hom-$(CONFIG_CPU_SUBTYPE_STXH205)	+= hom-stxh205.o
 hom-$(CONFIG_CPU_SUBTYPE_STX7108)	+= hom-stx7108.o
 obj-$(CONFIG_HIBERNATION_ON_MEMORY)	+= $(hom-y)

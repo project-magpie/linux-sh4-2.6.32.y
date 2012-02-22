@@ -30,6 +30,8 @@
 #define DDR_DTU_CFG			0x208
 # define DDR_DTU_CFG_ENABLE			0x1
 
+#define DDR_PHY_IOCRV1			0x31C
+
 /*
  * Synopsys DWC SDram Phy Controller
  * For registers description see:

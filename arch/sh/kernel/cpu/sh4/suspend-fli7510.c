@@ -22,6 +22,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/clk.h>
 #include <linux/stm/wakeup_devices.h>
+#include <linux/stm/synopsys_dwc_ddr32.h>
 
 #include <asm/irq-ilc.h>
 
@@ -52,42 +53,9 @@
 
 /*
  * Fli7510 uses the Synopsys IP Dram Controller
- *
- * For DDR_controller registers description see:
- *   'DesignWare Cores DDR3/2 SDRAM Protocol - Controller -
- *    Databook - Version 2.10a - February 4, 2009'
- *
- * For DDR_PHY registers description see:
- *   'DesignWare Cores DDR3/2 SDRAM Phy -
- *    Databook for ST 55LP - February 5, 2009'
  */
 #define DDR0_BASE_REG	     0xFD320000	/* 32 */
 #define DDR1_BASE_REG	     0xFD360000	/* 16 */
-#define DDR_SCTL		0x4
-# define DDR_SCTL_CFG			0x1
-# define DDR_SCTL_GO			0x2
-# define DDR_SCTL_SLEEP			0x3
-# define DDR_SCTL_WAKEUP		0x4
-
-#define DDR_STAT			0x8
-# define DDR_STAT_CONFIG		0x1
-# define DDR_STAT_ACCESS		0x3
-# define DDR_STAT_LOW_POWER		0x5
-
-#define DDR_PHY_REG(idx)		(0x400 + (idx) * 4)
-
-#define DDR_PHY_PIR			DDR_PHY_REG(1)
-# define DDR_PHY_PIR_PLL_RESET			(1 << 7)
-# define DDR_PHY_PIR_PLL_PD			(1 << 8)
-
-#define DDR_PHY_PGCR0			DDR_PHY_REG(2)
-#define DDR_PHY_PGCR1			DDR_PHY_REG(3)
-
-#define DDR_PHY_ACIOCR			DDR_PHY_REG(12)
-# define DDR_PHY_ACIOCR_OUTPUT_ENABLE		(1 << 1)
-
-#define DDR_PHY_DXCCR			DDR_PHY_REG(13)
-# define DDR_PHY_DXCCR_PDR			(1 << 4)
 
 #define DDR_CLK_REG		0xfde80000
 
@@ -111,19 +79,14 @@ END_MARKER
  * *********************
  */
 static unsigned long fli7510_mem_table[] __cacheline_aligned = {
-/* 1. Enables the DDR self refresh mode based on paraghaph. 7.1.4
- *    -> from ACCESS to LowPower
- */
-POKE32(DDR0_BASE_REG + DDR_SCTL, DDR_SCTL_SLEEP),
-WHILE_NE32(DDR0_BASE_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+synopsys_ddr32_in_self_refresh(DDR0_BASE_REG),
 
 #if 0
 OR32(DDR0_BASE_REG + DDR_PHY_IOCRV1, 1),
 OR32(DDR0_BASE_REG + DDR_PHY_DXCCR, 1),
 #endif
 
-POKE32(DDR1_BASE_REG + DDR_SCTL, DDR_SCTL_SLEEP),
-WHILE_NE32(DDR1_BASE_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+synopsys_ddr32_in_self_refresh(DDR1_BASE_REG),
 #if 0
 OR32(DDR1_BASE_REG + DDR_PHY_IOCRV1, 1),
 OR32(DDR1_BASE_REG + DDR_PHY_DXCCR, 1),
@@ -145,26 +108,9 @@ UPDATE32(DDR1_BASE_REG + DDR_PHY_IOCRV1, ~1, 0),
 UPDATE32(DDR1_BASE_REG + DDR_PHY_DXCCR, ~1, 0),
 #endif
 
-/* 2. Disables the DDR self refresh mode based on paraghaph 7.1.3
- *    -> from LowPower to Access
- */
-POKE32(DDR0_BASE_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
-WHILE_NE32(DDR0_BASE_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
 
-POKE32(DDR0_BASE_REG + DDR_SCTL, DDR_SCTL_CFG),
-WHILE_NE32(DDR0_BASE_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
-
-POKE32(DDR0_BASE_REG + DDR_SCTL, DDR_SCTL_GO),
-WHILE_NE32(DDR0_BASE_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR1_BASE_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
-WHILE_NE32(DDR1_BASE_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR1_BASE_REG + DDR_SCTL, DDR_SCTL_CFG),
-WHILE_NE32(DDR1_BASE_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
-
-POKE32(DDR1_BASE_REG + DDR_SCTL, DDR_SCTL_GO),
-WHILE_NE32(DDR1_BASE_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
+synopsys_ddr32_out_of_self_refresh(DDR0_BASE_REG),
+synopsys_ddr32_out_of_self_refresh(DDR1_BASE_REG),
 
 END_MARKER
 };

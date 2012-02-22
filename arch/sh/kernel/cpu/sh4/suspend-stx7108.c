@@ -28,10 +28,14 @@
 
 #include "stm_suspend.h"
 #include <linux/stm/poke_table.h>
+#include <linux/stm/synopsys_dwc_ddr32.h>
 
 #define CGA0			0xFDE98000
 #define CGA1			0xFDAB8000
 #define SYS_1_BASE_ADDRESS	0xFDE20000
+/*
+ * The Stx7108 uses the Synopsys IP Dram Controller
+*/
 #define DDR3SS0_REG		0xFDE50000
 #define DDR3SS1_REG		0xFDE70000
 
@@ -47,26 +51,6 @@
 
 #define CLKA0_ETH_PHY_ID		14
 #define CLKA0_ETH_MAC_ID		15
-/*
- * The Stx7108 uses the Synopsys IP Dram Controller
- * For registers description see:
- * 'DesignWare Cores DDR3/2 SDRAM Protocol - Controller -
- *  Databook - Version 2.10a - February 4, 2009'
- */
-#define DDR_SCTL		0x4
-#define  DDR_SCTL_CFG			0x1
-#define  DDR_SCTL_GO			0x2
-#define  DDR_SCTL_SLEEP			0x3
-#define  DDR_SCTL_WAKEUP		0x4
-
-#define DDR_STAT		0x8
-#define  DDR_STAT_CONFIG		0x1
-#define  DDR_STAT_ACCESS		0x3
-#define  DDR_STAT_LOW_POWER		0x5
-
-#define DDR_PHY_IOCRV1		0x31C
-#define DDR_PHY_PIR		0x404
-#define DDR_PHY_DXCCR		0x434
 /*
  * the following macros are valid only for SYSConf_Bank_1
   * where there are the ClockGen_D management registers
@@ -101,17 +85,12 @@ END_MARKER
  * *********************
  */
 static unsigned long stx7108_mem_table_c1[] __cacheline_aligned = {
-/* 1. Enables the DDR self refresh mode based on paraghaph. 7.1.4
- *    -> from ACCESS to LowPower
- */
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_SLEEP),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+synopsys_ddr32_in_self_refresh(DDR3SS0_REG),
 
 OR32(DDR3SS0_REG + DDR_PHY_IOCRV1, 1),
 OR32(DDR3SS0_REG + DDR_PHY_DXCCR, 1),
 
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_SLEEP),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+synopsys_ddr32_in_self_refresh(DDR3SS1_REG),
 
 OR32(DDR3SS1_REG + DDR_PHY_IOCRV1, 1),
 OR32(DDR3SS1_REG + DDR_PHY_DXCCR, 1),
@@ -138,38 +117,15 @@ UPDATE32(DDR3SS1_REG + DDR_PHY_DXCCR, ~1, 0),
 /* 2. Disables the DDR self refresh mode based on paraghaph 7.1.3
  *    -> from LowPower to Access
  */
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_CFG),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
-
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_GO),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_CFG),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_GO),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-
+synopsys_ddr32_out_of_self_refresh(DDR3SS0_REG),
+synopsys_ddr32_out_of_self_refresh(DDR3SS1_REG),
 END_MARKER
 };
 
 
 static unsigned long stx7108_mem_table_c2[] __cacheline_aligned = {
-/* 1. Enables the DDR self refresh mode based on paraghaph. 7.1.4
- *    -> from ACCESS to LowPower
- */
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_SLEEP),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_SLEEP),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),
+synopsys_ddr32_in_self_refresh(DDR3SS0_REG),
+synopsys_ddr32_in_self_refresh(DDR3SS1_REG),
 
 /*WHILE_NE32(SYS_BNK1_STA(5), 1, 0),*/
 
@@ -187,27 +143,9 @@ UPDATE32(DDR3SS1_REG + DDR_PHY_PIR, ~(1 << 7), 0),
 
 UPDATE32(DDR3SS0_REG + DDR_PHY_DXCCR, ~1, 0),
 UPDATE32(DDR3SS1_REG + DDR_PHY_DXCCR, ~1, 0),
-/* 2. Disables the DDR self refresh mode based on paraghaph 7.1.3
- *    -> from LowPower to Access
- */
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
 
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_CFG),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
-
-POKE32(DDR3SS0_REG + DDR_SCTL, DDR_SCTL_GO),
-WHILE_NE32(DDR3SS0_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_WAKEUP),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_CFG),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),
-
-POKE32(DDR3SS1_REG + DDR_SCTL, DDR_SCTL_GO),
-WHILE_NE32(DDR3SS1_REG + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),
-
+synopsys_ddr32_out_of_self_refresh(DDR3SS0_REG),
+synopsys_ddr32_out_of_self_refresh(DDR3SS1_REG),
 
 END_MARKER
 };

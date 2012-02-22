@@ -28,57 +28,17 @@
 
 #include "stm_hom.h"
 #include <linux/stm/poke_table.h>
+#include <linux/stm/synopsys_dwc_ddr32.h>
 
 /*
  * The Stx7108 uses the Synopsys IP Dram Controller
- * For registers description see:
- * 'DesignWare Cores DDR3/2 SDRAM Protocol - Controller -
- *  Databook - Version 2.10a - February 4, 2009'
  */
 #define DDR3SS0_REG		0xFDE50000
 #define DDR3SS1_REG		0xFDE70000
 
-#define DDR_SCTL		0x4
-#define  DDR_SCTL_CFG			0x1
-#define  DDR_SCTL_GO			0x2
-#define  DDR_SCTL_SLEEP			0x3
-#define  DDR_SCTL_WAKEUP		0x4
-
-#define DDR_STAT		0x8
-#define  DDR_STAT_CONFIG		0x1
-#define  DDR_STAT_ACCESS		0x3
-#define  DDR_STAT_LOW_POWER		0x5
-
-#define DDR_DTU_CFG		0x208
-# define DDR_DTU_CFG_ENABLE		0x1
-
 /*
  * The Stx7108 uses the Synopsys IP Dram Phy Controller
- * For registers description see:
- * 'DesignWare Cores DDR3/2 SDRAM PHY -
- *  Databook - February 5, 2009'
- *
- * - Table 5.1: PHY Control Register Mapping
- * and
- * - Table 5.30: PUB Control Register Mapping
  */
-#define DDR_PHY_REG(idx)		(0x400 + (idx) * 4)
-
-#define DDR_PHY_PIR			DDR_PHY_REG(1)		/* 0x04 */
-# define DDR_PHY_PIR_PLL_RESET			(1 << 7)
-# define DDR_PHY_PIR_PLL_PD			(1 << 8)
-
-#define DDR_PHY_PGCR0			DDR_PHY_REG(2)		/* 0x08 */
-#define DDR_PHY_PGCR1			DDR_PHY_REG(3)		/* 0x0c */
-
-#define DDR_PHY_ACIOCR			DDR_PHY_REG(12)		/* 0x30 */
-# define DDR_PHY_ACIOCR_OUTPUT_ENABLE		(1 << 1)
-# define DDR_PHY_ACIOCR_PDD			(1 << 3)
-# define DDR_PHY_ACIOCR_PDR			(1 << 4)
-
-#define DDR_PHY_DXCCR			DDR_PHY_REG(13)		/* 0x34 */
-# define DDR_PHY_DXCCR_PDR			(1 << 4)
-
 #define PCLK				100000000
 #define BAUDRATE_VAL_M1(bps)    	\
 	((((bps * (1 << 14)) + (1 << 13)) / (PCLK / (1 << 6))))
@@ -106,33 +66,9 @@
 #define SYS_B1_CFG4            0x4C
 
 
-#define ddr_in_low_power(_ddr_base)				\
-/* Enable DTU */						\
-OR32((_ddr_base) + DDR_DTU_CFG, DDR_DTU_CFG_ENABLE),		\
-								\
-/* 1. Enables the DDR self refresh mode based */		\
-/*    on paraghaph. 7.1.4 -> from ACCESS to LowPower */		\
-								\
-POKE32((_ddr_base)  + DDR_SCTL, DDR_SCTL_SLEEP),		\
-WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER),\
-								\
-/* 2. Turn in LowPower the DDR-Phy */				\
-OR32((_ddr_base) + DDR_PHY_PIR, DDR_PHY_PIR_PLL_RESET),		\
-OR32((_ddr_base) + DDR_PHY_PIR, DDR_PHY_PIR_PLL_PD),		\
-								\
-POKE32((_ddr_base) + DDR_PHY_ACIOCR, -1),			\
-UPDATE32((_ddr_base) + DDR_PHY_ACIOCR, ~1, 0),			\
-								\
-OR32((_ddr_base) + DDR_PHY_DXCCR, DDR_PHY_DXCCR_PDR),		\
-								\
-/* Disable CK going to the SDRAM */				\
-UPDATE32((_ddr_base) + DDR_PHY_PGCR0, ~(0x3f << 26), 0),	\
-UPDATE32((_ddr_base) + DDR_PHY_PGCR1, ~(5 << 12), 0)
-
-
 static unsigned long stx7108_hom_table[] __cacheline_aligned = {
-ddr_in_low_power(DDR3SS0_REG),
-ddr_in_low_power(DDR3SS1_REG),
+synopsys_ddr32_in_hom(DDR3SS0_REG),
+synopsys_ddr32_in_hom(DDR3SS1_REG),
 /*
  * Enable retention mode gpio[26][4]
  *

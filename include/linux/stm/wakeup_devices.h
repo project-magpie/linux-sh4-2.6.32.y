@@ -27,10 +27,10 @@
  */
 
 struct stm_wakeup_devices {
-	int lirc_can_wakeup:1;		/* lirc_scd_clk >= 1 MHz	*/
-	int hdmi_can_wakeup:1;		/* hdmi_clk == 100 MHz		*/
-	int eth_phy_can_wakeup:1;	/* eth_phy_clk ~= 25 MHz	*/
-	int eth1_phy_can_wakeup:1;
+	unsigned int lirc_can_wakeup:1;		/* lirc_scd_clk >= 1 MHz */
+	unsigned int hdmi_can_wakeup:1;		/* hdmi_clk == 100 MHz	 */
+	unsigned int eth_phy_can_wakeup:1;	/* eth_phy_clk ~= 25 MHz */
+	unsigned int eth1_phy_can_wakeup:1;
 };
 
 int stm_check_wakeup_devices(struct stm_wakeup_devices *dev_wk);

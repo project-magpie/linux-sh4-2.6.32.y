@@ -10,6 +10,18 @@
 #include <linux/device.h>
 #include <linux/platform_device.h>
 
+static int wokenup_by;
+
+int stm_get_wakeup_reason(void)
+{
+	return wokenup_by;
+}
+
+void stm_set_wakeup_reason(int irq)
+{
+	wokenup_by = irq;
+}
+
 static void stm_wake_init(struct stm_wakeup_devices *wkd)
 {
 	memset(wkd, 0, sizeof(*wkd));

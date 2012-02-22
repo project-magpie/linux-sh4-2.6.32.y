@@ -39,4 +39,8 @@ struct stm_wakeup_devices {
 };
 
 int stm_check_wakeup_devices(struct stm_wakeup_devices *dev_wk);
+
+int stm_get_wakeup_reason(void);
+
+void stm_set_wakeup_reason(int wk_irq);
 #endif

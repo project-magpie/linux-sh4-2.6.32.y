@@ -11,7 +11,14 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
-
+02/jan/12 ravinder-dlh.singh@st.com
+      Adding support to enable/disable VCC clocks
+07/dec/11 ravinder-dlh.singh@st.com
+      Updates based on Linux delivery from Francesco Virlinzi
+	  clockgenB observation function updated.
+28/nov/11 ravinder-dlh.singh@st.com
+      Integrated updates from Francesco Virlinzi (linux) for clockgenA0/A1
+      Added support for clockgenB (FS0/1) and clockgeC(FS2) based on new FS660c32 algo.
 28/sep/11 ravinder-dlh.singh@st.com
 	  More updates for ST_H205 add and remove H205_PS1/PS2 stuff
 14/jul/11 ravinder-dlh.singh@st.com
@@ -39,7 +46,6 @@
 #include <linux/stm/stxh205.h>
 #include <linux/io.h>
 #include <linux/delay.h>
-
 #endif
 
 #include "clock-stxh205.h"
@@ -606,6 +612,7 @@ static int clkgenax_disable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
+       /* PLL power down */
 	switch (clk_p->id) {
 	case CLK_A0_REF:
 	case CLK_A1_REF:
@@ -795,7 +802,7 @@ static int clkgenax_observe(clk_t *clk_p, unsigned long *div_p)
 		*div_p = 1;
 		break;
 	}
-	base_addr = clkgenax_get_base_address(clk_p->id);
+	base_addr = clkgenax_get_base_address(clk_p->id); /*check*/
 	CLK_WRITE((base_addr + CKGA_CLKOBS_MUX0_CFG),
 		(divcfg << 6) | (sel & 0x3f));
 
@@ -808,10 +815,14 @@ static int clkgenax_observe(clk_t *clk_p, unsigned long *div_p)
 #ifdef ST_OS21
 	if (base_addr == CKGA0_BASE_ADDRESS) {
 		SYSCONF_WRITE(0, 108, 0, 2, 3);	/* Selecting alternate 3 */
-		SYSCONF_WRITE(0, 111, 0, 0, 1);/* Enabling IO */
+		SYSCONF_WRITE(0, 111, 0, 0, 1); /* Enabling IO */
+		SYSCONF_WRITE(0, 117, 0, 0, 0);	/* Open drain */
+		SYSCONF_WRITE(0, 114, 0, 0, 0); /* pull up */
 	} else {
 		SYSCONF_WRITE(0, 108, 4, 6, 3);	/* Selecting alternate 3 */
-		SYSCONF_WRITE(0, 111, 1, 1, 1);/* Enabling IO */
+		SYSCONF_WRITE(0, 111, 1, 1, 1); /* Enabling IO */
+		SYSCONF_WRITE(0, 117, 1, 1, 0);	/* Open drain  */
+		SYSCONF_WRITE(0, 114, 1, 1, 0); /* pull up */
 	}
 #else
 #warning clkgenax_observe needs updates
@@ -830,7 +841,10 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 {
 	unsigned long div, idf, ndiv, cp;
 	int err = 0;
-
+	long deviation, new_deviation;
+#if !defined(CLKLLA_NO_PLL)
+	unsigned long data;
+#endif
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 	if (clk_p->id < CLK_A0_PLL0HS || clk_p->id > CLK_A0_MASTER)
@@ -847,7 +861,6 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 		if (err != 0)
 			break;
 #if !defined(CLKLLA_NO_PLL)
-		unsigned long data;
 		data = CLK_READ(CKGA0_BASE_ADDRESS + CKGA_PLL0_REG0_CFG)
 				& 0xffffff00;
 		data |= ndiv;
@@ -879,6 +892,12 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 	case CLK_A0_SH4_ICK ... CLK_A0_MASTER:
 		div = clk_p->parent->rate / freq;
+		deviation = (clk_p->parent->rate / div) - freq;
+		new_deviation = (clk_p->parent->rate / (div + 1)) - freq;
+		if (new_deviation < 0)
+			new_deviation = -new_deviation;
+		if (new_deviation < deviation)
+			div++;
 		err = clkgenax_set_div(clk_p, &div);
 		break;
 	default:
@@ -900,6 +919,7 @@ static int clkgena1_set_rate(clk_t *clk_p, unsigned long freq)
 {
 	unsigned long div, idf, ndiv, cp;
 	int err = 0;
+	long deviation, new_deviation;
 	unsigned long data;
 
 	if (!clk_p)
@@ -949,6 +969,12 @@ static int clkgena1_set_rate(clk_t *clk_p, unsigned long freq)
 		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 	case CLK_A1_IC_DDRCTRL ... CLK_A1_SYS_MMC:
 		div = clk_p->parent->rate / freq;
+		deviation = (clk_p->parent->rate / div) - freq;
+		new_deviation = (clk_p->parent->rate / (div + 1)) - freq;
+		if (new_deviation < 0)
+			new_deviation = -new_deviation;
+		if (new_deviation < deviation)
+			div++;
 		err = clkgenax_set_div(clk_p, &div);
 		break;
 	default:
@@ -1020,7 +1046,7 @@ static unsigned long clkgenax_get_measure(clk_t *clk_p)
 	CLK_WRITE(base + CKGA_CLKOBS_CMD, 0);
 
 	for (i = 0; i < 10; i++) {
-		__mdelay(10);
+		CLK_DELAYMS(10);
 		data = CLK_READ(base + CKGA_CLKOBS_STATUS);
 		if (data & 1)
 			break;	/* IT */
@@ -1062,7 +1088,7 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 #if !defined(CLKLLA_NO_PLL)
 	/* Which FSYN control registers to use ? */
 	switch (clk_p->id) {
-	case CLK_B_FS0_VCO ...CLK_B_CLK_27_0:
+	case CLK_B_FS0_VCO ... CLK_B_CLK_27_0:
 		bank = 0;
 		channel = clk_p->id - CLK_B_VID_HD_LOCAL;
 		break;
@@ -1214,7 +1240,7 @@ static int clkgenb_set_rate(clk_t *clk_p, unsigned long freq)
 	int err;
 	unsigned long div;
 #if !defined(CLKLLA_NO_PLL)
-	unsigned long md, pe, sdiv, ndiv, nsdiv = 1;
+	unsigned long md, pe, sdiv, ndiv, nsdiv = -1;
 	unsigned long val = 0;
 	int bank, channel;
 #endif
@@ -1238,10 +1264,10 @@ static int clkgenb_set_rate(clk_t *clk_p, unsigned long freq)
 		SYSCONF_WRITE(0, 478, 15, 17, ndiv);
 		SYSCONF_WRITE(0, 478, 14, 14, 1); /* PLL power up */
 		break;
-	case CLK_B_VID_HD_LOCAL ...CLK_B_CLK_27_0:
+	case CLK_B_VID_HD_LOCAL ... CLK_B_CLK_27_0:
 	case CLK_B_VID_SD_REMOTE ... CLK_B_CLK_27_1:
-		if (clk_fs660c32_dig_get_params(clk_p->parent->rate,
-			freq, nsdiv, &md, &pe, &sdiv))
+		if (clk_fs660liege_dig_get_params(clk_p->parent->rate,
+			freq, &nsdiv, &md, &pe, &sdiv))
 			return CLK_ERR_BAD_PARAMETER;
 
 		bank = (clk_p->id <= CLK_B_FS1_VCO) ? 0 : 1;
@@ -1261,13 +1287,14 @@ static int clkgenb_set_rate(clk_t *clk_p, unsigned long freq)
 				sdiv);
 		val = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_NSDIV(bank));
 		if (nsdiv)
-			val |= (nsdiv << (channel + 1));
+			val |= (1 << (channel + 1));
 		else
-			val &= ~(nsdiv << (channel + 1));
-		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel),
-			val | 0x1);
-		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel),
-			val);
+			val &= ~(1 << (channel + 1));
+		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_NSDIV(bank), val);
+		/* prog enable */
+		val = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel));
+		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel), val | 0x1);
+		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel), val & ~0x1);
 
 		/* NSB set */
 		val = SYSCONF_READ(0, 424, 10, 13);
@@ -1422,7 +1449,10 @@ static int clkgenb_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	/* Which FSYN control registers to use ? */
 	bank = (clk_p->id <= CLK_B_CLK_27_0) ? 0 : 1;
-	channel = (clk_p->id - CLK_B_VID_HD_LOCAL) % 4;
+	if (clk_p->id <= CLK_B_FS1_VCO)
+		channel = clk_p->id - CLK_B_VID_HD_LOCAL;
+	else
+		channel = clk_p->id - CLK_B_VID_SD_REMOTE;
 
 	val = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_CFG(bank));
 
@@ -1451,6 +1481,41 @@ static int clkgenb_xable_fsyn(clk_t *clk_p, unsigned long enable)
 }
 
 /* ========================================================================
+   Name:        clkgenb_xable_clock
+   Description: Enable/disable clock (Clockgen B)
+   Returns:     'clk_err_t' error code
+   ======================================================================== */
+
+static int clkgenb_xable_clock(clk_t *clk_p, unsigned long enable)
+{
+	unsigned long bit;
+	int err = 0;
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id >= CLK_B_PIX_HD && clk_p->id <= CLK_B_PIP) {
+		/* Clocks from "Video Clock Controller".
+		STOP clock controlled thru SYSTEM_CONFIG 463 of bank3 */
+		unsigned long tmp = SYSCONF_READ(0, 463, 0, 15);
+		bit = clk_p->id - CLK_B_PIX_HD;
+		if (enable)
+			tmp &= ~(1 << bit);
+		else
+			tmp |= (1 << bit);
+		SYSCONF_WRITE(0, 463, 0, 15, tmp);
+	} else
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (enable)
+		err = clkgenb_recalc(clk_p);
+	else
+		clk_p->rate = 0;
+
+	return err;
+}
+
+/* ========================================================================
    Name:        clkgenb_enable
    Description: Enable clock
    Returns:     'clk_err_t' error code.
@@ -1458,7 +1523,17 @@ static int clkgenb_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 static int clkgenb_enable(clk_t *clk_p)
 {
-	return clkgenb_xable_fsyn(clk_p, 1);
+	int err;
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id >= CLK_B_VID_HD_LOCAL && clk_p->id <= CLK_B_CLK_27_1)
+		err = clkgenb_xable_fsyn(clk_p, 1);
+	else
+		err = clkgenb_xable_clock(clk_p, 1);
+
+	return err;
 }
 
 /* ========================================================================
@@ -1469,7 +1544,17 @@ static int clkgenb_enable(clk_t *clk_p)
 
 static int clkgenb_disable(clk_t *clk_p)
 {
-	return clkgenb_xable_fsyn(clk_p, 0);
+	int err;
+
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id >= CLK_B_VID_HD_LOCAL && clk_p->id <= CLK_B_CLK_27_1)
+		err = clkgenb_xable_fsyn(clk_p, 0);
+	else
+		err = clkgenb_xable_clock(clk_p, 0);
+
+	return err;
 }
 
 /* ========================================================================
@@ -1493,6 +1578,7 @@ static int clkgenb_observe(clk_t *clk_p, unsigned long *div_p)
 		CLK_WRITE(CKGB_BASE_ADDRESS + 0xF8, (((chan-4)<<12)|0x300));
 	else
 		CLK_WRITE(CKGB_BASE_ADDRESS + 0xF8, (((chan)<<10)|0x100));
+
 #ifdef ST_OS21
 	/* Configuring corresponding PIO (PIO10[3]) */
 	SYSCONF_WRITE(0, 106, 12, 14, 5);	/* Selecting alt mode 5 */
@@ -1553,7 +1639,8 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 	pe = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_PE(channel));
 	md = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_MD(channel));
 	sdiv = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_SDIV(channel));
-	nsdiv = (CLK_READ(CKGB_BASE_ADDRESS + CKGC_FS_NSDIV)) >> 1 & 1;
+	nsdiv = (CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_NSDIV) >>
+			(1 + channel)) & 1;
 	err = clk_fs660c32_get_rate(clk_p->parent->rate,
 				nsdiv, md, pe, sdiv, &clk_p->rate);
 #else
@@ -1618,7 +1705,7 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 {
 	int err = 0;
 	unsigned long val = 0;
-	unsigned long pe, md, sdiv, ndiv, nsdiv = 1;
+	unsigned long pe, md, sdiv, ndiv, nsdiv = -1;
 	int channel;
 
 	if (!clk_p)
@@ -1635,8 +1722,8 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	}
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fs660c32_dig_get_params(clk_p->parent->rate,
-		freq, nsdiv, &md, &pe, &sdiv))
+	if (clk_fs660liege_dig_get_params(clk_p->parent->rate,
+		freq, &nsdiv, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
 	channel = (clk_p->id - CLK_C_SPDIF);
@@ -1651,13 +1738,16 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_PE(channel), pe);
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_MD(channel), md);
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_SDIV(channel), sdiv);
-	val = CLK_READ(CKGB_BASE_ADDRESS + CKGC_FS_NSDIV);
+	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_NSDIV);
 	if (nsdiv)
-		val |= (nsdiv << 1);
+		val |= (1 << (channel + 1));
 	else
-		val &= ~(nsdiv << 1);
-	CLK_WRITE(CKGB_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val | 0x1);
-	CLK_WRITE(CKGB_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val);
+		val &= ~(1 << (channel + 1));
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_NSDIV, val);
+	/* prog enable */
+	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel));
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val | 0x1);
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val & ~0x1);
 
 	/* NSB set */
 	val = SYSCONF_READ(0, 406, 10, 13);

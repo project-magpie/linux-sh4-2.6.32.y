@@ -661,13 +661,16 @@ struct sh_machine_vector mv_hdk7108 __initmv = {
 };
 
 #ifdef CONFIG_HIBERNATION_ON_MEMORY
-int stm_freeze_board(void *data)
+
+#include "../../kernel/cpu/sh4/stm_hom.h"
+
+static int hdk7108_board_freeze(void)
 {
 	gpio_direction_output(HDK7108_PIO_POWER_ON, 0);
 	return 0;
 }
 
-int stm_defrost_board(void *data)
+static int hdk7108_board_restore(void)
 {
 	/* Some of the peripherals are powered by regulators
 	 * triggered by the following PIO line... */
@@ -681,4 +684,16 @@ int stm_defrost_board(void *data)
 
 	return 0;
 }
+
+static struct stm_hom_board hdk7108_hom = {
+	.freeze = hdk7108_board_freeze,
+	.restore = hdk7108_board_restore,
+};
+
+static int __init hdk7108_hom_register(void)
+{
+	return stm_hom_board_register(&hdk7108_hom);
+}
+
+module_init(hdk7108_hom_register);
 #endif

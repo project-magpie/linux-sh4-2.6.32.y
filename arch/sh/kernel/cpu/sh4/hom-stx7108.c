@@ -111,7 +111,7 @@ static void stx7108_hom_early_console(void)
 
 static int stx7108_hom_prepare(void)
 {
-	stm_freeze_board(NULL);
+	stm_freeze_board();
 
 	/*
 	 * Set SCA/SCL high temporarily.
@@ -133,7 +133,7 @@ static int stx7108_hom_complete(void)
 	writel(7, 0xfda30000 + 0x00);	/* INTPRI00 */
 	writel(1, 0xfda30000 + 0x60);	/* INTMSKCLR00 */
 
-	stm_defrost_board(NULL);
+	stm_restore_board();
 
 	/*
 	 * Set SCA/SCL again as STM_GPIO_DIRECTION_BIDIR to be

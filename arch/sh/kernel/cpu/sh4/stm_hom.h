@@ -28,8 +28,18 @@ void stm_hom_exec_table(unsigned int tbl, unsigned int tbl_end,
 
 void stm_defrost_kernel(void);
 
-int stm_freeze_board(void *data);
-int stm_defrost_board(void *data);
+/*
+ * HOM - board API
+ */
+int stm_freeze_board(void);
+int stm_restore_board(void);
+
+struct stm_hom_board {
+	int (*freeze)(void);
+	int (*restore)(void);
+};
+
+int stm_hom_board_register(struct stm_hom_board *board);
 
 void hom_printk(char *buf, ...);
 

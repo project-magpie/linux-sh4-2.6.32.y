@@ -19,6 +19,7 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/preempt.h>
+#include <linux/suspend.h>
 
 #include <asm/thread_info.h>
 #include <asm/cacheflush.h>
@@ -106,6 +107,7 @@ void hom_printk(char *buf, ...)
 
 
 static struct stm_mem_hibernation *platform_hom;
+static struct stm_hom_board *board_hom;
 unsigned long stm_hom_saved_stack_value;
 /*
  * stm_hom_boot_stack is a mini stack in uncached.data
@@ -116,16 +118,6 @@ unsigned long stm_hom_boot_stack[THREAD_SIZE / 4]
 static long linux_marker[] = {	0x7a6f7266,	/* froz */
 				0x6c5f6e65,	/* en_l */
 				0x78756e69 };	/* inux */
-
-int __weak stm_freeze_board(void *data)
-{
-	return 0;
-}
-
-int __weak stm_defrost_board(void *data)
-{
-	return 0;
-}
 
 /*
  * This function restarts the TMU1 in free running mode
@@ -330,3 +322,34 @@ int stm_hom_register(struct stm_mem_hibernation *data)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stm_hom_register);
+
+/*
+ * HoM: Board support
+ */
+static struct stm_hom_board *board_hom;
+
+int stm_freeze_board(void)
+{
+	if (board_hom && board_hom->freeze)
+		return board_hom->freeze();
+
+	return 0;
+}
+
+int stm_restore_board(void)
+{
+	if (board_hom && board_hom->restore)
+		return board_hom->restore();
+
+	return 0;
+}
+
+
+int stm_hom_board_register(struct stm_hom_board *board)
+{
+	mutex_lock(&pm_mutex);
+	board_hom = board;
+	mutex_unlock(&pm_mutex);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(stm_hom_board_register);

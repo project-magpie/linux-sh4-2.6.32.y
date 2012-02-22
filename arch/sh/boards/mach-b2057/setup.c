@@ -241,16 +241,31 @@ struct sh_machine_vector mv_b2057 __initmv = {
 };
 
 #if defined(CONFIG_HIBERNATION_ON_MEMORY)
-int stm_freeze_board(void *data)
+
+#include "../../kernel/cpu/sh4/stm_hom.h"
+
+static int b2057_board_freeze(void)
 {
 	gpio_set_value(B2057_GPIO_POWER_ON_ETH, 0);
 	return 0;
 }
 
-int stm_defrost_board(void *data)
+static int b2057_board_defrost(void)
 {
 	b2057_phy_reset(NULL);
 	return 0;
 }
+
+static struct stm_hom_board b2057_hom = {
+	.freeze = b2057_board_freeze,
+	.restore = b2057_board_defrost,
+};
+
+static int __init b2057_hom_register(void)
+{
+	return stm_hom_board_register(&b2057_hom);
+}
+
+module_init(b2057_hom_register);
 #endif
 

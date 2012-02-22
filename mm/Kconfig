@@ -308,3 +308,21 @@ config BPA2_ALLOC_TRACE
 	  Enables tracing of BPA2 allocations - /proc/bpa2 will list
 	  all the allocations together with information about a code which
 	  called the allocator function.
+
+config MIN_FREE_KBYTES
+	bool "Set min_free_kbytes"
+	default n
+	help
+	  The value min_free_kbytes defines how much free memory should
+	  be maintained. It is set to a function of the size of system
+	  memory on startup, and can be altered through procfs. This option
+	  allows a different default value to be set.
+
+config MIN_FREE_KBYTES_VAL
+	int "min_free_kbytes"
+	depends on MIN_FREE_KBYTES
+	default 4096
+	help
+	  The value min_free_kbytes defines how much free memory should
+	  be maintained. This is the default value, it can be changed
+	  using procfs.

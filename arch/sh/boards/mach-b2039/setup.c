@@ -15,6 +15,10 @@
 #include <linux/phy.h>
 #include <linux/gpio.h>
 #include <linux/leds.h>
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stxh205.h>
 #include <linux/stm/sysconf.h>
@@ -71,6 +75,58 @@ static struct platform_device b2039_leds = {
 		},
 	},
 };
+
+/* Serial Flash */
+static struct stm_plat_spifsm_data b2039_serial_flash =  {
+	.name		= "mx25l25635e",
+	.nr_parts	= 2,
+	.parts = (struct mtd_partition []) {
+		{
+			.name = "Serial Flash 1",
+			.size = 0x00080000,
+			.offset = 0,
+		}, {
+			.name = "Serial Flash 2",
+			.size = MTDPART_SIZ_FULL,
+			.offset = MTDPART_OFS_NXTBLK,
+		},
+	},
+	.capabilities = {
+		/* Capabilities may be overriden by SoC configuration */
+		.dual_mode = 1,
+		.quad_mode = 1,
+	},
+};
+
+/* NAND Flash (via b2006a/b2007a VPMEM module) */
+static struct stm_nand_bank_data b2039_nand_flash = {
+	.csn		= 0,
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
+	.timing_data	=  &(struct stm_nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
+};
+
 
 /*
  * Need to fit J35 1-2 for this, disconnect CN21 to prevert the
@@ -190,6 +246,15 @@ static int __init device_init(void)
 			 */
 			.out10_enabled = 0,
 			.out11_enabled = 0, });
+
+	stxh205_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &b2039_nand_flash,
+			.rbn.flex_connected = 1,});
+
+	stxh205_configure_spifsm(&b2039_serial_flash);
+
 
 #ifdef CONFIG_STM_B2048A_MMC_SLOT
 	stxh205_configure_mmc(0);

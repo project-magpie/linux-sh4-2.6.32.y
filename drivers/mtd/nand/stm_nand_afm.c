@@ -934,6 +934,12 @@ static int afm_do_read_oob(struct mtd_info *mtd, loff_t from,
 	page = realpage & chip->pagemask;
 
 	while (1) {
+#ifdef CONFIG_STM_NAND_AFM_PBLBOOTBOUNDARY
+		/* Need to check/Update ECC scheme if using PBL boot-boundary */
+		afm_select_eccparams(mtd, page << chip->page_shift);
+		if (ops->mode == MTD_OOB_AUTO)
+			len = chip->ecc.layout->oobavail;
+#endif
 		sndcmd = chip->ecc.read_oob(mtd, chip, page, sndcmd);
 
 		len = min(len, readlen);
@@ -1009,6 +1015,10 @@ static int afm_do_read_ops(struct mtd_info *mtd, loff_t from,
 	oob = ops->oobbuf;			/* pointer to oob buf	*/
 
 	while (1) {
+#ifdef CONFIG_STM_NAND_AFM_PBLBOOTBOUNDARY
+		/* Need to check/Update ECC scheme if using PBL boot-boundary */
+		afm_select_eccparams(mtd, page << chip->page_shift);
+#endif
 		/* #bytes in next transfer */
 		bytes = min(mtd->writesize - col, readlen);
 		/* tranfer aligned to page? */
@@ -1305,6 +1315,10 @@ static int afm_do_write_ops(struct mtd_info *mtd, loff_t to,
 		int cached = writelen > bytes && page != blockmask;
 		uint8_t *wbuf = buf;
 
+#ifdef CONFIG_STM_NAND_AFM_PBLBOOTBOUNDARY
+		/* Need to check/Update ECC scheme if using PBL boot-boundary */
+		afm_select_eccparams(mtd, page << chip->page_shift);
+#endif
 		/* Partial page write ? */
 		/* TODO: change alignment constraints for DMA transfer! */
 		if (unlikely(column || writelen < (mtd->writesize - 1) ||
@@ -1826,7 +1840,7 @@ static int afm_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
 	}
 
 	/* Set page address */
-	prog->addr_reg = afm->page << 8;
+	prog->addr_reg = page << 8;
 
 	/* Copy program to controller, and start sequence */
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
@@ -2839,6 +2853,11 @@ int afm_scan(struct mtd_info *mtd, int maxchips)
 }
 
 #ifdef CONFIG_STM_NAND_AFM_PBLBOOTBOUNDARY
+
+#define PBL_BOOT_BOUNDARY_POINTER	0x0034
+#define PBL_MARKER1			0x09b1b007
+#define PBL_MARKER2			(~(PBL_MARKER1))
+
 /* The NAND_BLOCK_ZERO_REMAP_REG is not implemented on current versions of the
  * NAND controller.  We must therefore scan for the logical block 0 pattern.
  */
@@ -2854,56 +2873,159 @@ static int check_block_zero_pattern(uint8_t *buf)
 	return 0;
 }
 
-static int pbl_boot_boundary(struct mtd_info *mtd, uint32_t *_boundary)
+static int find_block_zero(struct mtd_info *mtd)
 {
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
 	struct nand_chip *chip = mtd->priv;
 	struct stm_nand_afm_device *data = chip->priv;
 	uint8_t *buf = chip->buffers->databuf;
-	int block;
-	int block_zero_phys = -1;
+
+	int block, block_end;
+	uint32_t offs;
+	uint32_t page;
 	int pages_per_block;
-	uint32_t boundary_log = 0;
-	uint32_t boundary_phys;
 
 	/* Select boot-mode ECC */
 	afm_select_eccparams(mtd, data->boot_start);
 
-	/* Find logical block zero */
 	pages_per_block = 1 << (chip->phys_erase_shift - chip->page_shift);
-	afm->col = 0;
-	afm->page = 0;
-	for (block = 0; block < 512; block++) {
-		if (nand_isbad_bbt(mtd, block << chip->phys_erase_shift, 0)
-		    == 0) {
-			afm_read_page_boot(mtd, chip, buf, afm->page);
 
-			if (check_block_zero_pattern(buf) == 0) {
-				block_zero_phys = block;
-				boundary_log = *((uint32_t *)(buf + 0x0034));
-				break;
-			}
+	block_end = min(512UL, (data->boot_end >> chip->phys_erase_shift));
+
+	for (block = 0; block < block_end; block++) {
+		offs = block << chip->phys_erase_shift;
+
+		/* Skip if block is bad */
+		if (nand_isbad_bbt(mtd, offs, 0))
+			continue;
+
+		page = block * pages_per_block;
+		afm->page = page;
+
+		afm_read_page_boot(mtd, chip, buf, page);
+
+		if (check_block_zero_pattern(buf) == 0)
+			return block;
+	}
+
+	return -1;
+}
+
+static int find_pbl_marker(uint8_t *buf, int len, int *col)
+{
+	uint32_t *s = (uint32_t *)buf;
+	int i;
+
+	/* The PBL offset must also be present in the buffer for success, '0',
+	 * to be returned. */
+	for (i = 0; i < (len / 4) - 2; i++) {
+		if ((s[i] == PBL_MARKER1) && (s[i + 1] == PBL_MARKER2)) {
+			*col = i * 4;
+			return 0;
 		}
-		afm->page += pages_per_block;
 	}
 
-	/* Return if we didn't find logical block zero */
-	if (block_zero_phys == -1)
+	return 1;
+}
+
+/* Find the offset of the PBL.  Note, the PBL is not always located at the start
+ * of block zero, so we must search for the PBL Markers and PBL offset. */
+static int find_pbl_offset(struct mtd_info *mtd, int block_zero,
+			   uint32_t *offset)
+{
+	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
+	struct nand_chip *chip = mtd->priv;
+	struct stm_nand_afm_device *data = chip->priv;
+
+	int buf_len;
+	uint8_t *buf;
+
+	int pages_per_block;
+	uint32_t delta;
+	int found = 0;
+	int page;
+	int page_end;
+	int col;
+	int marker_size = 2 * sizeof(uint32_t);
+
+	pages_per_block = 1 << (chip->phys_erase_shift - chip->page_shift);
+	page_end = data->boot_end >> chip->page_shift;
+
+	/* Use extended buffer to handle the case where the PBL Markers and the
+	 * Offset straddle a page boundary. */
+	buf_len = mtd->writesize + marker_size;
+	buf = kmalloc(buf_len, GFP_KERNEL);
+	if (!buf) {
+		dev_err(afm->dev, "failed to allocate PBL search buffer\n");
 		return 1;
-
-	/* For bootmode_boundary, map logical offset to physical offset */
-	boundary_phys = block_zero_phys << chip->phys_erase_shift;
-	while (boundary_log >= mtd->erasesize) {
-		boundary_phys += mtd->erasesize;
-		if (!afm_block_isbad(mtd, boundary_phys))
-			boundary_log -= mtd->erasesize;
 	}
-	boundary_phys += boundary_log;		/* Add residual offset */
 
-	dev_info(afm->dev, "boot-mode boundary = 0x%08x (physical)\n",
-		 boundary_phys);
+	/* Initialise start of buffer - see memcpy() below... */
+	memset(buf, 0x00, marker_size);
 
-	*_boundary = boundary_phys;
+	/* Start at block zero */
+	for (page = block_zero * pages_per_block;
+	     page < page_end; page++) {
+
+		afm_read_page_boot(mtd, chip, buf + marker_size, page);
+		if (find_pbl_marker(buf, buf_len, &col) == 0) {
+			found = 1;
+			delta = *((uint32_t *)(buf + col + marker_size));
+			*offset =  (page << chip->page_shift) + col - delta;
+			break;
+		}
+
+		/* Copy end of buffer to start, just in case the markers and
+		 * offset straddle a page boundary. */
+		memcpy(buf, buf + (buf_len - marker_size), marker_size);
+	}
+
+	kfree(buf);
+
+	/* Did we find the PBL? */
+	return found ? 0 : 1;
+}
+
+static int pbl_boot_boundary(struct mtd_info *mtd, uint32_t *boundary)
+{
+	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
+	struct nand_chip *chip = mtd->priv;
+	uint8_t *buf = chip->buffers->databuf;
+
+	int block_zero;
+	uint32_t pbl_offs = 0x00000000;
+	int pbl_page;
+
+	/* Find logical block zero */
+	block_zero = find_block_zero(mtd);
+	if (block_zero < 0) {
+		dev_err(afm->dev, "failed to find logical block zero\n");
+		return 1;
+	}
+
+	dev_dbg(afm->dev, "block zero: 0x%08x\n",
+		 block_zero << chip->phys_erase_shift);
+
+	/* Find PBL offset */
+	if (find_pbl_offset(mtd, block_zero, &pbl_offs) != 0) {
+		dev_err(afm->dev, "failed to find PBL marker\n");
+		return 1;
+	}
+
+	dev_dbg(afm->dev, "PBL offset: 0x%08x\n", pbl_offs);
+
+	if (pbl_offs & (mtd->writesize - 1)) {
+		dev_err(afm->dev, "PBL offset is not page-aligned\n");
+		return 1;
+	}
+
+	/* Extract boot-boundary from PBL image */
+	pbl_page = pbl_offs >> chip->page_shift;
+	afm_read_page_boot(mtd, chip, buf, pbl_page);
+	*boundary = *((uint32_t *)(buf + PBL_BOOT_BOUNDARY_POINTER));
+	*boundary += block_zero << chip->phys_erase_shift;	/* physical */
+
+	dev_info(afm->dev, "PBL boot-boundary: 0x%08x\n", *boundary);
 
 	return 0;
 }
@@ -2960,14 +3082,6 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 		goto err2;
 	}
 
-#ifdef CONFIG_STM_NAND_AFM_BOOTMODESUPPORT
-	/* Set name of boot partition */
-	boot_part_name = nbootpart ? nbootpart :
-		CONFIG_STM_NAND_AFM_BOOTPARTITION;
-	dev_info(afm->dev, "using boot partition name [%s] (from %s)\n",
-		 boot_part_name, nbootpart ? "command line" : "kernel config");
-#endif
-
 #ifdef CONFIG_MTD_PARTITIONS
 	/* Try probing for MTD partitions */
 	data->nr_parts = parse_mtd_partitions(&data->mtd,
@@ -2988,12 +3102,13 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 			goto err3;
 
 #ifdef CONFIG_STM_NAND_AFM_BOOTMODESUPPORT
+		/* Set name of boot partition */
+		boot_part_name = nbootpart ? nbootpart :
+			CONFIG_STM_NAND_AFM_BOOTPARTITION;
+
 		/* Update boot-mode slave partition */
 		slave = get_mtd_partition_slave(&data->mtd, boot_part_name);
 		if (slave) {
-			dev_info(afm->dev, "found boot-mode partition "
-				 "updating ECC paramters\n");
-
 			part = PART(slave);
 			data->boot_start = part->offset;
 			data->boot_end = part->offset + slave->size;
@@ -3002,19 +3117,15 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 			/* Update 'boot_end' with value in PBL image */
 			if (pbl_boot_boundary(&data->mtd,
 					      &boundary) != 0) {
-				dev_info(afm->dev, "failed to get boot-mode "
-					 "boundary from PBL\n");
+				dev_err(afm->dev, "failed to get boot-mode "
+					"boundary from PBL\n");
 			} else {
 				if (boundary < data->boot_start ||
 				    boundary > data->boot_end) {
-					dev_info(afm->dev,
-						 "PBL boot-mode "
-						 "boundary lies outside "
-						 "boot partition\n");
+					dev_err(afm->dev, "PBL boot-mode "
+						"boundary lies outside "
+						"boot partition\n");
 				} else {
-					dev_info(afm->dev,
-						 "Updating boot-mode "
-						 "ECC boundary from PBL");
 					data->boot_end = boundary;
 				}
 			}

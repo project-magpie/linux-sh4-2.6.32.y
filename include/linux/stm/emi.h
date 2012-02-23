@@ -35,4 +35,9 @@ void emi_config_nand(int bank, struct emi_timing_data *timing_data);
 struct stm_plat_pci_config;
 void emi_config_pci(struct stm_plat_pci_config *pci_config);
 
+enum nandi_controllers {STM_NANDI_UNCONFIGURED,
+			STM_NANDI_HAMMING,
+			STM_NANDI_BCH};
+void emiss_nandi_select(enum nandi_controllers controller);
+
 #endif

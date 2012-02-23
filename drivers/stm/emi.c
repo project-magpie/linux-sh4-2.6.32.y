@@ -344,6 +344,30 @@ void emi_config_pci(struct stm_plat_pci_config *pci_config)
 }
 EXPORT_SYMBOL_GPL(emi_config_pci);
 
+void emiss_nandi_select(enum nandi_controllers controller)
+{
+	unsigned v;
+
+	BUG_ON(!emi_initialised);
+
+	v = readl(emiss_config + EMISS_CONFIG);
+
+	if (controller == STM_NANDI_HAMMING) {
+		if (v & EMISS_CONFIG_HAMMING_NOT_BCH)
+			return;
+		v |= EMISS_CONFIG_HAMMING_NOT_BCH;
+	} else {
+		if (!(v & EMISS_CONFIG_HAMMING_NOT_BCH))
+			return;
+		v &= ~EMISS_CONFIG_HAMMING_NOT_BCH;
+	}
+
+	writel(v, emiss_config + EMISS_CONFIG);
+	readl(emiss_config + EMISS_CONFIG);
+}
+EXPORT_SYMBOL_GPL(emiss_nandi_select);
+
+
 #ifdef CONFIG_PM
 /*
  * Note on Power Management of EMI device

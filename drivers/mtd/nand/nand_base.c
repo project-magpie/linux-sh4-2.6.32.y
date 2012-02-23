@@ -2813,8 +2813,8 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 						  int busw, int *maf_id)
 {
 	struct nand_flash_dev *type = NULL;
-	int dev_id, maf_idx;
-	int tmp_id, tmp_manf;
+	int dev_id, maf_idx, i;
+	u8 id_data[8];
 	int ret;
 
 	/* Select the device */
@@ -2841,23 +2841,18 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 
 	chip->cmdfunc(mtd, NAND_CMD_READID, 0x00, -1);
 
-	/* Read manufacturer and device IDs */
+	for (i = 0; i < 2; i++)
+		id_data[i] = chip->read_byte(mtd);
 
-	tmp_manf = chip->read_byte(mtd);
-	tmp_id = chip->read_byte(mtd);
-
-	if (tmp_manf != *maf_id || tmp_id != dev_id) {
-		printk(KERN_INFO "%s: second ID read did not match "
-		       "%02x,%02x against %02x,%02x\n", __func__,
-		       *maf_id, dev_id, tmp_manf, tmp_id);
+	if (id_data[0] != *maf_id || id_data[1] != dev_id) {
+		pr_info("%s: second ID read did not match "
+			"%02x,%02x against %02x,%02x\n", __func__,
+			*maf_id, dev_id, id_data[0], id_data[1]);
 		return ERR_PTR(-ENODEV);
 	}
 
 	/* Lookup the flash id */
-	if (!type)
-		type = nand_flash_ids;
-
-	for (; type->name != NULL; type++)
+	for (type = nand_flash_ids; type->name != NULL; type++)
 		if (dev_id == type->id)
 			break;
 
@@ -2875,51 +2870,17 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	if (!mtd->name)
 		mtd->name = type->name;
 
-	chip->chipsize = (uint64_t)type->chipsize << 20;
-
+	/* Read entire ID string */
 	chip->cmdfunc(mtd, NAND_CMD_READID, 0x00, -1);
-	chip->read_byte(mtd);
-	chip->read_byte(mtd);
+	for (i = 0; i < 8; i++)
+		id_data[i] = chip->read_byte(mtd);
 
-	/* Newer devices have all the information in additional id bytes */
-	if (!type->pagesize) {
-		int extid;
-		/* The 3rd id byte holds MLC / multichip data */
-		chip->cellinfo = chip->read_byte(mtd);
-		/* The 4th id byte is the important one */
-		extid = chip->read_byte(mtd);
-		/* Calc pagesize */
-		mtd->writesize = 1024 << (extid & 0x3);
-		extid >>= 2;
-		/* Calc oobsize */
-		mtd->oobsize = (8 << (extid & 0x01)) * (mtd->writesize >> 9);
-		extid >>= 2;
-		/* Calc blocksize. Blocksize is multiples of 64KiB */
-		mtd->erasesize = (64 * 1024) << (extid & 0x03);
-		extid >>= 2;
-		/* Get buswidth information */
-		busw = (extid & 0x01) ? NAND_BUSWIDTH_16 : 0;
-
-		/* Micron device: check for 4-bit on-die ECC */
-		if (*maf_id == NAND_MFR_MICRON) {
-			u8 id4, id5;
-			id4 = chip->read_byte(mtd);
-			id5 = chip->read_byte(mtd);
-
-			/* Do we have a 5-byte ID ? */
-			if (!(id4 == *maf_id && id5 == dev_id))
-				/* ECC level in id4[1:0] */
-				if ((id4 & 0x3) == 0x2)
-					chip->ecc.mode = NAND_ECC_4BITONDIE;
-		}
-	} else {
-		/*
-		 * Old devices have chip data hardcoded in the device id table
-		 */
-		mtd->erasesize = type->erasesize;
-		mtd->writesize = type->pagesize;
-		mtd->oobsize = mtd->writesize / 32;
-		busw = type->options & NAND_BUSWIDTH_16;
+	/* Decode ID string */
+	if (nand_decode_id(mtd, chip, type, id_data, 8) != 0) {
+		printk(KERN_INFO "Failed to decode NAND READID "
+		       "[%02x %02x %02x %02x]\n",
+		       id_data[0], id_data[1], id_data[2], id_data[3]);
+		return ERR_PTR(-EINVAL);
 	}
 
  ident_done:
@@ -2956,24 +2917,10 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	else
 		chip->chip_shift = ffs((unsigned)(chip->chipsize >> 32)) + 32 - 1;
 
-	/* Set the bad block position */
-	chip->badblockpos = mtd->writesize > 512 ?
-		NAND_LARGE_BADBLOCK_POS : NAND_SMALL_BADBLOCK_POS;
-
-	/* Get chip options, preserve non chip based options */
-	chip->options &= ~NAND_CHIPOPTIONS_MSK;
-	chip->options |= type->options & NAND_CHIPOPTIONS_MSK;
-
 	/*
-	 * Set chip as a default. Board drivers can override it, if necessary
+	 * Detmine manufactuer's bad-block marker scheme
 	 */
-	chip->options |= NAND_NO_AUTOINCR;
-
-	/* Check if chip is a not a samsung device. Do not clear the
-	 * options for chips which are not having an extended id.
-	 */
-	if (*maf_id != NAND_MFR_SAMSUNG && !type->pagesize)
-		chip->options &= ~NAND_SAMSUNG_LP_OPTIONS;
+	nand_derive_bbm(mtd, chip, id_data);
 
 	/* Check for AND chips with 4 page planes */
 	if (chip->options & NAND_4PAGE_ARRAY)

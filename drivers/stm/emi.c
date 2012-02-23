@@ -12,10 +12,43 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/stm/platform.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/device.h>
 #include <linux/stm/clk.h>
 #include <linux/stm/pm_sys.h>
+
+#define EMISS_CONFIG				0x0000
+#define EMISS_CONFIG_PCI_CLOCK_MASTER 		(0x1 << 0)
+#define EMISS_CONFIG_CLOCK_SELECT_MASK 		(0x3 << 1)
+#define EMISS_CONFIG_CLOCK_SELECT_PCI		(0x1 << 2)
+#define EMISS_CONFIG_PCI_HOST_NOT_DEVICE	(0x1 << 5)
+#define EMISS_CONFIG_HAMMING_NOT_BCH		(0x1 << 6)
+
+#define EMISS_ARBITER_CONFIG			0x0004
+#define EMISS_ARBITER_CONFIG_SLAVE_NOTMASTER	(1 << 0)
+#define EMISS_ARBITER_CONFIG_GRANT_RETRACTION	(1 << 1)
+#define EMISS_ARBITER_CONFIG_BYPASS_ARBITER 	(1 << 2)
+#define EMISS_ARBITER_CONFIG_MASK_BUS_REQ0 	(1 << 4)
+/* Can use req0 with following macro */
+#define EMISS_ARBITER_CONFIG_MASK_BUS_REQ(n)	(1 << (4 + (n)))
+#define EMISS_ARBITER_CONFIG_BUS_REQ_ALL_MASKED (0xf << 4)
+#define EMISS_ARBITER_CONFIG_PCI_NOT_EMI	(1 << 8)
+#define EMISS_ARBITER_CONFIG_BUS_FREE		(1 << 9)
+#define EMISS_ARBITER_CONFIG_STATIC_NOT_DYNAMIC	(1 << 12)
+
+#define EMISS_INTERFACE_EMI			0
+#define EMISS_INTERFACE_NAND			1
+#define EMISS_INTERFACE_PCI			2
+#define EMISS_INTERFACE_REQ0			3
+#define EMISS_INTERFACE_REQ1			4
+#define EMISS_INTERFACE_REQ2			5
+#define EMISS_INTERFACE_REQ3			6
+
+#define EMISS_FRAME_LENGTH(n)			(0x010 + ((n)*0x10))
+#define EMISS_HOLDOFF(n)			(0x014 + ((n)*0x10))
+#define EMISS_PRIORITY(n)			(0x018 + ((n)*0x10))
+#define EMISS_BANDWIDTH_LIMIT(n)		(0x01c + ((n)*0x10))
 
 
 #define EMI_GEN_CFG			0x0028
@@ -32,6 +65,7 @@ static struct clk *emi_clk;
 #define emi_initialised			(emi != NULL)
 static unsigned long emi_memory_base;
 static void __iomem *emi_control;
+static void __iomem *emiss_config;
 static struct stm_device_state *emi_device_state;
 
 static inline void emi_clk_xxable(int enable)
@@ -263,18 +297,50 @@ void emi_config_nand(int bank, struct emi_timing_data *timing_data)
 }
 EXPORT_SYMBOL_GPL(emi_config_nand);
 
-void emi_config_pci(void)
+void emi_config_pci(struct stm_plat_pci_config *pci_config)
 {
-	u32 tmp;
+	unsigned long v;
+	unsigned long req_gnt_mask;
+	int i, req;
 
 	BUG_ON(!emi_initialised);
 
-	tmp = readl(emi_control + EMI_GEN_CFG);
+	v = readl(emi_control + EMI_GEN_CFG);
 	/* bit 16 is undocumented but enables extra pullups on the bus which
 	 * is needed for correction operation if the EMI is accessed
 	 * simultaneously with PCI
 	 */
-	writel(tmp | (1 << 16), emi_control + EMI_GEN_CFG);
+	writel(v | (1 << 16), emi_control + EMI_GEN_CFG);
+
+	v = readl(emiss_config + EMISS_CONFIG);
+
+	writel((v & ~EMISS_CONFIG_CLOCK_SELECT_MASK) |
+	       EMISS_CONFIG_PCI_CLOCK_MASTER |
+	       EMISS_CONFIG_CLOCK_SELECT_PCI |
+	       EMISS_CONFIG_PCI_HOST_NOT_DEVICE, emiss_config + EMISS_CONFIG);
+
+	/* It doesn't make any sense to try to use req/gnt3 when the chip has
+	 * the req0_to_req3 workaround. Effectively req3 is disconnected, so
+	 * it only supports 3 external masters
+	 */
+	BUG_ON(pci_config->req0_to_req3 &&
+	       pci_config->req_gnt[3] != PCI_PIN_UNUSED);
+
+	req_gnt_mask = EMISS_ARBITER_CONFIG_BUS_REQ_ALL_MASKED;
+	/* Figure out what req/gnt lines we are using */
+	for (i = 0; i < 4; i++) {
+		if (pci_config->req_gnt[i] != PCI_PIN_UNUSED) {
+			req = ((i == 0) && pci_config->req0_to_req3) ? 3 : i;
+			req_gnt_mask &= ~EMISS_ARBITER_CONFIG_MASK_BUS_REQ(req);
+		}
+	}
+	/* The PCI_NOT_EMI bit really controls MPX or PCI. It also must be set
+	 * to allow the req0_to_req3 logic to be enabled. GRANT_RETRACTION is
+	 * not available on MPX, so should be set for PCI
+	 */
+	writel(EMISS_ARBITER_CONFIG_PCI_NOT_EMI |
+	       EMISS_ARBITER_CONFIG_GRANT_RETRACTION |
+	       req_gnt_mask, emiss_config + EMISS_ARBITER_CONFIG);
 }
 EXPORT_SYMBOL_GPL(emi_config_pci);
 
@@ -292,9 +358,11 @@ EXPORT_SYMBOL_GPL(emi_config_pci);
 /*
  * emi_num_common_cfg = 12 common config	+
  * 			emi_bank_enable(0x280)	+
- *			emi_bank_number(0x860)
+ *			emi_bank_number(0x860)	+
+ *			emiss_config		+
+ *			emiss_arbiter_config
  */
-#define emi_num_common_cfg	(12 + 2)
+#define emi_num_common_cfg	(12 + 4)
 #define emi_num_bank		5
 #define emi_num_bank_cfg	4
 
@@ -318,13 +386,17 @@ static int emi_hibernation(int resuming)
 	if (resuming) {
 		if (emi_saved_data) {
 			/* restore the previous common value */
-			for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
-			writel(emi_saved_data->common_cfg[idx],
-				emi_control+EMI_COMMON_CFG(idx));
+			for (idx = 0; idx < emi_num_common_cfg-4; ++idx)
+				writel(emi_saved_data->common_cfg[idx],
+				       emi_control+EMI_COMMON_CFG(idx));
 			writel(emi_saved_data->common_cfg[12], emi_control
 					+ EMI_BANK_ENABLE);
 			writel(emi_saved_data->common_cfg[13], emi_control
 					+ EMI_BANKNUMBER);
+			writel(emi_saved_data->common_cfg[14], emiss_config +
+			       EMISS_CONFIG);
+			writel(emi_saved_data->common_cfg[15], emiss_config +
+			       EMISS_ARBITER_CONFIG);
 			/* restore the previous bank values */
 			for (bank = 0; bank < emi_num_bank; ++bank) {
 			  writel(emi_saved_data->bank[bank].base_address,
@@ -343,11 +415,14 @@ static int emi_hibernation(int resuming)
 		return -ENOMEM;
 	}
 	/* save the emi common values */
-	for (idx = 0; idx < emi_num_common_cfg-2; ++idx)
+	for (idx = 0; idx < emi_num_common_cfg-4; ++idx)
 		emi_saved_data->common_cfg[idx] =
 			readl(emi_control + EMI_COMMON_CFG(idx));
 	emi_saved_data->common_cfg[12] = readl(emi_control + EMI_BANK_ENABLE);
 	emi_saved_data->common_cfg[13] = readl(emi_control + EMI_BANKNUMBER);
+	emi_saved_data->common_cfg[14] = readl(emiss_config + EMISS_CONFIG);
+	emi_saved_data->common_cfg[15] =
+		readl(emiss_config + EMISS_ARBITER_CONFIG);
 	/* save the emi bank value */
 	for (bank  = 0; bank < emi_num_bank; ++bank) {
 		emi_saved_data->bank[bank].base_address =
@@ -405,9 +480,45 @@ static int __init emi_subsystem_register(void)
 module_init(emi_subsystem_register);
 #endif
 
-static int __init emi_driver_probe(struct platform_device *pdev)
+static int __init remap_named_resource(struct platform_device *pdev,
+				       char *name,
+				       void __iomem **io_ptr)
 {
 	struct resource *res;
+	resource_size_t size;
+	void __iomem *p;
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, name);
+	if (!res) {
+		dev_err(&pdev->dev, "failed to find resource [%s]\n", name);
+		return -ENXIO;
+	}
+
+	size = resource_size(res);
+
+	if (!devm_request_mem_region(&pdev->dev,
+				     res->start, size, name)) {
+		dev_err(&pdev->dev, "failed to request memory region "
+			"[%s:0x%08x-0x%08x]\n", name, res->start, res->end);
+		return -EBUSY;
+	}
+
+	p = devm_ioremap_nocache(&pdev->dev, res->start, size);
+	if (!p) {
+		dev_err(&pdev->dev, "failed to remap memory region "
+			"[%s:0x%08x-0x%08x]\n", name, res->start, res->end);
+		return -ENOMEM;
+	}
+
+	*io_ptr = p;
+
+	return 0;
+}
+
+static int __init emi_driver_probe(struct platform_device *pdev)
+{
+	struct resource	*res;
+	int err;
 
 	BUG_ON(emi_initialised);
 
@@ -417,18 +528,17 @@ static int __init emi_driver_probe(struct platform_device *pdev)
 	if (!emi_device_state)
 		return -EBUSY;
 
-	/* acquires control base resource */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	err = remap_named_resource(pdev, "emiss config", &emiss_config);
+	if (err)
+		return err;
 
-	if (!request_mem_region(res->start, res->end - res->start, "EMI"))
-		return -EBUSY;
+	err = remap_named_resource(pdev, "emi4 config", &emi_control);
+	if (err)
+		return err;
 
-	emi_control = ioremap(res->start, res->end - res->start);
-	if (emi_control == NULL)
-		return -ENOMEM;
-
-	/* acquires mem base resource */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "emi memory");
+	if (!res)
+		return -ENXIO;
 	emi_memory_base = res->start;
 
 	emi_clk = clk_get(&pdev->dev, "emi_clk");
@@ -437,6 +547,7 @@ static int __init emi_driver_probe(struct platform_device *pdev)
 
 	emi_clk_enable();
 	emi = pdev; /* to say the EMI is initialised */
+
 	return 0;
 }
 

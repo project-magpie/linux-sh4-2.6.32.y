@@ -112,7 +112,7 @@ static struct platform_device fli7510_pci_device = {
 			.end = 0xffff,
 			.flags = IORESOURCE_IO,
 		},
-		STM_PLAT_RESOURCE_MEM_NAMED("pci emiss", 0xfd200000, 0x17fc),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci bridge", 0xfd201400, 0x3fc),
 		STM_PLAT_RESOURCE_MEM_NAMED("pci ahb", 0xfd080000, 0xff),
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci dma", ILC_IRQ(47), -1),
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci err", ILC_IRQ(48), -1),

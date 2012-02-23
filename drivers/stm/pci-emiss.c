@@ -34,7 +34,7 @@ static DEFINE_SPINLOCK(stm_pci_io_lock);
 
 /* I doubt we will ever have more than one EMI/PCI controller, so we may as
  * well make the register pointers global */
-static void __iomem *emiss; /* pointer to emiss register area */
+static void __iomem *pci_bridge; /* pointer to emiss pci_bridge register area */
 static void __iomem *ahb_pci; /* Ditto for AHB registers */
 
 static unsigned pci_reset_pin = -EINVAL;	/* Global for PCI reset */
@@ -403,11 +403,11 @@ static void __iomem __devinit *plat_ioremap_region(struct platform_device *pdev,
 static irqreturn_t pci_stm_dma_irq(int irq, void *data)
 {
 	printk(KERN_WARNING "pci_stm: PCI_BRIDGE_INT_DMA_STATUS = 0x%08x\n",
-			readl(emiss + PCI_BRIDGE_INT_DMA_STATUS));
+			readl(pci_bridge + PCI_BRIDGE_INT_DMA_STATUS));
 	printk(KERN_WARNING "pci_stm: Transaction with no associated "
 			"function\n");
 
-	writel(~0, emiss + PCI_BRIDGE_INT_DMA_CLEAR);
+	writel(~0, pci_bridge + PCI_BRIDGE_INT_DMA_CLEAR);
 
 	return IRQ_HANDLED;
 }
@@ -415,20 +415,20 @@ static irqreturn_t pci_stm_dma_irq(int irq, void *data)
 static irqreturn_t pci_stm_error_irq(int irq, void *data)
 {
 	printk(KERN_ERR "pci_stm: PCI_DEVICEINTMASK_INT_STATUS = 0x%08x\n",
-			readl(emiss + PCI_DEVICEINTMASK_INT_STATUS));
+	       readl(pci_bridge + PCI_DEVICEINTMASK_INT_STATUS));
 	printk(KERN_ERR "pci_stm: PCI_PME_STATUSCHG_INT_STATUS = 0x%08x\n",
-			readl(emiss + PCI_PME_STATUSCHG_INT_STATUS));
+	       readl(pci_bridge + PCI_PME_STATUSCHG_INT_STATUS));
 	printk(KERN_ERR "pci_stm: PCI_PME_STATECHG_INT_STATUS = 0x%08x\n",
-			readl(emiss + PCI_PME_STATECHG_INT_STATUS));
+	       readl(pci_bridge + PCI_PME_STATECHG_INT_STATUS));
 
 	printk(KERN_ERR "pci_stm: PCI_CSR_PCI_ERROR = 0x%08x\n",
-			readl(ahb_pci + PCI_CSR_PCI_ERROR));
+	       readl(ahb_pci + PCI_CSR_PCI_ERROR));
 	printk(KERN_ERR "pci_stm: PCI_CSR_PCI_ERROR_ADDR = 0x%08x\n",
-			readl(ahb_pci + PCI_CSR_PCI_ERROR_ADDR));
+	       readl(ahb_pci + PCI_CSR_PCI_ERROR_ADDR));
 	printk(KERN_ERR "pci_stm: PCI_CSR_AHB_ERROR = 0x%08x\n",
-			readl(ahb_pci + PCI_CSR_AHB_ERROR));
+	       readl(ahb_pci + PCI_CSR_AHB_ERROR));
 	printk(KERN_ERR "pci_stm: PCI_CSR_AHB_ERROR_ADDR = 0x%08x\n",
-			readl(ahb_pci + PCI_CSR_AHB_ERROR_ADDR));
+	       readl(ahb_pci + PCI_CSR_AHB_ERROR_ADDR));
 
 	panic("pci_stm: PCI error interrupt raised\n");
 
@@ -482,47 +482,15 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	unsigned long lmi_base, lmi_end, mbar_size;
 	int fn;
 	unsigned v;
-	unsigned long req_gnt_mask;
-	int i, req;
 
 	/* Set up the EMI to use PCI */
-	emi_config_pci();
+	emi_config_pci(pci_config);
 
 	/* You HAVE to have either wrap or ping-pong enabled, even though they
 	 * are different bits. Very strange */
 	writel(PCI_BRIDGE_CONFIG_RESET | PCI_BRIDGE_CONFIG_HOST_NOT_DEVICE |
-			PCI_BRIDGE_CONFIG_WRAP_ENABLE_ALL,
-			emiss + PCI_BRIDGE_CONFIG);
-
-	v = readl(emiss + EMISS_CONFIG);
-	writel((v & ~EMISS_CONFIG_CLOCK_SELECT_MASK) |
-			EMISS_CONFIG_PCI_CLOCK_MASTER |
-			EMISS_CONFIG_CLOCK_SELECT_PCI |
-			EMISS_CONFIG_PCI_HOST_NOT_DEVICE,
-			emiss + EMISS_CONFIG);
-
-	/* It doesn't make any sense to try to use req/gnt3 when the chip has
-	 * the req0_to_req3 workaround. Effectively req3 is disconnected, so
-	 * it only supports 3 external masters
-	 */
-	BUG_ON(pci_config->req0_to_req3 &&
-	       pci_config->req_gnt[3] != PCI_PIN_UNUSED);
-
-	req_gnt_mask = EMISS_ARBITER_CONFIG_BUS_REQ_ALL_MASKED;
-	/* Figure out what req/gnt lines we are using */
-	for (i = 0; i < 4; i++) {
-		if (pci_config->req_gnt[i] != PCI_PIN_UNUSED) {
-			req = ((i == 0) && pci_config->req0_to_req3) ? 3 : i;
-			req_gnt_mask &= ~EMISS_ARBITER_CONFIG_MASK_BUS_REQ(req);
-		}
-	}
-	/* The PCI_NOT_EMI bit really controls MPX or PCI. It also must be set
-	 * to allow the req0_to_req3 logic to be enabled. GRANT_RETRACTION is
-	 * not available on MPX, so should be set for PCI
-	 */
-	writel(EMISS_ARBITER_CONFIG_PCI_NOT_EMI |
-	       EMISS_ARBITER_CONFIG_GRANT_RETRACTION |
-	       req_gnt_mask, emiss + EMISS_ARBITER_CONFIG);
+	       PCI_BRIDGE_CONFIG_WRAP_ENABLE_ALL,
+	       pci_bridge + PCI_BRIDGE_CONFIG);
 
 	/* This field will need to be parameterised by the soc layer for sure,
 	 * all silicon will likely be different */
@@ -533,17 +501,18 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	v |= PCI_AD_CONFIG_MAX_OPCODE(pci_config->ad_max_opcode);
 	v |= PCI_AD_CONFIG_POSTED(pci_config->ad_posted);
 	v |= PCI_AD_CONFIG_THRESHOLD(pci_config->ad_threshold);
-	writel(v, emiss +  PCI_AD_CONFIG);
+	writel(v, pci_bridge +  PCI_AD_CONFIG);
+
 
 	/* Now we can start to program up the BARs and probe the bus */
 
 	/* Set up the window from the STBUS space to PCI space
 	 * We want a one to one physical mapping, anything else is far too
 	 * complicated (and pointless) */
-	writel(pci_window_start, emiss + PCI_FRAME_ADDR);
+	writel(pci_window_start, pci_bridge + PCI_FRAME_ADDR);
 	/* Largest PCI address will form the mask in effect.
 	 * Assumes pci_window_size is ^2 */
-	writel(pci_window_size  - 1, emiss + PCI_FRAMEADDR_MASK);
+	writel(pci_window_size  - 1, pci_bridge + PCI_FRAMEADDR_MASK);
 
 	/* Now setup the reverse mapping, using as many functions as we have
 	 * to. Each function maps 256Megs */
@@ -573,13 +542,13 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 
 		/* Update the emiss registers, we just have a one to one
 		 * translation */
-		writel(lmi_base, emiss + PCI_BUFFADDR_FUNC(fn, 0));
-		writel(lmi_base, emiss + PCI_BUFFADDR_FUNC(fn, 1));
+		writel(lmi_base, pci_bridge + PCI_BUFFADDR_FUNC(fn, 0));
+		writel(lmi_base, pci_bridge + PCI_BUFFADDR_FUNC(fn, 1));
 
-		writel(mbar_size, emiss + PCI_FUNC_BUFFDEPTH(fn));
+		writel(mbar_size, pci_bridge + PCI_FUNC_BUFFDEPTH(fn));
 		writel(PCI_FUNC_BUFF_CONFIG_ENABLE |
 				PCI_FUNC_BUFF_CONFIG_FUNC_ID(fn),
-				emiss + PCI_FUNC_BUFF_CONFIG(fn));
+				pci_bridge + PCI_FUNC_BUFF_CONFIG(fn));
 
 		lmi_base += mbar_size;
 	}
@@ -588,7 +557,7 @@ static void __devinit pci_stm_setup(struct stm_plat_pci_config *pci_config,
 	 * claimed by anybody */
 	writel(PCI_BRIDGE_INT_DMA_ENABLE_INT_ENABLE |
 			PCI_BRIDGE_INT_DMA_ENABLE_INT_UNDEF_FN_ENABLE,
-			emiss + PCI_BRIDGE_INT_DMA_ENABLE);
+			pci_bridge + PCI_BRIDGE_INT_DMA_ENABLE);
 
 	/* Reset any pci peripherals that are connected to the board */
 	if (pci_config->pci_reset)
@@ -608,8 +577,8 @@ static int __devinit pci_stm_probe(struct platform_device *pdev)
 	struct stm_plat_pci_config *pci_config = pdev->dev.platform_data;
 	struct clk *pci_clk;
 
-	emiss = plat_ioremap_region(pdev, "pci emiss");
-	if (emiss == NULL)
+	pci_bridge = plat_ioremap_region(pdev, "pci bridge");
+	if (pci_bridge == NULL)
 		return -ENOMEM;
 
 	ahb_pci = plat_ioremap_region(pdev, "pci ahb");

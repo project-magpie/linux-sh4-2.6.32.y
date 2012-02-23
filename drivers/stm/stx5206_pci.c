@@ -19,7 +19,6 @@
 #include <asm/irq-ilc.h>
 
 
-
 /* PCI Resources ---------------------------------------------------------- */
 
 /* You may pass one of the PCI_PIN_* constants to use dedicated pin or
@@ -83,7 +82,7 @@ static struct platform_device stx5206_pci_device = {
 			.end = 0xffff,
 			.flags = IORESOURCE_IO,
 		},
-		STM_PLAT_RESOURCE_MEM_NAMED("pci emiss", 0xfe400000, 0x17fc),
+		STM_PLAT_RESOURCE_MEM_NAMED("pci bridge", 0xfe401400, 0x3fc),
 		STM_PLAT_RESOURCE_MEM_NAMED("pci ahb", 0xfe560000, 0xff),
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci dma", evt2irq(0x1280), -1),
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci err", evt2irq(0x1200), -1),

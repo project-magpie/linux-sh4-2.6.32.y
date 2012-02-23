@@ -150,4 +150,8 @@ void stxh205_configure_usb(int port);
 
 void stxh205_configure_mmc(int emmc);
 
+void stxh205_configure_spifsm(struct stm_plat_spifsm_data *data);
+
+void stxh205_configure_nand(struct stm_nand_config *config);
+
 #endif

@@ -407,6 +407,72 @@ void __init stxh205_configure_mmc(int emmc)
 	platform_device_register(&stxh205_mmc_device);
 }
 
+/* SPI FSM setup ---------------------------------------------------------- */
+
+static struct platform_device stxh205_spifsm_device = {
+	.name		= "stm-spi-fsm",
+	.id		= 0,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start	= 0xfe902000,
+			.end	= 0xfe9024ff,
+			.flags	= IORESOURCE_MEM,
+		},
+	},
+};
+
+void __init stxh205_configure_spifsm(struct stm_plat_spifsm_data *data)
+{
+	stxh205_spifsm_device.dev.platform_data = data;
+
+	/* SoC/IP Capabilities */
+	data->capabilities.no_read_repeat = 1;
+	data->capabilities.no_write_repeat = 1;
+	data->capabilities.no_sw_reset = 1;
+	data->capabilities.read_status_bug = spifsm_read_status_clkdiv4;
+	data->capabilities.no_poll_mode_change = 1;
+
+	platform_device_register(&stxh205_spifsm_device);
+}
+
+
+/* NAND Resources --------------------------------------------------------- */
+
+static struct platform_device stxh205_nand_flex_device = {
+	.num_resources		= 2,
+	.resource		= (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM_NAMED("nand_mem", 0xFE901000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ_NAMED("nand_irq", ILC_IRQ(121), -1),
+	},
+	.dev.platform_data	= &(struct stm_plat_nand_flex_data) {
+	},
+};
+
+void __init stxh205_configure_nand(struct stm_nand_config *config)
+{
+	struct stm_plat_nand_flex_data *flex_data;
+
+	switch (config->driver) {
+	case stm_nand_flex:
+	case stm_nand_afm:
+		/* Configure device for stm-nand-flex/afm driver */
+		emiss_nandi_select(STM_NANDI_HAMMING);
+		flex_data = stxh205_nand_flex_device.dev.platform_data;
+		flex_data->nr_banks = config->nr_banks;
+		flex_data->banks = config->banks;
+		flex_data->flex_rbn_connected = config->rbn.flex_connected;
+		stxh205_nand_flex_device.name =
+			(config->driver == stm_nand_flex) ?
+			"stm-nand-flex" : "stm-nand-afm";
+		platform_device_register(&stxh205_nand_flex_device);
+		break;
+	default:
+		BUG();
+		return;
+	}
+}
+
 /* Pre-arch initialisation ------------------------------------------------ */
 
 static int __init stxh205_postcore_setup(void)

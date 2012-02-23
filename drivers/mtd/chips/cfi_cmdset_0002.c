@@ -57,6 +57,8 @@ static int cfi_amdstd_write_words(struct mtd_info *, loff_t, size_t, size_t *, c
 static int cfi_amdstd_write_buffers(struct mtd_info *, loff_t, size_t, size_t *, const u_char *);
 static int cfi_amdstd_erase_chip(struct mtd_info *, struct erase_info *);
 static int cfi_amdstd_erase_varsize(struct mtd_info *, struct erase_info *);
+static int cfi_amdstd_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
+static int cfi_amdstd_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 static void cfi_amdstd_sync (struct mtd_info *);
 static int cfi_amdstd_suspend (struct mtd_info *);
 static void cfi_amdstd_resume (struct mtd_info *);
@@ -282,6 +284,12 @@ static void fixup_s29gl032n_sectors(struct mtd_info *mtd, void *param)
 	}
 }
 
+static void fixup_s29glxxxp_lock(struct mtd_info *mtd, void *param)
+{
+	mtd->lock = cfi_amdstd_lock;
+	mtd->unlock = cfi_amdstd_unlock;
+}
+
 static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_ATMEL, CFI_ID_ANY, fixup_convert_atmel_pri, NULL },
 #ifdef AMD_BOOTLOC_BUG
@@ -298,6 +306,12 @@ static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_AMD, 0x1301, fixup_s29gl064n_sectors, NULL, },
 	{ CFI_MFR_AMD, 0x1a00, fixup_s29gl032n_sectors, NULL, },
 	{ CFI_MFR_AMD, 0x1a01, fixup_s29gl032n_sectors, NULL, },
+
+	/* Add block lock support for S29GL---P devices */
+	{ CFI_MFR_AMD, 0x2801, fixup_s29glxxxp_lock, NULL, },
+	{ CFI_MFR_AMD, 0x2301, fixup_s29glxxxp_lock, NULL, },
+	{ CFI_MFR_AMD, 0x2201, fixup_s29glxxxp_lock, NULL, },
+	{ CFI_MFR_AMD, 0x2101, fixup_s29glxxxp_lock, NULL, },
 #if !FORCE_WORD_WRITE
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_use_write_buffers, NULL, },
 #endif
@@ -1718,6 +1732,77 @@ static int cfi_amdstd_erase_chip(struct mtd_info *mtd, struct erase_info *instr)
 	mtd_erase_callback(instr);
 
 	return 0;
+}
+
+/* #define DEBUG_AMDSTD_BLOCK_XXLOCK */
+#define AMDSTD_BLOCK_LOCK		((void *) 1)
+#define AMDSTD_BLOCK_UNLOCK		((void *) 2)
+static int do_amdstd_block_xxlock(struct map_info *map, struct flchip *chip,
+				  unsigned long adr, int len, void *thunk)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+	int ret;
+
+	DEBUG(MTD_DEBUG_LEVEL3, "MTD %s(): %sLOCK 0x%08lx len %d\n",
+	      __func__, (thunk == AMDSTD_BLOCK_LOCK) ? "" : "UN", adr, len);
+
+	spin_lock(chip->mutex);
+	ret = get_chip(map, chip, adr + chip->start, FL_LOCKING);
+	if (ret)
+		goto out_unlock;
+	chip->state = FL_LOCKING;
+
+	/* DYB Command Set Entry */
+	cfi_send_gen_cmd(0xAA, cfi->addr_unlock1, chip->start, map, cfi,
+			 cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x55, cfi->addr_unlock2, chip->start, map, cfi,
+			 cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xE0, cfi->addr_unlock1, chip->start, map, cfi,
+			 cfi->device_type, NULL);
+
+#ifdef DEBUG_AMDSTD_BLOCK_XXLOCK
+	printk(KERN_DEBUG "%s: block lock status @ 0x%08lx = 0x%02x [BEFORE]\n",
+	       __func__, adr, cfi_read_query(map, adr));
+#endif
+
+	/* DYB Set/Clear */
+	cfi_send_gen_cmd(0xA0, cfi->addr_unlock1, chip->start, map, cfi,
+			 cfi->device_type, NULL);
+	if (thunk == AMDSTD_BLOCK_LOCK)
+		map_write(map, CMD(0x00), chip->start + adr);
+	else
+		map_write(map, CMD(0x01), chip->start + adr);
+
+#ifdef DEBUG_AMDSTD_BLOCK_XXLOCK
+	printk(KERN_DEBUG "%s: block lock status @ 0x%08lx = 0x%02x [AFTER]\n",
+	       __func__, adr, cfi_read_query(map, adr));
+#endif
+
+	/* DYB Command Set Exit */
+	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, chip->start, map, cfi,
+			 cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x00, cfi->addr_unlock1, chip->start, map, cfi,
+			 cfi->device_type, NULL);
+
+	chip->state = FL_READY;
+	put_chip(map, chip, adr + chip->start);
+	ret = 0;
+
+out_unlock:
+	spin_unlock(chip->mutex);
+	return ret;
+}
+
+static int cfi_amdstd_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
+{
+	return cfi_varsize_frob(mtd, do_amdstd_block_xxlock, ofs, len,
+				AMDSTD_BLOCK_LOCK);
+}
+
+static int cfi_amdstd_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
+{
+	return cfi_varsize_frob(mtd, do_amdstd_block_xxlock, ofs, len,
+				AMDSTD_BLOCK_UNLOCK);
 }
 
 static int do_atmel_lock(struct map_info *map, struct flchip *chip,

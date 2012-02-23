@@ -177,6 +177,21 @@ typedef enum {
 /* Chip does not allow subpage writes */
 #define NAND_NO_SUBPAGE_WRITE	0x00000200
 
+/* Device is one of 'new' xD cards that expose fake nand command set */
+#define NAND_BROKEN_XD		0x00000400
+
+/* Device behaves just like nand, but is readonly */
+#define NAND_ROM                0x00000800
+
+/* Device supports cache read function */
+#define NAND_CACHERD		0x00001000
+/* Device supports multi-plane read operations */
+#define NAND_MULTIPLANE_READ	0x00002000
+/* Deivce supports multi-plane program/erase operations */
+#define NAND_MULTIPLANE_PROG_ERASE	0x00004000
+/* Deivce supports multi-LUN operations */
+#define NAND_MULTILUN		0x00008000
+
 
 /* Options valid for Samsung large page devices */
 #define NAND_SAMSUNG_LP_OPTIONS \
@@ -210,6 +225,19 @@ typedef enum {
 /* Cell info constants */
 #define NAND_CI_CHIPNR_MSK	0x03
 #define NAND_CI_CELLTYPE_MSK	0x0C
+
+/*
+ * Factory-programmed bad-block marker (BBM) flags
+ */
+#define NAND_BBM_PAGE_0		0x00000001
+#define NAND_BBM_PAGE_1		0x00000002
+#define NAND_BBM_PAGE_LAST	0x00000004
+#define NAND_BBM_PAGE_LMIN2	0x00000008
+#define NAND_BBM_PAGE_ALL	0x00000010
+#define NAND_BBM_BYTE_OOB_0	0x00000020
+#define NAND_BBM_BYTE_OOB_5	0x00000040
+#define NAND_BBM_BYTE_OOB_ALL	0x00000080
+#define NAND_BBM_BYTE_ALL	0x00000100
 
 /*
  * nand_state_t - chip states
@@ -415,9 +443,13 @@ struct nand_buffers {
  * @phys_erase_shift:	[INTERN] number of address bits in a physical eraseblock
  * @bbt_erase_shift:	[INTERN] number of address bits in a bbt entry
  * @chip_shift:		[INTERN] number of address bits in one chip
- * @options:		[BOARDSPECIFIC] various chip options. They can partly be set to inform nand_scan about
- *			special functionality. See the defines for further explanation
+ * @options:		[BOARDSPECIFIC] various chip options. They can partly
+ *			be set to inform nand_scan about special functionality.
+ *			See the defines for further explanation.
+ * @bbm:		[INTERN] Bad block marker flags
  * @badblockpos:	[INTERN] position of the bad block marker in the oob area
+ * @planes_per_chip:	[INTERN] number of planes per chip
+ * @luns_per_chip:	[INTERN] number of LUNs per chip
  * @cellinfo:		[INTERN] MLC/multichip data from chip ident
  * @numchips:		[INTERN] number of physical chips
  * @chipsize:		[INTERN] the size of one chip for multichip arrays
@@ -466,6 +498,7 @@ struct nand_chip {
 
 	int		chip_delay;
 	unsigned int	options;
+	unsigned int	bbm;
 
 	int		page_shift;
 	int		phys_erase_shift;
@@ -478,6 +511,8 @@ struct nand_chip {
 	int		subpagesize;
 	uint8_t		cellinfo;
 	int		badblockpos;
+	int		planes_per_chip;
+	int		luns_per_chip;
 
 	int onfi_version;
 	struct nand_onfi_params	onfi_params;

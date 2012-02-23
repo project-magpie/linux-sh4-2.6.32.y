@@ -635,7 +635,10 @@ extern int nand_do_read(struct mtd_info *mtd, loff_t from, size_t len,
 extern int nand_get_device(struct nand_chip *chip,
 			   struct mtd_info *mtd, int new_state);
 extern void nand_release_device(struct mtd_info *mtd);
-
+extern int nand_suspend(struct mtd_info *mtd);
+extern void nand_resume(struct mtd_info *mtd);
+extern void nand_sync(struct mtd_info *mtd);
+extern u8 nand_erasebb;
 
 /*
 * Constants for oob configuration

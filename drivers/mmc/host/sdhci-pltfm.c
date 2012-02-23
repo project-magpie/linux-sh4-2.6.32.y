@@ -24,14 +24,16 @@
 
 #include <linux/delay.h>
 #include <linux/highmem.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 
 #include <linux/mmc/host.h>
 
 #include <linux/io.h>
-#include <linux/sdhci-pltfm.h>
+#include <linux/mmc/sdhci-pltfm.h>
 
 #include "sdhci.h"
+#include "sdhci-pltfm.h"
 
 /*****************************************************************************\
  *                                                                           *
@@ -39,7 +41,42 @@
  *                                                                           *
 \*****************************************************************************/
 
+static int sdhci_pltfm_8bit_width(struct sdhci_host *host, int width)
+{
+		u8 ctrl;
+
+		ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
+
+		switch (width) {
+		case MMC_BUS_WIDTH_8:
+				ctrl |= SDHCI_CTRL_8BITBUS;
+				ctrl &= ~SDHCI_CTRL_4BITBUS;
+				break;
+		case MMC_BUS_WIDTH_4:
+				ctrl |= SDHCI_CTRL_4BITBUS;
+				ctrl &= ~SDHCI_CTRL_8BITBUS;
+				break;
+		default:
+				ctrl &= ~(SDHCI_CTRL_8BITBUS |
+						  SDHCI_CTRL_4BITBUS);
+				break;
+		}
+
+		sdhci_writeb(host, ctrl, SDHCI_HOST_CONTROL);
+
+		return 0;
+}
+
+static unsigned int sdhci_pltfm_get_max_clk(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	return clk_get_rate(pltfm_host->clk);
+}
+
 static struct sdhci_ops sdhci_pltfm_ops = {
+	.get_max_clock          = sdhci_pltfm_get_max_clk,
+	.platform_8bit_width    = sdhci_pltfm_8bit_width,
 };
 
 /*****************************************************************************\
@@ -50,10 +87,18 @@ static struct sdhci_ops sdhci_pltfm_ops = {
 
 static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 {
-	struct sdhci_pltfm_data *pdata = pdev->dev.platform_data;
+	const struct platform_device_id *platid = platform_get_device_id(pdev);
+	struct sdhci_pltfm_data *pdata;
 	struct sdhci_host *host;
+	struct sdhci_pltfm_host *pltfm_host;
 	struct resource *iomem;
+	struct clk *clk;
 	int ret;
+
+	if (platid && platid->driver_data)
+		pdata = (void *)platid->driver_data;
+	else
+		pdata = pdev->dev.platform_data;
 
 	iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!iomem) {
@@ -65,11 +110,18 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Invalid iomem size. You may "
 			"experience problems.\n");
 
-	host = sdhci_alloc_host(&pdev->dev, 0);
+	/* Some PCI-based MFD need the parent here */
+	if (pdev->dev.parent != &platform_bus)
+		host = sdhci_alloc_host(pdev->dev.parent, sizeof(*pltfm_host));
+	else
+		host = sdhci_alloc_host(&pdev->dev, sizeof(*pltfm_host));
+
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);
 		goto err;
 	}
+
+	pltfm_host = sdhci_priv(host);
 
 	host->hw_name = "platform";
 	if (pdata && pdata->ops)
@@ -95,10 +147,21 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	}
 
 	if (pdata && pdata->init) {
-		ret = pdata->init(host);
+		ret = pdata->init(host, pdata);
 		if (ret)
 			goto err_plat_init;
 	}
+
+	host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_BUS_WIDTH_TEST;
+
+	clk = clk_get(mmc_dev(host->mmc), NULL);
+	if (IS_ERR(clk)) {
+		dev_err(mmc_dev(host->mmc), "clk err\n");
+		ret = PTR_ERR(clk);
+		goto err_plat_init;
+	}
+	clk_enable(clk);
+	pltfm_host->clk = clk;
 
 	ret = sdhci_add_host(host);
 	if (ret)
@@ -111,6 +174,10 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 err_add_host:
 	if (pdata && pdata->exit)
 		pdata->exit(host);
+
+	clk_disable(clk);
+	clk_put(clk);
+
 err_plat_init:
 	iounmap(host->ioaddr);
 err_remap:
@@ -127,6 +194,7 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	struct sdhci_pltfm_data *pdata = pdev->dev.platform_data;
 	struct sdhci_host *host = platform_get_drvdata(pdev);
 	struct resource *iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	int dead;
 	u32 scratch;
 
@@ -143,27 +211,48 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	sdhci_free_host(host);
 	platform_set_drvdata(pdev, NULL);
 
+	clk_disable(pltfm_host->clk);
+	clk_put(pltfm_host->clk);
+
 	return 0;
 }
 
+static struct platform_device_id sdhci_pltfm_ids[] = {
+	{ "sdhci", },
+#ifdef CONFIG_MMC_SDHCI_CNS3XXX
+	{ "sdhci-cns3xxx", (kernel_ulong_t)&sdhci_cns3xxx_pdata },
+#endif
+#ifdef CONFIG_MMC_SDHCI_ESDHC_IMX
+	{ "sdhci-esdhc-imx", (kernel_ulong_t)&sdhci_esdhc_imx_pdata },
+#endif
+	{ },
+};
+MODULE_DEVICE_TABLE(platform, sdhci_pltfm_ids);
+
 #ifdef CONFIG_PM
-static int sdhci_pltfm_suspend(struct platform_device *dev, pm_message_t pm)
+static int sdhci_pltfm_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 
-	return sdhci_suspend_host(host, pm);
+	clk_disable(pltfm_host->clk);
+
+	return sdhci_suspend_host(host, state);
 }
 
 static int sdhci_pltfm_resume(struct platform_device *dev)
 {
 	struct sdhci_host *host = platform_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	clk_enable(pltfm_host->clk);
 
 	return sdhci_resume_host(host);
 }
 #else
 #define sdhci_pltfm_suspend	NULL
 #define sdhci_pltfm_resume	NULL
-#endif /* CONFIG_PM */
+#endif	/* CONFIG_PM */
 
 static struct platform_driver sdhci_pltfm_driver = {
 	.driver = {
@@ -172,6 +261,7 @@ static struct platform_driver sdhci_pltfm_driver = {
 	},
 	.probe		= sdhci_pltfm_probe,
 	.remove		= __devexit_p(sdhci_pltfm_remove),
+	.id_table	= sdhci_pltfm_ids,
 	.suspend	= sdhci_pltfm_suspend,
 	.resume		= sdhci_pltfm_resume,
 };
@@ -198,4 +288,3 @@ module_exit(sdhci_drv_exit);
 MODULE_DESCRIPTION("Secure Digital Host Controller Interface platform driver");
 MODULE_AUTHOR("Mocean Laboratories <info@mocean-labs.com>");
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("platform:sdhci");

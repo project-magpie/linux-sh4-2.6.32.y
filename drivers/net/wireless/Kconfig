@@ -489,4 +489,15 @@ source "drivers/net/wireless/orinoco/Kconfig"
 source "drivers/net/wireless/wl12xx/Kconfig"
 source "drivers/net/wireless/iwmc3200wifi/Kconfig"
 
+config WL12XX_PLATFORM_DATA
+	tristate "TI wl1271 SDIO platform support"
+	depends on MMC
+	---help---
+	  This module enables the WL12XX platform driver
+	  useful to build the wl1271 sdio driver that is not
+	  provided into the kernel 2.6.32. The  wl1271 sdio driver
+	  can be built from the compact-wireless sources.
+	  The platform driver is necessary to pass the driver
+	  parameters from the platforms (e.g. IRQ, Voltage etc.).
+
 endif # WLAN

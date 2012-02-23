@@ -39,5 +39,8 @@ int __init plat_clk_alias_init(void)
 		NULL);
 	clk_add_alias("spdif_player_clk", NULL, "CLKC_FS0_CH3", NULL);
 
+	/* SDHCI clocks */
+	clk_add_alias(NULL, "sdhci.0", "CLKB_FS1_CH2",  NULL);
+
 	return 0;
 }

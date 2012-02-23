@@ -41,6 +41,8 @@
 #define SH_TMU_IOBASE		0xffd80000
 
 #ifdef CONFIG_HOM_DEBUG
+unsigned long hom_debug_marker;
+
 static int enable_hom_printk;
 void hom_printk(char *buf, ...)
 {

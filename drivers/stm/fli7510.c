@@ -77,8 +77,8 @@ static struct platform_device fli7510_nand_emi_device = {
 static struct platform_device fli7510_nand_flex_device = {
 	.num_resources		= 2,
 	.resource		= (struct resource[]) {
-		STM_PLAT_RESOURCE_MEM_NAMED("flex_mem", 0xFD101000, 0x1000),
-		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(35), -1),
+		STM_PLAT_RESOURCE_MEM_NAMED("nand_mem", 0xFD101000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ_NAMED("nand_irq", ILC_IRQ(35), -1),
 	},
 	.dev.platform_data	= &(struct stm_plat_nand_flex_data) {
 	},

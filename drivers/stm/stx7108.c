@@ -225,19 +225,21 @@ static struct platform_device stx7108_nand_emi_device = {
 	},
 };
 
-static struct platform_device stx7108_nand_flex_device = {
-	.num_resources		= 2,
+static struct stm_plat_nand_flex_data stx7108_nand_flex_data;
+static struct stm_plat_nand_bch_data stx7108_nand_bch_data;
+
+static struct platform_device stx7108_nandi_device = {
+	.id			= -1,
+	.num_resources		= 3,
 	.resource		= (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM_NAMED("nand_mem", 0xFE901000, 0x1000),
+		STM_PLAT_RESOURCE_MEM_NAMED("nand_dma", 0xFDAA8800, 0x0800),
 		STM_PLAT_RESOURCE_IRQ_NAMED("nand_irq", ILC_IRQ(121), -1),
-	},
-	.dev.platform_data	= &(struct stm_plat_nand_flex_data) {
 	},
 };
 
 void __init stx7108_configure_nand(struct stm_nand_config *config)
 {
-	struct stm_plat_nand_flex_data *flex_data;
 	struct stm_plat_nand_emi_data *emi_data;
 
 	switch (config->driver) {
@@ -252,20 +254,35 @@ void __init stx7108_configure_nand(struct stm_nand_config *config)
 	case stm_nand_flex:
 	case stm_nand_afm:
 		/* Configure device for stm-nand-flex/afm driver */
-		flex_data = stx7108_nand_flex_device.dev.platform_data;
-		flex_data->nr_banks = config->nr_banks;
-		flex_data->banks = config->banks;
-		flex_data->flex_rbn_connected = config->rbn.flex_connected;
-		stx7108_nand_flex_device.name =
+		emiss_nandi_select(STM_NANDI_HAMMING);
+		stx7108_nand_flex_data.nr_banks = config->nr_banks;
+		stx7108_nand_flex_data.banks = config->banks;
+		stx7108_nand_flex_data.flex_rbn_connected =
+			config->rbn.flex_connected;
+		stx7108_nandi_device.dev.platform_data =
+			&stx7108_nand_flex_data;
+		stx7108_nandi_device.name =
 			(config->driver == stm_nand_flex) ?
 			"stm-nand-flex" : "stm-nand-afm";
-		platform_device_register(&stx7108_nand_flex_device);
+		platform_device_register(&stx7108_nandi_device);
+		break;
+	case stm_nand_bch:
+		/* Configure device for stm-nand-bch driver */
+		BUG_ON(cpu_data->cut_major < 2);
+		BUG_ON(config->nr_banks > 1);
+		emiss_nandi_select(STM_NANDI_BCH);
+		stx7108_nand_bch_data.bank = config->banks;
+		stx7108_nand_bch_data.bch_ecc_cfg = config->bch_ecc_cfg;
+		stx7108_nandi_device.dev.platform_data =
+			&stx7108_nand_bch_data;
+		stx7108_nandi_device.name = "stm-nand-bch";
+		platform_device_register(&stx7108_nandi_device);
 		break;
 	default:
+		BUG();
 		return;
 	}
 }
-
 
 /* FDMA resources --------------------------------------------------------- */
 

@@ -459,33 +459,47 @@ void __init stxh205_configure_spifsm(struct stm_plat_spifsm_data *data)
 
 /* NAND Resources --------------------------------------------------------- */
 
-static struct platform_device stxh205_nand_flex_device = {
-	.num_resources		= 2,
+static struct stm_plat_nand_flex_data stxh205_nand_flex_data;
+static struct stm_plat_nand_bch_data stxh205_nand_bch_data;
+
+static struct platform_device stxh205_nandi_device = {
+	.id			= -1,
+	.num_resources		= 3,
 	.resource		= (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM_NAMED("nand_mem", 0xFE901000, 0x1000),
+		STM_PLAT_RESOURCE_MEM_NAMED("nand_dma", 0xFDAA8800, 0x0800),
 		STM_PLAT_RESOURCE_IRQ_NAMED("nand_irq", ILC_IRQ(121), -1),
-	},
-	.dev.platform_data	= &(struct stm_plat_nand_flex_data) {
 	},
 };
 
 void __init stxh205_configure_nand(struct stm_nand_config *config)
 {
-	struct stm_plat_nand_flex_data *flex_data;
-
 	switch (config->driver) {
 	case stm_nand_flex:
 	case stm_nand_afm:
 		/* Configure device for stm-nand-flex/afm driver */
 		emiss_nandi_select(STM_NANDI_HAMMING);
-		flex_data = stxh205_nand_flex_device.dev.platform_data;
-		flex_data->nr_banks = config->nr_banks;
-		flex_data->banks = config->banks;
-		flex_data->flex_rbn_connected = config->rbn.flex_connected;
-		stxh205_nand_flex_device.name =
+		stxh205_nand_flex_data.nr_banks = config->nr_banks;
+		stxh205_nand_flex_data.banks = config->banks;
+		stxh205_nand_flex_data.flex_rbn_connected =
+			config->rbn.flex_connected;
+		stxh205_nandi_device.dev.platform_data =
+			&stxh205_nand_flex_data;
+		stxh205_nandi_device.name =
 			(config->driver == stm_nand_flex) ?
 			"stm-nand-flex" : "stm-nand-afm";
-		platform_device_register(&stxh205_nand_flex_device);
+		platform_device_register(&stxh205_nandi_device);
+		break;
+	case stm_nand_bch:
+		/* Configure device for stm-nand-bch driver */
+		BUG_ON(config->nr_banks > 1);
+		emiss_nandi_select(STM_NANDI_BCH);
+		stxh205_nand_bch_data.bank = config->banks;
+		stxh205_nand_bch_data.bch_ecc_cfg = config->bch_ecc_cfg;
+		stxh205_nandi_device.dev.platform_data =
+			&stxh205_nand_bch_data;
+		stxh205_nandi_device.name = "stm-nand-bch";
+		platform_device_register(&stxh205_nandi_device);
 		break;
 	default:
 		BUG();

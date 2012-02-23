@@ -200,6 +200,9 @@ void __init stx5206_configure_nand(struct stm_nand_config *config)
 			"stm-nand-flex" : "stm-nand-afm";
 		platform_device_register(&stx5206_nand_flex_device);
 		break;
+	default:
+		BUG();
+		return;
 	}
 }
 

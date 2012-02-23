@@ -482,6 +482,18 @@ config MTD_NAND_W90P910
 	  This enables the driver for the NAND Flash on evaluation board based
 	  on w90p910.
 
+config MTD_NAND_STM_BCH
+	tristate "STMicroelectronics: NANDi BCH Controller"
+	help
+	  Adds support for the STMicroelectronics NANDi BCH Controller
+
+config STM_NAND_BCH_DEBUG
+	bool "NANDi BCH debug messages"
+	depends on MTD_NAND_STM_BCH
+	default n
+	help
+	  Display debug messages on the console
+
 config MTD_NAND_STM_EMI
 	tristate "STMicroelectronics: EMI 'bit-banging'"
 	depends on MTD_NAND

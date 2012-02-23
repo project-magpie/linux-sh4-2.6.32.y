@@ -283,6 +283,18 @@ struct stm_plat_nand_flex_data {
 	unsigned int flex_rbn_connected:1;
 };
 
+enum stm_nand_bch_ecc_config {
+	BCH_ECC_CFG_AUTO = 0,
+	BCH_ECC_CFG_NOECC,
+	BCH_ECC_CFG_18BIT,
+	BCH_ECC_CFG_30BIT
+};
+
+struct stm_plat_nand_bch_data {
+	struct stm_nand_bank_data *bank;
+	enum stm_nand_bch_ecc_config bch_ecc_cfg;
+};
+
 struct stm_plat_nand_emi_data {
 	unsigned int nr_banks;
 	struct stm_nand_bank_data *banks;
@@ -293,7 +305,8 @@ struct stm_nand_config {
 	enum {
 		stm_nand_emi,
 		stm_nand_flex,
-		stm_nand_afm
+		stm_nand_afm,
+		stm_nand_bch
 	} driver;
 	int nr_banks;
 	struct stm_nand_bank_data *banks;
@@ -301,6 +314,7 @@ struct stm_nand_config {
 		int emi_gpio;
 		int flex_connected;
 	} rbn;
+	enum stm_nand_bch_ecc_config bch_ecc_cfg;
 };
 
 

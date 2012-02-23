@@ -109,6 +109,9 @@ void __init stx7111_configure_nand(struct stm_nand_config *config)
 			"stm-nand-flex" : "stm-nand-afm";
 		platform_device_register(&stx7111_nand_flex_device);
 		break;
+	default:
+		BUG();
+		return;
 	}
 }
 

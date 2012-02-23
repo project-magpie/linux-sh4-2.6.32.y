@@ -115,6 +115,43 @@ void __init fli7510_configure_nand(struct stm_nand_config *config)
 
 /* SPI FSM setup ---------------------------------------------------------- */
 
+static struct stm_pad_config fli7510_spifsm_pad_config = {
+	.gpios_num = 6,
+	.gpios = (struct stm_pad_gpio[]) {
+		STM_PAD_PIO_OUT_NAMED(17, 2, 1, "spi-fsm-clk"),
+		STM_PAD_PIO_OUT_NAMED(17, 4, 1, "spi-fsm-cs"),
+		STM_PAD_PIO_BIDIR_NAMED(17, 3, 1, "spi-fsm-mosi"),
+		STM_PAD_PIO_BIDIR_NAMED(17, 5, 1, "spi-fsm-miso"),
+		STM_PAD_PIO_BIDIR_NAMED(17, 0, 1, "spi-fsm-hold"),
+		STM_PAD_PIO_BIDIR_NAMED(17, 1, 1, "spi-fsm-wp"),
+	},
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* Enable SPIBoot/FSM controller */
+		STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 13, 13, 1),
+	},
+};
+
+static struct stm_pad_config fli7520_spifsm_pad_config = {
+	.gpios_num = 6,
+	.gpios = (struct stm_pad_gpio[]) {
+		STM_PAD_PIO_OUT_NAMED(21, 2, 1, "spi-fsm-clk"),
+		STM_PAD_PIO_OUT_NAMED(20, 2, 1, "spi-fsm-cs"),
+		STM_PAD_PIO_BIDIR_NAMED(21, 3, 1, "spi-fsm-mosi"),
+		STM_PAD_PIO_BIDIR_NAMED(20, 5, 1, "spi-fsm-miso"),
+		STM_PAD_PIO_BIDIR_NAMED(18, 1, 1, "spi-fsm-hold"),
+		STM_PAD_PIO_BIDIR_NAMED(18, 2, 1, "spi-fsm-wp"),
+	},
+	.sysconfs_num = 2,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* Enable SPIBoot/FSM controller */
+		STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 13, 13, 1),
+
+		/* Select MII/RMII/SPI routing on PIO18/20/21 */
+		STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 17, 17, 0),
+	},
+};
+
 static struct platform_device fli7510_spifsm_device = {
 	.name		= "stm-spi-fsm",
 	.id		= 0,
@@ -127,6 +164,11 @@ static struct platform_device fli7510_spifsm_device = {
 void __init fli7510_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
 	fli7510_spifsm_device.dev.platform_data = data;
+
+	if (cpu_data->type == CPU_FLI7510)
+		data->pads = &fli7510_spifsm_pad_config;
+	else
+		data->pads = &fli7520_spifsm_pad_config;
 
 	/* SoC/IP Capabilities */
 	data->capabilities.quad_mode = 0;

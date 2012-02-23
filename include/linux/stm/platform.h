@@ -331,7 +331,7 @@ struct stm_plat_spifsm_data {
 	struct mtd_partition	*parts;
 	unsigned int		nr_parts;
 	unsigned int		max_freq;
-
+	struct stm_pad_config	*pads;
 	struct stm_spifsm_caps	capabilities;
 };
 

@@ -143,6 +143,10 @@ void __init stx5206_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
 	stx5206_spifsm_device.dev.platform_data = data;
 
+	/* Pads not shared with PIO (although potential conflict with PCI
+	 * alternative routing) */
+	data->pads = NULL;
+
 	/* SoC/IP Capabilities */
 	data->capabilities.quad_mode = 0;
 	data->capabilities.no_read_repeat = 1;

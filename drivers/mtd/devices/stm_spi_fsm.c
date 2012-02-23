@@ -38,6 +38,7 @@ struct stm_spi_fsm {
 	struct mtd_info		mtd;
 	struct device		*dev;
 	struct resource		*region;
+	struct stm_pad_state	*pad_state;
 	struct stm_spifsm_caps	capabilities;
 
 	void __iomem		*base;
@@ -1511,6 +1512,15 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		goto out2;
 	}
 
+	if (data->pads) {
+		fsm->pad_state = stm_pad_claim(data->pads, pdev->name);
+		if (!fsm->pad_state) {
+			dev_err(&pdev->dev, "failed to request pads\n");
+			ret = -EBUSY;
+			goto out3;
+		}
+	}
+
 	mutex_init(&fsm->lock);
 
 	/* Initialise FSM */
@@ -1519,14 +1529,14 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to initialise SPI FSM "
 			"Controller\n");
 		ret = -EINVAL;
-		goto out3;
+		goto out4;
 	}
 
 	/* Detect SPI FLASH device */
 	info = fsm_jedec_probe(fsm);
 	if (!info) {
 		ret = -ENODEV;
-		goto out4;
+		goto out5;
 	}
 
 	/* Configure READ/WRITE sequences according to platform and device
@@ -1535,12 +1545,12 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	if (info->config) {
 		if (info->config(fsm, info) != 0) {
 			ret = -EINVAL;
-			goto out4;
+			goto out5;
 		}
 	} else {
 		if (fsm_config_rw_seqs_default(fsm, info) != 0) {
 			ret = -EINVAL;
-			goto out4;
+			goto out5;
 		}
 	}
 
@@ -1621,7 +1631,7 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 
 			if (add_mtd_partitions(&fsm->mtd, parts, nr_parts)) {
 				ret = -ENODEV;
-				goto out4;
+				goto out5;
 			}
 
 			/* Success :-) */
@@ -1635,15 +1645,17 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 
 	if (add_mtd_device(&fsm->mtd)) {
 		ret = -ENODEV;
-		goto out4;
+		goto out5;
 	}
 
 	/* Success :-) */
 	return 0;
-
- out4:
+ out5:
 	fsm_exit(fsm);
 	platform_set_drvdata(pdev, NULL);
+ out4:
+	if (fsm->pad_state)
+		stm_pad_release(fsm->pad_state);
  out3:
 	iounmap(fsm->base);
  out2:
@@ -1664,6 +1676,8 @@ static int __devexit stm_spi_fsm_remove(struct platform_device *pdev)
 		del_mtd_device(&fsm->mtd);
 
 	fsm_exit(fsm);
+	if (fsm->pad_state)
+		stm_pad_release(fsm->pad_state);
 	iounmap(fsm->base);
 	release_resource(fsm->region);
 	platform_set_drvdata(pdev, NULL);

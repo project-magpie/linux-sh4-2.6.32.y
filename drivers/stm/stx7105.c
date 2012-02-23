@@ -138,10 +138,10 @@ static struct platform_device stx7106_spifsm_device = {
 static struct stm_pad_config stx7106_spifsm_pad_config = {
 	.gpios_num = 4,
 	.gpios = (struct stm_pad_gpio []) {
-		STM_PAD_PIO_OUT(15, 0, 1),	/* SPIBoot CLK */
-		STM_PAD_PIO_OUT(15, 1, 1),	/* SPIBoot DOUT */
-		STM_PAD_PIO_OUT(15, 2, 1),	/* SPIBoot NOTCS */
-		STM_PAD_PIO_IN(15, 3, -1),	/* SPIBoot DIN */
+		STM_PAD_PIO_OUT_NAMED(15, 0, 1, "spi-fsm-clk"),
+		STM_PAD_PIO_OUT_NAMED(15, 1, 1, "spi-fsm-mosi"),
+		STM_PAD_PIO_OUT_NAMED(15, 2, 1, "spi-fsm-cs"),
+		STM_PAD_PIO_IN_NAMED(15, 3, -1, "spi-fsm-miso"),
 	},
 };
 
@@ -155,13 +155,9 @@ void __init stx7106_configure_spifsm(struct stm_plat_spifsm_data *data)
 	data->capabilities.no_write_repeat = 1;
 	data->capabilities.read_status_bug = spifsm_no_read_status;
 
-	/* Output pads must be configured as ALT_OUT rather than
-	 * ALT_BIDIR.  As a result, only single mode operation is
-	 * possible.
-	 */
-	if (stm_pad_claim(&stx7106_spifsm_pad_config, "SPIFSM") == NULL)
-		printk(KERN_ERR "Failed to claim SPIFSM pads!\n");
+	/* Dual mode not possible due to pad configurations issues */
 	data->capabilities.dual_mode = 0;
+	data->pads = &stx7106_spifsm_pad_config;
 
 	if (cpu_data->cut_major == 1) {
 		data->capabilities.no_clk_div_4 = 1;

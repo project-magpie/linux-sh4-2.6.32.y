@@ -2741,6 +2741,8 @@ static int nand_flash_detect_onfi(struct mtd_info *mtd, struct nand_chip *chip,
 					int busw)
 {
 	struct nand_onfi_params *p = &chip->onfi_params;
+	uint16_t features;
+	uint32_t planes_per_lun;
 	int i;
 	int val;
 
@@ -2789,18 +2791,44 @@ static int nand_flash_detect_onfi(struct mtd_info *mtd, struct nand_chip *chip,
 	sanitize_string(p->model, sizeof(p->model));
 	if (!mtd->name)
 		mtd->name = p->model;
-	mtd->writesize = le32_to_cpu(p->byte_per_page);
-	mtd->erasesize = le32_to_cpu(p->pages_per_block) * mtd->writesize;
-	mtd->oobsize = le16_to_cpu(p->spare_bytes_per_page);
-	chip->chipsize = (uint64_t)le32_to_cpu(p->blocks_per_lun) *
-		mtd->erasesize;
-	busw = 0;
-	if (le16_to_cpu(p->features) & 1)
-		busw = NAND_BUSWIDTH_16;
 
+	mtd->writesize = le32_to_cpu(p->byte_per_page);
+	mtd->oobsize = le16_to_cpu(p->spare_bytes_per_page);
+	chip->luns_per_chip = p->lun_count;
+
+	/* 'interleaved_bits' should really be called 'plane_address_bits' */
+	planes_per_lun = 1 << p->interleaved_bits;
+	chip->planes_per_chip = chip->luns_per_chip * planes_per_lun;
+
+	mtd->erasesize = mtd->writesize * le32_to_cpu(p->pages_per_block);
+	chip->chipsize = (uint64_t)mtd->erasesize *
+		le32_to_cpu(p->blocks_per_lun) *
+		chip->luns_per_chip;
+
+	/* Build up chip options */
 	chip->options &= ~NAND_CHIPOPTIONS_MSK;
-	chip->options |= (NAND_NO_READRDY |
-			NAND_NO_AUTOINCR) & NAND_CHIPOPTIONS_MSK;
+	chip->options |= (NAND_NO_AUTOINCR | NAND_NO_READRDY);
+
+	features = le16_to_cpu(p->features);
+
+	if (features & (0x1 << 0))
+		chip->options |=  NAND_BUSWIDTH_16;
+	if (features & (0x1 << 1))
+		chip->options |= NAND_MULTILUN;
+	if (features & (0x1 << 3))
+		chip->options |= NAND_MULTIPLANE_PROG_ERASE;
+	if (features & (0x1 << 6))
+		chip->options |= NAND_MULTIPLANE_READ;
+
+	features = le16_to_cpu(p->opt_cmd);
+	if (features & (0x1 << 1))
+		chip->options |= NAND_CACHERD;
+	if (features & (0x1 << 0))
+		chip->options |= NAND_CACHEPRG;
+
+	/* Mimic 'cellinfo' */
+	chip->cellinfo = chip->luns_per_chip;
+	chip->cellinfo |= ((p->bits_per_cell - 1) & 0x3) << 2;
 
 	return 1;
 }
@@ -2891,14 +2919,16 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 			break;
 	}
 
+	printk(KERN_INFO "NAND device: Manufacturer ID:"
+	       " 0x%02x, Chip ID: 0x%02x (%s %s)\n", *maf_id, dev_id,
+	       nand_manuf_ids[maf_idx].name,
+	       chip->onfi_version ? chip->onfi_params.model : type->name);
+
 	/*
 	 * Check, if buswidth is correct. Hardware drivers should set
 	 * chip correct !
 	 */
 	if (busw != (chip->options & NAND_BUSWIDTH_16)) {
-		printk(KERN_INFO "NAND device: Manufacturer ID:"
-		       " 0x%02x, Chip ID: 0x%02x (%s %s)\n", *maf_id,
-		       dev_id, nand_manuf_ids[maf_idx].name, mtd->name);
 		printk(KERN_WARNING "NAND bus width %d instead %d bit\n",
 		       (chip->options & NAND_BUSWIDTH_16) ? 16 : 8,
 		       busw ? 16 : 8);
@@ -2931,11 +2961,6 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	/* Do not replace user supplied command function ! */
 	if (mtd->writesize > 512 && chip->cmdfunc == nand_command)
 		chip->cmdfunc = nand_command_lp;
-
-	printk(KERN_INFO "NAND device: Manufacturer ID:"
-	       " 0x%02x, Chip ID: 0x%02x (%s %s)\n", *maf_id, dev_id,
-	       nand_manuf_ids[maf_idx].name,
-	       chip->onfi_version ? chip->onfi_params.model : type->name);
 
 	return type;
 }

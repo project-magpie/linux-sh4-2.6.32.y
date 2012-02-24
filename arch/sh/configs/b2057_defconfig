@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.32.42
-# Thu Nov 24 19:58:12 2011
+# Linux kernel version: 2.6.32.46
+# Fri Feb 24 10:52:35 2012
 #
 CONFIG_SUPERH=y
 CONFIG_SUPERH32=y
@@ -301,9 +301,11 @@ CONFIG_SH_ST_B2057=y
 #
 # B2057: STxH207-HDK board options
 #
-# CONFIG_STM_B2057_JP1_NONE is not set
-# CONFIG_STM_B2057_JP1_B2032 is not set
-CONFIG_STM_B2057_JP1_B2035=y
+# CONFIG_STM_B2057_INT_PHY_NONE is not set
+# CONFIG_STM_B2057_INT_PHY_IC101A is not set
+CONFIG_STM_B2057_INT_PHY_IC101G=y
+CONFIG_STM_B2057_IC101_MII=y
+# CONFIG_STM_B2057_IC101_RMII is not set
 
 #
 # Timer and clock configuration
@@ -489,7 +491,98 @@ CONFIG_EXTRA_FIRMWARE=""
 # CONFIG_DEBUG_DEVRES is not set
 # CONFIG_SYS_HYPERVISOR is not set
 # CONFIG_CONNECTOR is not set
-# CONFIG_MTD is not set
+CONFIG_MTD=y
+# CONFIG_MTD_DEBUG is not set
+# CONFIG_MTD_CONCAT is not set
+CONFIG_MTD_PARTITIONS=y
+# CONFIG_MTD_REDBOOT_PARTS is not set
+CONFIG_MTD_CMDLINE_PARTS=y
+# CONFIG_MTD_AR7_PARTS is not set
+
+#
+# User Modules And Translation Layers
+#
+CONFIG_MTD_CHAR=y
+# CONFIG_MTD_BLKDEVS is not set
+# CONFIG_MTD_BLOCK is not set
+# CONFIG_MTD_BLOCK_RO is not set
+# CONFIG_FTL is not set
+# CONFIG_NFTL is not set
+# CONFIG_INFTL is not set
+# CONFIG_RFD_FTL is not set
+# CONFIG_SSFDC is not set
+# CONFIG_MTD_OOPS is not set
+
+#
+# RAM/ROM/Flash chip drivers
+#
+# CONFIG_MTD_CFI is not set
+# CONFIG_MTD_JEDECPROBE is not set
+CONFIG_MTD_MAP_BANK_WIDTH_1=y
+CONFIG_MTD_MAP_BANK_WIDTH_2=y
+CONFIG_MTD_MAP_BANK_WIDTH_4=y
+# CONFIG_MTD_MAP_BANK_WIDTH_8 is not set
+# CONFIG_MTD_MAP_BANK_WIDTH_16 is not set
+# CONFIG_MTD_MAP_BANK_WIDTH_32 is not set
+CONFIG_MTD_CFI_I1=y
+CONFIG_MTD_CFI_I2=y
+# CONFIG_MTD_CFI_I4 is not set
+# CONFIG_MTD_CFI_I8 is not set
+# CONFIG_MTD_RAM is not set
+# CONFIG_MTD_ROM is not set
+# CONFIG_MTD_ABSENT is not set
+
+#
+# Mapping drivers for chip access
+#
+# CONFIG_MTD_COMPLEX_MAPPINGS is not set
+# CONFIG_MTD_PLATRAM is not set
+
+#
+# Self-contained MTD device drivers
+#
+# CONFIG_MTD_DATAFLASH is not set
+# CONFIG_MTD_M25P80 is not set
+CONFIG_MTD_STM_SPI_FSM=y
+# CONFIG_MTD_SST25L is not set
+# CONFIG_MTD_SLRAM is not set
+# CONFIG_MTD_PHRAM is not set
+# CONFIG_MTD_MTDRAM is not set
+# CONFIG_MTD_BLOCK2MTD is not set
+
+#
+# Disk-On-Chip Device Drivers
+#
+# CONFIG_MTD_DOC2000 is not set
+# CONFIG_MTD_DOC2001 is not set
+# CONFIG_MTD_DOC2001PLUS is not set
+CONFIG_MTD_NAND=y
+# CONFIG_MTD_NAND_VERIFY_WRITE is not set
+# CONFIG_MTD_NAND_ECC_SMC is not set
+# CONFIG_MTD_NAND_MUSEUM_IDS is not set
+CONFIG_MTD_NAND_IDS=y
+# CONFIG_MTD_NAND_DISKONCHIP is not set
+# CONFIG_MTD_NAND_NANDSIM is not set
+# CONFIG_MTD_NAND_PLATFORM is not set
+# CONFIG_MTD_ALAUDA is not set
+# CONFIG_MTD_NAND_STM_BCH is not set
+# CONFIG_MTD_NAND_STM_EMI is not set
+CONFIG_MTD_NAND_STM_FLEX=y
+# CONFIG_STM_NAND_FLEX_CACHED is not set
+# CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT is not set
+CONFIG_STM_NAND_FLEX_BOOTPARTITION="Boot firmware"
+# CONFIG_MTD_NAND_STM_AFM is not set
+# CONFIG_MTD_ONENAND is not set
+
+#
+# LPDDR flash memory drivers
+#
+# CONFIG_MTD_LPDDR is not set
+
+#
+# UBI - Unsorted block images
+#
+# CONFIG_MTD_UBI is not set
 # CONFIG_PARPORT is not set
 CONFIG_BLK_DEV=y
 # CONFIG_BLK_DEV_COW_COMMON is not set
@@ -549,8 +642,12 @@ CONFIG_ICPLUS_PHY=y
 CONFIG_MII=y
 CONFIG_NETDEV_1000=y
 CONFIG_STMMAC_ETH=y
+CONFIG_STMMAC_PLATFORM=y
+# CONFIG_STMMAC_DEBUG_FS is not set
 # CONFIG_STMMAC_DA is not set
 # CONFIG_STMMAC_TIMER is not set
+CONFIG_STMMAC_RING=y
+# CONFIG_STMMAC_CHAINED is not set
 # CONFIG_NETDEV_10000 is not set
 # CONFIG_WLAN is not set
 
@@ -903,6 +1000,7 @@ CONFIG_MMC=y
 # MMC/SD/SDIO Card Drivers
 #
 CONFIG_MMC_BLOCK=y
+CONFIG_MMC_BLOCK_MINORS=8
 CONFIG_MMC_BLOCK_BOUNCE=y
 # CONFIG_SDIO_UART is not set
 # CONFIG_MMC_TEST is not set
@@ -914,6 +1012,7 @@ CONFIG_MMC_SDHCI=y
 CONFIG_MMC_SDHCI_PLTFM=y
 # CONFIG_MMC_SPI is not set
 # CONFIG_MMC_SH_MMCIF is not set
+# CONFIG_MMC_USHC is not set
 # CONFIG_MEMSTICK is not set
 CONFIG_NEW_LEDS=y
 CONFIG_LEDS_CLASS=y
@@ -962,6 +1061,7 @@ CONFIG_STM_DRIVERS=y
 # CONFIG_STPIO is not set
 # CONFIG_STM_DMA is not set
 # CONFIG_STM_RNG is not set
+# CONFIG_STM_LPM is not set
 
 #
 # File systems
@@ -1042,6 +1142,7 @@ CONFIG_MISC_FILESYSTEMS=y
 # CONFIG_BEFS_FS is not set
 # CONFIG_BFS_FS is not set
 # CONFIG_EFS_FS is not set
+# CONFIG_JFFS2_FS is not set
 CONFIG_CRAMFS=y
 CONFIG_SQUASHFS=y
 # CONFIG_SQUASHFS_EMBEDDED is not set

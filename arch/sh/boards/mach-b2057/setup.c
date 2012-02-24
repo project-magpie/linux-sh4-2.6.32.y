@@ -17,6 +17,10 @@
 #include <linux/gpio_keys.h>
 #include <linux/leds.h>
 #include <linux/tm1668.h>
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/flash.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stxh205.h>
 #include <linux/stm/sysconf.h>
@@ -113,6 +117,57 @@ static struct platform_device b2057_fp_gpio_keys = {
 			.nbuttons = 1,
 		}
         }
+};
+
+/* Serial Flash */
+static struct stm_plat_spifsm_data b2057_serial_flash =  {
+	.name		= "n25q256",
+	.nr_parts	= 2,
+	.parts = (struct mtd_partition []) {
+		{
+			.name = "Serial Flash 1",
+			.size = 0x00080000,
+			.offset = 0,
+		}, {
+			.name = "Serial Flash 2",
+			.size = MTDPART_SIZ_FULL,
+			.offset = MTDPART_OFS_NXTBLK,
+		},
+	},
+	.capabilities = {
+		/* Capabilities may be overriden by SoC configuration */
+		.dual_mode = 1,
+		.quad_mode = 1,
+	},
+};
+
+/* NAND Flash */
+static struct stm_nand_bank_data b2057_nand_flash = {
+	.csn		= 1,	/* Controlled by JF3 */
+	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset	= 0,
+			.size	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
+	.timing_data	=  &(struct stm_nand_timing_data) {
+		.sig_setup	= 50,		/* times in ns */
+		.sig_hold	= 50,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 40,
+		.rd_on		= 10,
+		.rd_off		= 40,
+		.chip_delay	= 30,		/* in us */
+	},
 };
 
 static int b2057_phy_reset(void *bus)
@@ -219,6 +274,14 @@ static int __init device_init(void)
 			.out10_enabled = 0 });
 
 	stxh205_configure_mmc(0);
+
+	stxh205_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_flex,
+			.nr_banks = 1,
+			.banks = &b2057_nand_flash,
+			.rbn.flex_connected = 1,});
+
+	stxh205_configure_spifsm(&b2057_serial_flash);
 
 	return platform_add_devices(b2057_devices,
 			ARRAY_SIZE(b2057_devices));

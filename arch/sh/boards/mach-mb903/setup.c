@@ -20,9 +20,55 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/stx7108.h>
+#include <linux/stm/sysconf.h>
+#include <linux/stm/emi.h>
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/physmap.h>
+#include <linux/spi/flash.h>
+#include <linux/spi/spi_gpio.h>
 #include <asm/irq-ilc.h>
 
-
+/*
+ * The Flash devices are configured according to the selected boot-mode:
+ *
+ *                                      boot-from-XXX
+ * ----------------------------------------------------------------------------
+ * Mode Pins                    NOR                      SPI
+ * ----------------------------------------------------------------------------
+ * SW1 1 (M2)                 OFF (W)                  ON  (E)
+ *     2 (M3)                 ON  (E)                  OFF (W)
+ *     1 (M4)                 OFF (W)                  ON  (E)
+ *     2 (M5)                 ON  (E)                  OFF (W)
+ *
+ * Post-boot Access
+ * ----------------------------------------------------------------------------
+ * NOR                     EMIA (64MB)[1]           EMIB (8MB)  [2]
+ * SPI                    SPI_PIO/FSM [3]           SPI_PIO/FSM [3]
+ * ----------------------------------------------------------------------------
+ *
+ * Switch positions are given in terms of (N)orth, (E)ast, (S)outh, and (W)est,
+ * when viewing the board with the LED display to the South and the power
+ * connector to the North.
+ *
+ * [1] NOR Flash is connected to EMIA and EMIB.  Accesses via EMIB set the
+ *     address line 'A26', imposing a 64MB offset.  With appropriately
+ *     configured EMI banks (EMIA = 64MB and EMIB = 64MB) it would be possible
+ *     to gain access to the entire 128MB NOR Flash.  However, as things stand
+ *     (targetpack v12), EMIA is configured for 128MB, which limits access to
+ *     the 64MB addressable range of a single EMI bank.  The code below detects
+ *     the EMI bank setup and attempts to configure NOR Flash accordingly.
+ *
+ * [2] When boot-from-SPI is selected, access to NOR Flash is via EMIB.  As
+ *     mentioned in [1], this imposes a 64MB offset from the start of NOR Flash.
+ *     Furthermore, the current targetpack (v12), limits EMIB to 8MB only.
+ *
+ * [3] On stx7108 cut 2.0, the SPI-FSM Controller is used to access Serial
+ *     Flash.  The controller is non-functional on stx7108 cut 1.0, so we must
+ *     fall-back to a GPIO SPI bus and the generic "m25p80" driver.
+ */
 
 #define MB903_PIO_GMII0_NOTRESET stm_gpio(20, 0)
 #define MB903_PIO_GMII1_NOTRESET stm_gpio(15, 4)
@@ -35,7 +81,8 @@
 #define MB903_PIO_POWER_ON_SATA stm_gpio(22, 2)
 #define MB903_PIO_POWER_ON_SHUTDOWN stm_gpio(22, 3)
 
-
+#define MB903_GPIO_SPI_HOLD stm_gpio(2, 2)
+#define MB903_GPIO_SPI_WRITE_PRO stm_gpio(2, 3)
 
 static void __init mb903_setup(char **cmdline_p)
 {
@@ -161,15 +208,146 @@ static struct fixed_phy_status stmmac0_fixed_phy_status = {
 	.duplex = 1,
 };
 
+/* NOR Flash */
+static struct platform_device mb903_nor_flash = {
+	.name		= "physmap-flash",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource[]) {
+		{
+			.start		= 0x00000000,
+			.end		= 128*1024*1024 - 1,
+			.flags		= IORESOURCE_MEM,
+		}
+	},
+	.dev.platform_data = &(struct physmap_flash_data) {
+		.width		= 2,
+		.set_vpp	= NULL,
+		.nr_parts	= 3,
+		.parts		= (struct mtd_partition []) {
+			{
+				.name = "NOR Flash 1",
+				.size = 0x00080000,
+				.offset = 0x00000000,
+			}, {
+				.name = "NOR Flash 2",
+				.size = 0x00200000,
+				.offset = MTDPART_OFS_NXTBLK,
+			}, {
+				.name = "NOR Flash 3",
+				.size = MTDPART_SIZ_FULL,
+				.offset = MTDPART_OFS_NXTBLK,
+			}
+		},
+	},
+};
+
+/* Serial Flash (see notes at top):
+ *	cut 1.0: SPI GPIO bus + m25p80 driver
+ *	cut 2.0: SPI FSM driver
+ */
+static struct platform_device mb903_serial_flash_bus = {
+	.name           = "spi_gpio",
+	.id             = 8,
+	.num_resources  = 0,
+	.dev.platform_data = &(struct spi_gpio_platform_data) {
+		.num_chipselect = 1,
+		.sck = stm_gpio(1, 6),
+		.mosi = stm_gpio(2, 0),
+		.miso = stm_gpio(2, 1),
+	}
+};
+
+static struct mtd_partition mb903_serial_flash_parts[] = {
+	{
+		.name = "Serial Flash 1",
+		.size = 0x00200000,
+		.offset = 0,
+	}, {
+		.name = "Serial Flash 2",
+		.size = MTDPART_SIZ_FULL,
+		.offset = MTDPART_OFS_NXTBLK,
+	},
+};
+
+static struct spi_board_info mb903_serial_flash =  {
+	.modalias       = "m25p80",
+	.bus_num        = 8,
+	.controller_data = (void *)stm_gpio(1, 7),
+	.max_speed_hz   = 7000000,
+	.mode           = SPI_MODE_3,
+	.platform_data  = &(struct flash_platform_data) {
+		.name = "n25q128",	/* Check device on specific board */
+		.parts = mb903_serial_flash_parts,
+		.nr_parts = ARRAY_SIZE(mb903_serial_flash_parts),
+	},
+};
+
+static struct stm_plat_spifsm_data mb903_spifsm_flash = {
+	.parts = mb903_serial_flash_parts,
+	.nr_parts = ARRAY_SIZE(mb903_serial_flash_parts),
+};
+
 static struct platform_device *mb903_devices[] __initdata = {
 	&mb903_leds,
 	&mb903_front_panel,
+	&mb903_nor_flash
 };
 
 
 
 static int __init mb903_device_init(void)
 {
+		struct sysconf_field *sc;
+	unsigned long boot_mode;
+	unsigned long nor_bank_base = 0;
+	unsigned long nor_bank_size = 0;
+
+	/* Configure Flash according to boot-device */
+	if (cpu_data->cut_major >= 2) {
+		sc = sysconf_claim(SYS_STA_BANK1, 3, 2, 6, "boot_mode");
+		boot_mode = sysconf_read(sc);
+	} else {
+		sc = sysconf_claim(SYS_STA_BANK1, 3, 2, 5, "boot_mode");
+		boot_mode = sysconf_read(sc);
+		boot_mode |= 0x10;	/* use non-BCH boot encodings */
+	}
+	switch (boot_mode) {
+	case 0x15:
+		pr_info("Configuring FLASH for boot-from-NOR\n");
+		nor_bank_base = emi_bank_base(0);
+		/* Access to NOR Flash depends on EMI bank configuration (see
+		 * notes at top) */
+		if (emi_bank_base(1) > 64*1024*1024) {
+			nor_bank_size = 64*1024*1024;
+		} else if (emi_bank_base(1) == 64*1024*1024) {
+			if (emi_bank_base(2) > 128*1024*1024)
+				nor_bank_size = 128*1024*1024;
+			else
+				nor_bank_size = emi_bank_base(2);
+		} else {
+			nor_bank_size = emi_bank_base(1);
+		}
+		break;
+	case 0x1a:
+		pr_info("Configuring FLASH for boot-from-SPI\n");
+		nor_bank_base = emi_bank_base(1);
+		nor_bank_size = emi_bank_base(2) - nor_bank_base;
+		if (nor_bank_size > 64*1024*1024)
+			nor_bank_size = 64*1024*1024;
+		break;
+	default:
+		BUG();
+		break;
+	}
+	sysconf_release(sc);
+
+	/* Update NOR Flash resources */
+	if (mb903_nor_flash.resource[0].end > nor_bank_size - 1)
+		mb903_nor_flash.resource[0].end = nor_bank_size - 1;
+	mb903_nor_flash.resource[0].start += nor_bank_base;
+	mb903_nor_flash.resource[0].end += nor_bank_base;
+
 	gpio_request(MB903_PIO_GMII0_NOTRESET, "GMII0_notRESET");
 	gpio_direction_output(MB903_PIO_GMII0_NOTRESET, 0);
 
@@ -228,6 +406,20 @@ static int __init mb903_device_init(void)
 			.mdio_bus_data = &stmmac1_mdio_bus,
 		});
 
+	/* Serial Flash support depends on silicon cut */
+	if (cpu_data->cut_major >= 2) {
+		/* Use SPI-FSM Controller */
+		stx7108_configure_spifsm(&mb903_spifsm_flash);
+	} else {
+		/* Use SPI-GPIO and generic 'm25p80' driver */
+		gpio_request(MB903_GPIO_SPI_HOLD, "SPI_HOLD");
+		gpio_direction_output(MB903_GPIO_SPI_HOLD, 1);
+		gpio_request(MB903_GPIO_SPI_WRITE_PRO, "SPI_WRITE_PRO");
+		gpio_direction_output(MB903_GPIO_SPI_WRITE_PRO, 1);
+
+		platform_device_register(&mb903_serial_flash_bus);
+		spi_register_board_info(&mb903_serial_flash, 1);
+	}
 
 	return platform_add_devices(mb903_devices,
 			ARRAY_SIZE(mb903_devices));

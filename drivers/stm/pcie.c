@@ -126,7 +126,7 @@ static inline u32 shift_data_write(int where, int size, u32 val, u32 data)
 static void dbi_write(struct stm_pcie_dev_data *priv,
 		      u32 val, int where, int size)
 {
-	u32 data;
+	u32 uninitialized_var(data);
 	int aligned_addr = where & ~0x3;
 
 	/* Read the dword aligned data if we have to */

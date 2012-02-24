@@ -63,6 +63,7 @@ struct stm_spi_fsm {
 #define FLASH_CMD_SE		0xd8
 #define FLASH_CMD_CHIPERASE	0xc7
 #define FLASH_CMD_WRVCR		0x81
+#define FLASH_CMD_RDVCR		0x85
 
 #define FLASH_CMD_READ		0x03	/* READ */
 #define FLASH_CMD_READ_FAST	0x0b	/* FAST READ */
@@ -483,6 +484,8 @@ static struct flash_info __devinitdata flash_types[] = {
 		   FLASH_CAPS_WRITE_1_1_4	| \
 		   FLASH_CAPS_WRITE_1_4_4)
 	{ "n25q128", 0x20ba18, 0, 64 * 1024,  256, N25Q_CAPS, 108, n25q_config},
+	{ "n25q256", 0x20ba19, 0, 64 * 1024,  512,
+	  N25Q_CAPS | FLASH_CAPS_32BITADDR, 108, n25q_config},
 
 	/* Winbond -- w25x "blocks" are 64K, "sectors" are 4KiB */
 #define W25X_CAPS (FLASH_CAPS_READ_WRITE	| \
@@ -765,6 +768,7 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 /* [N25Qxxx] Configure READ/WRITE sequences */
 #define N25Q_VCR_DUMMY_CYCLES(x)	(((x) & 0xf) << 4)
 #define N25Q_VCR_XIP_DISABLED		((uint8_t)0x1 << 3)
+#define N25Q_VCR_WRAP_CONT		0x3
 static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
 	uint8_t read_cmd;
@@ -811,7 +815,9 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 		break;
 	}
 
-	vcr = N25Q_VCR_DUMMY_CYCLES(dummy_cycles) | N25Q_VCR_XIP_DISABLED;
+	vcr = (N25Q_VCR_DUMMY_CYCLES(dummy_cycles) |
+	       N25Q_VCR_XIP_DISABLED |
+	       N25Q_VCR_WRAP_CONT);
 
 	fsm_wrvcr(fsm, vcr);
 

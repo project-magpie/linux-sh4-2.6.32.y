@@ -239,45 +239,133 @@ static struct stm_pcie_dev_data *stm_pci_bus_to_dev_data(struct pci_bus *bus)
 	return platform_get_drvdata(pdev);
 }
 
+/*
+ * The PCI express core IP expects the following arrangement on it's address
+ * bus (slv_haddr) when driving config cycles.
+ * bus_number  		[31:24]
+ * dev_number  		[23:19]
+ * func_number 		[18:16]
+ * unused		[15:12]
+ * ext_reg_number 	[11:8]
+ * reg_number 		[7:2]
+ *
+ * Bits [15:12] are unused.
+ *
+ * In the glue logic there is a 64K region of address space that can be
+ * written/read to generate config cycles. The base address of this is
+ * controlled by CFG_BASE_ADDRESS. There are 8 16 bit registers called
+ * FUNC0_BDF_NUM to FUNC8_BDF_NUM. These split the bottom half of the 64K
+ * window into 8 regions at 4K boundaries (quite what the other 32K is for is a
+ * mystery). These control the bus,device and function number you are trying to
+ * talk to.
+ *
+ * The decision on whether to generate a type 0 or type 1 access is controlled
+ * by bits 15:12 of the address you write to.  If they are zero, then a type 0
+ * is generated, if anything else it will be a type 1. Thus the bottom 4K
+ * region controlled by FUNC0_BDF_NUM can only generate type 0, all the others
+ * can only generate type 1.
+ *
+ * We only use FUNC0_BDF_NUM and FUNC1_BDF_NUM. Which one you use is selected
+ * by bit 12 of the address you write to. The selected register is then used
+ * for the top 16 bits of the slv_haddr to form the bus/dev/func, bit 15:12 are
+ * wired to zero, and bits 11:2 form the address of the register you want to
+ * read in config space.
+ *
+ * We always write FUNC0_BDF_NUM as a 32 bit write. So if we want type 1
+ * accesses we have to shift by 16 so in effect we are writing to FUNC1_BDF_NUM
+ *
+ */
+
+static inline u32 bdf_num(int bus, int devfn, int is_root_bus)
+{
+	return ((bus << 8) | devfn) << (is_root_bus ? 0 : 16);
+}
+
+static inline unsigned config_addr(int where, int is_root_bus)
+{
+	return (where & ~3) | (!is_root_bus << 12);
+}
+
 static int stm_pcie_config_read(struct pci_bus *bus, unsigned int devfn,
 				int where, int size, u32 *val)
 {
-	u16 bdf;
+	u32 bdf;
 	u32 data;
 	int slot = PCI_SLOT(devfn);
 	unsigned long flags;
 	struct stm_pcie_dev_data *priv = stm_pci_bus_to_dev_data(bus);
+	int is_root_bus = pci_is_root_bus(bus);
+	int retry_count = 0;
 
-	if (!priv) {
-		*val = ~0;
-		return PCIBIOS_DEVICE_NOT_FOUND;
-	}
-
-	/* It's not clear to me how this works when we have a switch in the
-	 * system. If you have a PCIe switch, you can only have one EP on each
-	 * link, so there is no point in probing multiple devices. I think the
-	 * upper layer should probably know this hopefully, as it is tricky to
-	 * filter it out at this level. For the root complex it is trivial
-	 * though.
+	/* PCI express devices will respond to all config type 0 cycles, since
+	 * they are point to point links. Thus to avoid probing for multiple
+	 * devices on the root bus we simply ignore any request for anything
+	 * other than slot 0 if it is on the root bus. The switch will reject
+	 * requests for slots it knows do not exist.
+	 *
+	 * We have to check for the link being up as we will hang if we issue
+	 * a config request and the link is down.
 	 */
-	if ((pci_is_root_bus(bus) && slot != 1) || !link_up(priv)) {
+	if (!priv || (is_root_bus && slot != 0) || !link_up(priv)) {
 		*val = ~0;
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 
-	bdf = (bus->number << 8) | devfn;
+	bdf = bdf_num(bus->number, devfn, is_root_bus);
 
-	/* Claim lock, FUNC0_BDF_NUM has to remain unchanged for the whole
+retry:
+	/* Claim lock, FUNC[01]_BDF_NUM has to remain unchanged for the whole
 	 * cycle
 	 */
 	spin_lock_irqsave(&stm_pcie_config_lock, flags);
 
 	/* Set the config packet devfn */
 	dbi_writel(priv, bdf, FUNC0_BDF_NUM);
+	/* We have to read it back here, as there is a race condition between
+	 * the write to the FUNC0_BDF_NUM and the actual read from the config
+	 * address space. These appear to be different stbus targets, and it
+	 * looks as if the read can overtake the write sometimes. The result of
+	 * this is that you end up reading from the wrong device.
+	 */
+	dbi_readl(priv, FUNC0_BDF_NUM);
 	/* Read the dword aligned data */
-	data = readl(priv->config_area + (where & ~0x3));
+	data = readl(priv->config_area + config_addr(where, is_root_bus));
 
 	spin_unlock_irqrestore(&stm_pcie_config_lock, flags);
+
+	/* This is truly vile, but I am unable to think of anything better.
+	 * This is a hack to help with when we are probing the bus.  The
+	 * problem is that the wrapper logic doesn't have any way to
+	 * interrogate if the configuration request failed or not. The read
+	 * will return 0 if something has gone wrong.
+	 *
+	 * Unfortunately this means it is impossible to tell the difference
+	 * between when a device doesn't exist (the switch will return a UR
+	 * completion) or the device does exist but isn't yet ready to accept
+	 * configuration requests (the device will return a CRS completion)
+	 *
+	 * The result of this is that we will miss devices when probing.
+	 *
+	 * So if we are trying to read the dev/vendor id on devfn 0 and we
+	 * appear to get zero back, then we retry the request.  We know that
+	 * zero can never be a valid device/vendor id. The specification says
+	 * we must retry for up to a second before we decide the device is
+	 * dead. If we are still dead then we assume there is nothing there and
+	 * return ~0
+	 *
+	 * The downside of this is that we incur a delay of 1s for every pci
+	 * express link that doesn't have a device connected.
+	 *
+	 */
+	if (((where&~3) == 0) && devfn == 0 && data == 0) {
+		if (retry_count++ < 1000) {
+			mdelay(1);
+			goto retry;
+		} else {
+			*val = ~0;
+			return PCIBIOS_DEVICE_NOT_FOUND;
+		}
+	}
 
 	*val = shift_data_read(where, size, data);
 
@@ -288,31 +376,35 @@ static int stm_pcie_config_write(struct pci_bus *bus, unsigned int devfn,
 				 int where, int size, u32 val)
 {
 	unsigned long flags;
-	u16 bdf;
-	u32 data;
+	u32 bdf;
+	u32 data = 0;
 	int slot = PCI_SLOT(devfn);
 	struct stm_pcie_dev_data *priv = stm_pci_bus_to_dev_data(bus);
+	int is_root_bus = pci_is_root_bus(bus);
 
-	if (!priv || (pci_is_root_bus(bus) && slot != 1) || !link_up(priv))
+	if (!priv || (is_root_bus && slot != 0) || !link_up(priv))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	bdf = (bus->number << 8) | devfn;
+	bdf = bdf_num(bus->number, devfn, is_root_bus);
 
-	/* Claim lock, FUNC0_BDF_NUM has to remain unchanged for the whole
+	/* Claim lock, FUNC[01]_BDF_NUM has to remain unchanged for the whole
 	 * cycle
 	 */
 	spin_lock_irqsave(&stm_pcie_config_lock, flags);
 
 	/* Set the config packet devfn */
 	dbi_writel(priv, bdf, FUNC0_BDF_NUM);
+	/* See comment in stm_pcie_config_read */
+	dbi_readl(priv, FUNC0_BDF_NUM);
 
 	/* Read the dword aligned data */
 	if (size != 4)
-		data = readl(priv->config_area + (where & ~0x3));
+		data = readl(priv->config_area +
+			     config_addr(where, is_root_bus));
 
 	data = shift_data_write(where, size, val, data);
 
-	writel(data, priv->config_area + (where & ~0x3));
+	writel(data, priv->config_area + config_addr(where, is_root_bus));
 
 	spin_unlock_irqrestore(&stm_pcie_config_lock, flags);
 

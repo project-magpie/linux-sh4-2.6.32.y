@@ -71,7 +71,7 @@ static struct stm_plat_pcie_config stx7108_plat_pcie_config = {
 /* PCI express support */
 #define PCIE_MEM_START 0x20000000
 #define PCIE_MEM_SIZE  0x20000000
-#define MSI_FIRST_IRQ 	(NR_IRQS - 33)
+#define MSI_FIRST_IRQ 	(NR_IRQS - 29)
 #define MSI_LAST_IRQ 	(NR_IRQS - 1)
 
 static struct platform_device stx7108_pcie_device = {

@@ -350,6 +350,11 @@ static void stm_pcie_board_reset(struct device *dev)
 
 	mdelay(1);		/* From PCIe spec */
 	gpio_direction_output(config->reset_gpio, 1);
+
+	/* PCIe specification states that you should not issue any config
+	 * requests until 100ms after asserting reset, so we enforce that here
+	 */
+	mdelay(100);
 }
 
 

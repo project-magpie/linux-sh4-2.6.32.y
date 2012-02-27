@@ -23,6 +23,7 @@ endif
 IMAGE_OFFSET	:= $(shell /bin/bash -c 'printf "0x%08x" \
 		     $$[$(CONFIG_PAGE_OFFSET)  + \
 			$(KERNEL_MEMORY) + \
+			$(CONFIG_ZERO_PAGE_OFFSET) + \
 			$(CONFIG_BOOT_LINK_OFFSET)]')
 
 LIBGCC	:= $(shell $(CC) $(KBUILD_CFLAGS) -print-libgcc-file-name)

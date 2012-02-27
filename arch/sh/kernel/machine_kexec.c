@@ -21,6 +21,7 @@
 #include <asm/mmu_context.h>
 #include <asm/io.h>
 #include <asm/cacheflush.h>
+#include <asm/irq-ilc.h>
 
 typedef void (*relocate_new_kernel_t)(unsigned long indirection_page,
 				      unsigned long reboot_code_buffer,
@@ -33,6 +34,7 @@ extern void *vbr_base;
 
 void machine_shutdown(void)
 {
+	ilc_disable_all();
 }
 
 void machine_crash_shutdown(struct pt_regs *regs)

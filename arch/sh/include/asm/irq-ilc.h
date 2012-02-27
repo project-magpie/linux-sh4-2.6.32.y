@@ -66,5 +66,6 @@
 
 void __init ilc_early_init(struct platform_device* pdev);
 int ilc2irq(unsigned int evtcode);
+void ilc_disable_all(void);
 
 #endif

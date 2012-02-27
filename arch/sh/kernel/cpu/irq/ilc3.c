@@ -559,7 +559,26 @@ subsys_initcall(ilc_debugfs_init);
 
 #endif /* CONFIG_DEBUG_FS */
 
+#ifdef CONFIG_KEXEC
+void ilc_disable_all(void)
+{
+	unsigned int input;
+	struct ilc *ilc;
 
+	/* Don't care to synch irq status with ILC, as current kernel
+	 * is going to die. Switching-off only the hardware. */
+
+	list_for_each_entry(ilc, &ilcs_list, list) {
+		for (input = 0; input < ilc->inputs_num; ++input) {
+			if (ILC_GET_ENABLE(ilc->base, input) != 0) {
+				DPRINTK("%s: disabling irq %d\n", __func__,
+					input + ilc->first_irq);
+				ILC_CLR_ENABLE(ilc->base, input);
+			}
+		}
+	}
+}
+#endif
 
 #ifdef CONFIG_HIBERNATION
 static int ilc_resume_from_hibernation(struct ilc *ilc)

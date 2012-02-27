@@ -24,6 +24,8 @@
 #define PMB_WT			0x00000001
 #define PMB_UB			0x00000200
 #define PMB_V			0x00000100
+#define PMB_VPN		0xff000000
+#define PMB_PPN		0xff000000
 
 #define PMB_NO_ENTRY		(-1)
 

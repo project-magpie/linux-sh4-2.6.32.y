@@ -120,6 +120,16 @@ static __always_inline void __set_pmb_entry(unsigned long vpn,
 	ctrl_inl(mk_pmb_addr(pos));
 }
 
+static __always_inline void __get_pmb_entry(unsigned long *vpn,
+	unsigned long *ppn, unsigned long *flags, int pos)
+{
+	ctrl_barrier();
+	*vpn   = ctrl_inl(mk_pmb_addr(pos)) & PMB_VPN;
+	*ppn   = ctrl_inl(mk_pmb_data(pos)) & PMB_PPN;
+	*flags = ctrl_inl(mk_pmb_data(pos)) & (PMB_SZ_MASK|PMB_C|PMB_WT|PMB_UB);
+	ctrl_barrier();
+}
+
 static void __uses_jump_to_uncached set_pmb_entry(unsigned long vpn,
 	unsigned long ppn, unsigned long flags, int pos)
 {
@@ -648,10 +658,15 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	register unsigned long flags __asm__("r4");
 
 	/* We can execute this directly, as the current PMB is uncached */
-	__pmb_mapping_set(uc_mapping);
+	if (uc_mapping)
+		__pmb_mapping_set(uc_mapping);
 
-	cached_to_uncached = uc_mapping->virt -
-		(((unsigned long)&__uncached_start) & ~(uc_mapping->entries->size-1));
+	/*
+	 * The caches may or may not be enabled, so write back the
+	 * data we will need to access through the uncached mapping.
+	 */
+	for (i = 0; i < sizeof(pmbe); i += L1_CACHE_BYTES)
+		__ocbwb(((void *)pmbe) + i);
 
 	jump_to_uncached();
 
@@ -691,6 +706,8 @@ void __init pmb_init(void)
 {
 	int i;
 	int entry;
+	unsigned long uc_vpn, uc_ppn, uc_flags;
+	int uc_mapping_present;
 
 	/* Create the free list of mappings */
 	pmb_mappings_free = &pmbm[0];
@@ -707,7 +724,25 @@ void __init pmb_init(void)
 	uc_mapping = pmb_calc(__pa(&__uncached_start), &__uncached_end - &__uncached_start,
 		 P3SEG-pmb_sizes[0].size, &entry, PMB_WT | PMB_UB);
 	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
-	apply_boot_mappings(uc_mapping, ram_mapping);
+
+	/*
+	 * If we already have the uncached mapping there is no need to set
+	 * it up again. This is also a pretty good indication that we are
+	 * restarting after a kexec, and so the main ram mapping could be
+	 * cached, and it wouldn't be safe to manipulate the PMB directly.
+	 */
+	entry = NR_PMB_ENTRIES-1;
+	__get_pmb_entry(&uc_vpn, &uc_ppn, &uc_flags, entry);
+	uc_mapping_present = ((uc_mapping->virt == uc_vpn) &&
+	     (uc_mapping->phys == uc_ppn) &&
+	     (uc_mapping->flags == uc_flags));
+
+	cached_to_uncached = uc_mapping->virt -
+		(((unsigned long)&__uncached_start) &
+		 ~(uc_mapping->entries->size-1));
+
+	apply_boot_mappings(uc_mapping_present ? NULL : uc_mapping,
+			    ram_mapping);
 }
 
 int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)

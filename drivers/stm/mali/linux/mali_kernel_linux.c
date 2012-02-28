@@ -206,25 +206,25 @@ int mali_driver_init(void)
 void mali_driver_exit(void)
 {
 	mali_kernel_destructor();
-
-	if(NULL != stbus_system_memory_barrier)
-		iounmap((void*)stbus_system_memory_barrier);
-
-    if(NULL != stbus_barrier_system_page)
-    {
-#if defined(__sh__)
-    	ClearPageReserved(stbus_barrier_system_page);
-#endif
-    	__free_pages(stbus_barrier_system_page,1);
-    }
-
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
 #ifdef CONFIG_PM
 	_mali_dev_platform_unregister();
 #endif
 #endif
+#else
+	platform_driver_unregister(&mali_plat_driver);
 #endif
+
+	if (NULL != stbus_system_memory_barrier)
+		iounmap((void *)stbus_system_memory_barrier);
+
+	if (NULL != stbus_barrier_system_page) {
+#if defined(__sh__)
+		ClearPageReserved(stbus_barrier_system_page);
+#endif
+		__free_pages(stbus_barrier_system_page, 1);
+	}
 }
 
 /* called from _mali_osk_init */
@@ -582,7 +582,6 @@ static void mali_platform_shutdown(struct platform_device *pdev)
 
 static int __exit mali_platform_remove(struct platform_device *pdev)
 {
-	/*mali_kernel_destructor();*/
 	return 0;
 }
 

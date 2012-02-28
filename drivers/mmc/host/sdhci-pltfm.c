@@ -70,7 +70,7 @@ static int sdhci_pltfm_8bit_width(struct sdhci_host *host, int width)
 static unsigned int sdhci_pltfm_get_max_clk(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
-
+	/* Never called in case of pltfm_host->clk is NULL*/
 	return clk_get_rate(pltfm_host->clk);
 }
 
@@ -156,12 +156,13 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 
 	clk = clk_get(mmc_dev(host->mmc), NULL);
 	if (IS_ERR(clk)) {
-		dev_err(mmc_dev(host->mmc), "clk err\n");
-		ret = PTR_ERR(clk);
-		goto err_plat_init;
+		pr_warning("%s: clk_get fails\n", mmc_hostname(host->mmc));
+		/* Remove broken clk from quirks */
+		host->quirks &= ~SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN;
+	} else {
+		clk_enable(clk);
+		pltfm_host->clk = clk;
 	}
-	clk_enable(clk);
-	pltfm_host->clk = clk;
 
 	ret = sdhci_add_host(host);
 	if (ret)
@@ -174,9 +175,10 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 err_add_host:
 	if (pdata && pdata->exit)
 		pdata->exit(host);
-
-	clk_disable(clk);
-	clk_put(clk);
+	if (clk) {
+		clk_disable(clk);
+		clk_put(clk);
+	}
 
 err_plat_init:
 	iounmap(host->ioaddr);
@@ -211,8 +213,10 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	sdhci_free_host(host);
 	platform_set_drvdata(pdev, NULL);
 
-	clk_disable(pltfm_host->clk);
-	clk_put(pltfm_host->clk);
+	if (pltfm_host->clk) {
+		clk_disable(pltfm_host->clk);
+		clk_put(pltfm_host->clk);
+	}
 
 	return 0;
 }
@@ -235,7 +239,8 @@ static int sdhci_pltfm_suspend(struct platform_device *dev, pm_message_t state)
 	struct sdhci_host *host = platform_get_drvdata(dev);
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 
-	clk_disable(pltfm_host->clk);
+	if (pltfm_host->clk)
+		clk_disable(pltfm_host->clk);
 
 	return sdhci_suspend_host(host, state);
 }
@@ -245,7 +250,8 @@ static int sdhci_pltfm_resume(struct platform_device *dev)
 	struct sdhci_host *host = platform_get_drvdata(dev);
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 
-	clk_enable(pltfm_host->clk);
+	if (pltfm_host->clk)
+		clk_enable(pltfm_host->clk);
 
 	return sdhci_resume_host(host);
 }

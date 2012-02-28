@@ -398,11 +398,16 @@ static struct platform_device stxh205_mmc_device = {
 void __init stxh205_configure_mmc(int emmc)
 {
 	struct sdhci_pltfm_data *plat_data;
+	struct sysconf_field *sc;
 
 	plat_data = &stxh205_mmc_platform_data;
 
 	if (unlikely(emmc))
 		plat_data->quirks |= SDHCI_QUIRK_NONREMOVABLE_CARD;
+
+	/* Disable boot from eMMC to allow access to ARASAN HC */
+	sc = sysconf_claim(SYSCONF(242), 0, 0, "mmc");
+	sysconf_write(sc, 0);
 
 	platform_device_register(&stxh205_mmc_device);
 }

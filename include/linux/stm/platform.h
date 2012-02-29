@@ -218,6 +218,8 @@ struct stm_plat_pcie_mp_data {
 	int miphy_first, miphy_count;
 	enum miphy_mode *miphy_modes;
 	void (*mp_select)(int port);
+	int tx_pol_inv;	/* invert polarity of TXN/TXP differential outputs */
+	int rx_pol_inv;	/* invert polarity of RXN/RXP differential inputs */
 	char *style_id;
 };
 

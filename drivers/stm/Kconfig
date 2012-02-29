@@ -56,6 +56,12 @@ config STM_MIPHY_DUMMY
 	default y if (CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_FLI7510)
 	default n
 
+config STM_MIPHYA40X
+	bool
+	depends on STM_MIPHY
+	default y if CPU_SUBTYPE_STXH205
+	default n
+
 config STM_MIPHY365X
 	bool
 	depends on STM_MIPHY

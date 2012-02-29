@@ -208,6 +208,7 @@ struct stm_plat_tap_data {
 	int miphy_first, miphy_count;
 	enum miphy_mode *miphy_modes;
 	struct stm_tap_sysconf *tap_sysconf;
+	char *style_id;
 };
 
 
@@ -217,6 +218,7 @@ struct stm_plat_pcie_mp_data {
 	int miphy_first, miphy_count;
 	enum miphy_mode *miphy_modes;
 	void (*mp_select)(int port);
+	char *style_id;
 };
 
 

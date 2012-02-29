@@ -12,6 +12,7 @@ obj-y					+= clocks/
 
 obj-$(CONFIG_STM_DMA)			+= fdma.o fdma-xbar.o
 obj-$(CONFIG_STM_MIPHY)			+= miphy.o
+obj-$(CONFIG_STM_MIPHY365X)		+= miphy365x.o
 obj-$(CONFIG_STM_MIPHY_TAP)		+= miphy_tap.o tap.o
 obj-$(CONFIG_STM_MIPHY_PCIE_MP)		+= miphy_pcie_mp.o
 obj-$(CONFIG_STM_MIPHY_DUMMY)		+= miphy_dummy.o

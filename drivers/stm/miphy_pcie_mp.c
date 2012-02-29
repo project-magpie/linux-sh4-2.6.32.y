@@ -27,7 +27,6 @@ struct pcie_mp_device{
 	struct stm_miphy_device miphy_dev;
 	void __iomem *mp_base;
 	void (*mp_select)(int port);
-	struct miphy_if_ops *ops;
 };
 static struct pcie_mp_device *mp_dev;
 
@@ -47,21 +46,18 @@ static u8 stm_pcie_mp_register_read(int miphyselect, u8 address)
 	return data;
 }
 
-static const struct miphy_if_ops stm_miphy_mp_ops = {
-	.reg_write = stm_pcie_mp_register_write,
-	.reg_read = stm_pcie_mp_register_read,
-};
-
 static int __init pcie_mp_probe(struct platform_device *pdev)
 {
 	struct resource *res;
+	struct stm_miphy_device *miphy_dev;
 	struct stm_plat_pcie_mp_data *data =
 			(struct stm_plat_pcie_mp_data *)pdev->dev.platform_data;
 	int result;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
-	mp_dev = kzalloc(sizeof(struct pcie_mp_device), GFP_KERNEL);
+	mp_dev = devm_kzalloc(&pdev->dev,
+			sizeof(struct pcie_mp_device), GFP_KERNEL);
 	if (!mp_dev)
 		return -ENOMEM;
 
@@ -78,9 +74,17 @@ static int __init pcie_mp_probe(struct platform_device *pdev)
 	if (!mp_dev->mp_base)
 		return -ENOMEM;
 
-	result = miphy_if_register(&mp_dev->miphy_dev, UPORT_IF,
-			data->miphy_first, data->miphy_count, data->miphy_modes,
-			&pdev->dev, &stm_miphy_mp_ops);
+	miphy_dev = &mp_dev->miphy_dev;
+	miphy_dev->type = UPORT_IF;
+	miphy_dev->miphy_first = data->miphy_first;
+	miphy_dev->miphy_count = data->miphy_count;
+	miphy_dev->modes = data->miphy_modes;
+	miphy_dev->parent = &pdev->dev;
+	miphy_dev->reg_write = stm_pcie_mp_register_write;
+	miphy_dev->reg_read = stm_pcie_mp_register_read;
+	miphy_dev->style_id = data->style_id;
+
+	result = miphy_register_device(miphy_dev);
 
 	if (result) {
 		printk(KERN_ERR "Unable to Register uPort MiPHY device\n");
@@ -89,12 +93,10 @@ static int __init pcie_mp_probe(struct platform_device *pdev)
 
 	return 0;
 }
+
 static int  pcie_mp_remove(struct platform_device *pdev)
 {
-	miphy_if_unregister(&mp_dev->miphy_dev);
-	kfree(mp_dev->ops);
-	kfree(mp_dev);
-	mp_dev = NULL;
+	miphy_unregister_device(&mp_dev->miphy_dev);
 	return 0;
 }
 

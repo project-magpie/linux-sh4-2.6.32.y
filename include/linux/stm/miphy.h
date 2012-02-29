@@ -11,9 +11,11 @@
 #ifndef __LINUX_STM_MIPHY_H
 #define __LINUX_STM_MIPHY_H
 
+#define ID_MIPHY365X	"MiPHY3-65"
+#define ID_MIPHYDUMMY	"MiPHY-DUMMY"
+
 enum miphy_if_type { TAP_IF, UPORT_IF, DUMMY_IF };
 enum miphy_mode { UNUSED_MODE, SATA_MODE, PCIE_MODE };
-
 struct stm_miphy;
 
 /*

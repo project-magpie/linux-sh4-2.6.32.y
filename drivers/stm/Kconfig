@@ -56,6 +56,16 @@ config STM_MIPHY_DUMMY
 	default y if (CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_FLI7510)
 	default n
 
+config STM_MIPHY365X
+	bool
+	depends on STM_MIPHY
+	default y if CPU_SUBTYPE_STX7105
+	default y if CPU_SUBTYPE_STX7108
+	default y if CPU_SUBTYPE_STX7141
+	default y if CPU_SUBTYPE_STX7200
+	default y if CPU_SUBTYPE_FLI7510
+	default n
+
 config STPIO
 	bool "Legacy stpio API"
 	default n

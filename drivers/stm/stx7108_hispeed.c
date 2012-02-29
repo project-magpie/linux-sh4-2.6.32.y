@@ -985,6 +985,7 @@ static void stx7108_pcie_mp_select(int port)
 }
 
 struct stm_plat_pcie_mp_data stx7108_pcie_mp_platform_data = {
+	.style_id = ID_MIPHY365X,
 	.miphy_first = 0,
 	.miphy_count = 2,
 	.miphy_modes = stx7108_miphy_modes,
@@ -1020,6 +1021,7 @@ static struct stm_tap_sysconf tap_sysconf = {
 
 
 static struct stm_plat_tap_data stx7108_tap_platform_data = {
+	.style_id = ID_MIPHY365X,
 	.miphy_first = 0,
 	.miphy_count = 2,
 	.miphy_modes = stx7108_miphy_modes,

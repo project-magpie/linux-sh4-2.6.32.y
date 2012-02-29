@@ -149,15 +149,11 @@ static void stm_miphy_tap_reg_write(int port, u8 addr, u8 data)
 			DR_SIZE + (tap_dev->ports - 1));
 }
 
-static const struct miphy_if_ops stm_miphy_tap_ops = {
-	.reg_write = stm_miphy_tap_reg_write,
-	.reg_read = stm_miphy_tap_reg_read,
-};
-
 static int stm_miphy_tap_probe(struct platform_device *pdev)
 {
 	struct stm_plat_tap_data *data =
 			(struct stm_plat_tap_data *)pdev->dev.platform_data;
+	struct stm_miphy_device *miphy_dev;
 	struct tap_sysconf_field *tck = &data->tap_sysconf->tck;
 	struct tap_sysconf_field *tms = &data->tap_sysconf->tms;
 	struct tap_sysconf_field *tdi = &data->tap_sysconf->tdi;
@@ -210,9 +206,17 @@ static int stm_miphy_tap_probe(struct platform_device *pdev)
 
 	stm_tap_enable(tap_dev->tap);
 
-	result = miphy_if_register(&tap_dev->miphy_dev, TAP_IF,
-			data->miphy_first, data->miphy_count, data->miphy_modes,
-			&pdev->dev, &stm_miphy_tap_ops);
+	miphy_dev = &tap_dev->miphy_dev;
+	miphy_dev->type = TAP_IF;
+	miphy_dev->miphy_first = data->miphy_first;
+	miphy_dev->miphy_count = data->miphy_count;
+	miphy_dev->modes = data->miphy_modes;
+	miphy_dev->parent = &pdev->dev;
+	miphy_dev->reg_write = stm_miphy_tap_reg_write,
+	miphy_dev->reg_read = stm_miphy_tap_reg_read,
+	miphy_dev->style_id = data->style_id;
+
+	result = miphy_register_device(miphy_dev);
 
 	if (result) {
 		printk(KERN_ERR "Unable to Register TAP MiPHY device\n");
@@ -224,11 +228,10 @@ static int stm_miphy_tap_probe(struct platform_device *pdev)
 
 static int stm_miphy_tap_remove(struct platform_device *pdev)
 {
-
 	stm_tap_disable(tap_dev->tap);
 	stm_tap_free(tap_dev->tap);
 
-	miphy_if_unregister(&tap_dev->miphy_dev);
+	miphy_unregister_device(&tap_dev->miphy_dev);
 	/* free the memory and sysconf */
 	sysconf_release(tap_dev->tck);
 	sysconf_release(tap_dev->tms);
@@ -252,7 +255,6 @@ static int __init stm_miphy_tap_init(void)
 {
 	return platform_driver_register(&stm_miphy_tap_driver);
 }
-
 postcore_initcall(stm_miphy_tap_init);
 
 MODULE_AUTHOR("STMicroelectronics @st.com");

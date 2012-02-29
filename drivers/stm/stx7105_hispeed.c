@@ -775,6 +775,7 @@ static struct stm_tap_sysconf tap_sysconf = {
 };
 
 static struct stm_plat_tap_data stx7105_tap_platform_data = {
+	.style_id = ID_MIPHY365X,
 	.miphy_first = 0,
 	.miphy_count = 2,
 	.miphy_modes = (enum miphy_mode[2]) {SATA_MODE, SATA_MODE},

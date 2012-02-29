@@ -12,50 +12,80 @@
 
 #define NAME		"stm-miphy-dummy"
 
-struct stm_miphy_miphy_device {
-	struct stm_miphy_device miphy_dev;
+static struct stm_miphy_device miphy_dummy_dev;
+
+static int miphydummy_start(struct stm_miphy *miphy)
+{
+	return 0;
+}
+
+static struct stm_miphy_style_ops miphydummy_ops = {
+	.miphy_start 		= miphydummy_start,
 };
 
-static struct stm_miphy_miphy_device miphy_dummy_dev;
+static int miphydummy_probe(struct stm_miphy *miphy)
+{
+	pr_info("MiPHY driver style %s probed successfully\n",
+		ID_MIPHYDUMMY);
+	return 0;
+}
+
+static int miphydummy_remove(void)
+{
+	return 0;
+}
+
+static struct stm_miphy_style miphydummy_style = {
+	.style_id	= ID_MIPHYDUMMY,
+	.probe		= miphydummy_probe,
+	.remove		= miphydummy_remove,
+	.miphy_ops	= &miphydummy_ops,
+};
 
 static u8 stm_miphy_dummy_reg_read(int port, u8 addr)
 {
 	return 0;
 }
+
 static void stm_miphy_dummy_reg_write(int port, u8 addr, u8 data)
 {
 }
-
-static const struct miphy_if_ops stm_miphy_dummy_ops = {
-	.reg_write = stm_miphy_dummy_reg_write,
-	.reg_read = stm_miphy_dummy_reg_read,
-};
 
 static int stm_miphy_dummy_probe(struct platform_device *pdev)
 {
 	struct stm_plat_miphy_dummy_data *data = pdev->dev.platform_data;
 	int result;
+	miphy_dummy_dev.type = DUMMY_IF;
+	miphy_dummy_dev.miphy_first = data->miphy_first;
+	miphy_dummy_dev.miphy_count = data->miphy_count;
+	miphy_dummy_dev.modes = data->miphy_modes;
+	miphy_dummy_dev.parent = &pdev->dev;
+	miphy_dummy_dev.reg_write = stm_miphy_dummy_reg_write,
+	miphy_dummy_dev.reg_read = stm_miphy_dummy_reg_read,
+	miphy_dummy_dev.style_id = ID_MIPHYDUMMY;
 
-	result = miphy_if_register(&miphy_dummy_dev.miphy_dev, DUMMY_IF,
-			data->miphy_first, data->miphy_count, data->miphy_modes,
-			&pdev->dev, &stm_miphy_dummy_ops);
-
+	result = miphy_register_device(&miphy_dummy_dev);
 	if (result) {
 		printk(KERN_ERR "Unable to Register DUMMY MiPHY device\n");
 		return result;
 	}
 
-	return 0;
+	result = miphy_register_style(&miphydummy_style);
+	if (result)
+		pr_err("MiPHY driver style %s register failed (%d)",
+				ID_MIPHYDUMMY, result);
+
+	return result;
 }
 
 static int stm_miphy_dummy_remove(struct platform_device *pdev)
 {
-	miphy_if_unregister(&miphy_dummy_dev.miphy_dev);
+	miphy_unregister_device(&miphy_dummy_dev);
 
 	return 0;
 }
 
-static struct platform_driver stm_miphy_dummy_driver = {
+static struct platform_driver stm_miphy_dummy_plat_driver = {
 	.driver.name = NAME,
 	.driver.owner = THIS_MODULE,
 	.probe = stm_miphy_dummy_probe,
@@ -64,9 +94,8 @@ static struct platform_driver stm_miphy_dummy_driver = {
 
 static int __init stm_miphy_dummy_init(void)
 {
-	return platform_driver_register(&stm_miphy_dummy_driver);
+	return platform_driver_register(&stm_miphy_dummy_plat_driver);
 }
-
 postcore_initcall(stm_miphy_dummy_init);
 
 MODULE_AUTHOR("STMicroelectronics @st.com");

@@ -31,6 +31,7 @@
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
+#include "../mach-st/ic1001.h"
 
 /*
  * The FLASH devices are configured according to the boot-mode:
@@ -184,6 +185,39 @@ static void hdk7108_mii_txclk_select(int txclk_250_not_25_mhz)
 	else
 		gpio_set_value(HDK7108_GPIO_MII_SPEED_SEL, 0);
 }
+
+static int hdk7108_ic1001_phy_fixup(struct phy_device *phydev)
+{
+	int c;
+
+	/*
+	 * The phase setting options for the IC+ 1001 is strange.
+	 * For all board versions it appears the default is:
+	 *
+	 *                  Pull up     Pull down
+	 *      TX_PHASE    RP30 (NC)   RP38 (5K1)
+	 *      RX_PHASE    RP31 (5K1)  RP39 (NC)
+	 *
+	 * which doesn't work with the default retiming values.
+	 *
+	 * It appears that no additional delays are required in GMII mode,
+	 * delays on both RxCLK and TxCLK are required in RGMII mode.
+	 */
+
+	c = phy_read(phydev, IP1001_SPEC_CTRL_STATUS);
+	if (c < 0)
+		return c;
+
+	if (phydev->interface == PHY_INTERFACE_MODE_RGMII)
+		c |= (1 << IP1001_RXPHASE_SEL) | (1<<IP1001_TXPHASE_SEL);
+	else
+		c &= ~((1 << IP1001_RXPHASE_SEL) | (1<<IP1001_TXPHASE_SEL));
+
+	c = phy_write(phydev, IP1001_SPEC_CTRL_STATUS, c);
+
+	return c;
+}
+
 
 #ifdef CONFIG_SH_ST_HDK7108_STMMAC0
 static struct stmmac_mdio_bus_data stmmac0_mdio_bus = {
@@ -559,7 +593,8 @@ static int __init device_init(void)
 	 *	GMII    NC       51R    NC      51R
 	 *	MII     NC       NC     51R     51R
 	 *
-	 * On the HDK7108V1/2: remove R31 and place it at R39.
+	 * On the HDK7108V1/2: remove R31 and place it at R39,
+	 * although the phy fixup below removes the need for this.
 	 *
 	 * RGMII mode requires the following HW change (on both
 	 * HDK7108V1 and HDK7108V2): remove R29 and place it at R37
@@ -567,6 +602,9 @@ static int __init device_init(void)
 	 */
 	gpio_request(HDK7108_GPIO_MII_SPEED_SEL, "stmmac");
 	gpio_direction_output(HDK7108_GPIO_MII_SPEED_SEL, 0);
+
+	phy_register_fixup_for_uid(IP1001_PHY_ID, IP1001_PHY_MASK,
+				   hdk7108_ic1001_phy_fixup);
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 #ifndef CONFIG_SH_ST_HDK7108_GMAC_RGMII_MODE

@@ -24,6 +24,7 @@
 #include <linux/stm/stx7108.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
+#include "../mach-st/ic1001.h"
 
 
 #define ADI7108_PIO_POWER_ON_ETHERNET0 stm_gpio(19, 7)
@@ -70,6 +71,26 @@ static void adi7108_mii_txclk_select(int txclk_250_not_25_mhz)
 		gpio_set_value(ADI7108_GPIO_MII1_SPEED_SEL, 1);
 	else
 		gpio_set_value(ADI7108_GPIO_MII1_SPEED_SEL, 0);
+}
+
+static int adi7108_ic1001_phy_fixup(struct phy_device *phydev)
+{
+	int c;
+
+	if (phydev->interface != PHY_INTERFACE_MODE_RGMII)
+		return 0;
+
+	/* For RGMII operation we need to delay the RxCLK and TxCLK */
+
+	c = phy_read(phydev, IP1001_SPEC_CTRL_STATUS);
+	if (c < 0)
+		return c;
+
+	c |= (1 << IP1001_RXPHASE_SEL) | (1<<IP1001_TXPHASE_SEL);
+
+	c = phy_write(phydev, IP1001_SPEC_CTRL_STATUS, c);
+
+	return c;
 }
 
 #ifdef CONFIG_SH_ST_ADI7108_STMMAC0
@@ -322,6 +343,9 @@ static int __init device_init(void)
 
 	gpio_request(ADI7108_GPIO_MII1_SPEED_SEL, "stmmac");
 	gpio_direction_output(ADI7108_GPIO_MII1_SPEED_SEL, 0);
+
+	phy_register_fixup_for_uid(IP1001_PHY_ID, IP1001_PHY_MASK,
+				   adi7108_ic1001_phy_fixup);
 
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_gmii_gtx,

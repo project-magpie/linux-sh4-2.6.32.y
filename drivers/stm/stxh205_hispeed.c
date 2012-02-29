@@ -21,6 +21,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/stxh205.h>
 #include <linux/delay.h>
+#include <linux/ahci_platform.h>
 #include <asm/irq-ilc.h>
 #include "pio-control.h"
 
@@ -517,4 +518,95 @@ void __init stxh205_configure_usb(int port)
 	BUG_ON(configured[port]++);
 
 	platform_device_register(&stxh205_usb_devices[port]);
+}
+
+static void stxh205_pcie_mp_select(int port)
+{
+}
+static enum miphy_mode stxh205_miphy_modes[1] = {SATA_MODE};
+struct stm_plat_pcie_mp_data stxh205_pcie_mp_platform_data = {
+	.style_id = ID_MIPHYA40X,
+	.miphy_first = 0,
+	.miphy_count = 1,
+	.miphy_modes = stxh205_miphy_modes,
+	.mp_select = stxh205_pcie_mp_select,
+};
+#define PCIE_UPORT_BASE		(0xFD54A000)
+#define PCIE_UPORT_REG_SIZE	(0xFF)
+static struct platform_device stxh205_pcie_mp_device = {
+	.name	= "pcie-mp",
+	.id	= 0,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
+		[0] = {
+			.start = PCIE_UPORT_BASE,
+			.end   = PCIE_UPORT_BASE + PCIE_UPORT_REG_SIZE,
+			.flags = IORESOURCE_MEM,
+		},
+	},
+	.dev = {
+		.platform_data = &stxh205_pcie_mp_platform_data,
+	}
+};
+
+/* STiH205 has 1 × eSATA or 1 × PCI-express, and can be configured
+ * to map PCIe, instead of eSATA, on PHY Lane */
+void __init stxh205_configure_miphy(struct stxh205_miphy_config *config)
+{
+	stxh205_miphy_modes[0] = config->mode;
+
+	if (config->mode == SATA_MODE) {
+		struct sysconf_field *sc;
+		sc = sysconf_claim(SYSCONF(445), 1, 1, "sata");
+		sysconf_write(sc, 1);
+		if (config->iface == UPORT_IF) {
+			stxh205_pcie_mp_platform_data.rx_pol_inv =
+							config->rx_pol_inv;
+			stxh205_pcie_mp_platform_data.tx_pol_inv =
+							config->tx_pol_inv;
+		}
+	} else if (config->mode == PCIE_MODE) {
+		/* TODO */
+	}
+	/* Only tested on UPort I/f */
+	if (config->iface == UPORT_IF)
+		platform_device_register(&stxh205_pcie_mp_device);
+}
+
+
+static int stxh205_ahci_init(struct device *dev, void __iomem *mmio)
+{
+#define SATA_OOBR       0xbc
+	writel(0x80000000, mmio + SATA_OOBR);
+	writel(0x8204080C, mmio + SATA_OOBR);
+	writel(0x0204080C, mmio + SATA_OOBR);
+
+	stm_miphy_claim(0, SATA_MODE, dev);
+	return 0;
+}
+
+static struct ahci_platform_data stxh205_ahci_pdata = {
+	.init = stxh205_ahci_init,
+};
+
+static u64 stxh205_ahci_dmamask = DMA_BIT_MASK(32);
+
+struct platform_device stxh205_sata_device = {
+	.name           = "ahci",
+	.id             = -1,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM_NAMED("ahci", 0xFD548000, 0x1000),
+		STM_PLAT_RESOURCE_IRQ_NAMED("ahci", ILC_IRQ(58), -1),
+	},
+	.num_resources  = 2,
+	.dev            = {
+		.platform_data          = &stxh205_ahci_pdata,
+		.dma_mask               = &stxh205_ahci_dmamask,
+		.coherent_dma_mask      = DMA_BIT_MASK(32),
+	},
+};
+
+void __init stxh205_configure_sata(void)
+{
+	platform_device_register(&stxh205_sata_device);
 }

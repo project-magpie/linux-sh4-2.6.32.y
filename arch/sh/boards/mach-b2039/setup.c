@@ -211,6 +211,12 @@ static int __init device_init(void)
 		});
 #endif
 
+	stxh205_configure_miphy(&(struct stxh205_miphy_config){
+			.mode = SATA_MODE,
+			.iface = UPORT_IF,
+			.tx_pol_inv = 1,
+			});
+	stxh205_configure_sata();
 	/* Need to set J17 1-2 and J19 1-2 */
 	stxh205_configure_usb(0);
 

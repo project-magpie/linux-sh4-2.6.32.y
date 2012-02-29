@@ -154,4 +154,19 @@ void stxh205_configure_spifsm(struct stm_plat_spifsm_data *data);
 
 void stxh205_configure_nand(struct stm_nand_config *config);
 
+/* Only ONE Port */
+void stxh205_configure_sata(void);
+/* mode is one of SATA_MODE/PCIE_MODE.
+ * iface is UPORT_IF */
+
+struct stxh205_miphy_config {
+	int mode;
+	int iface;
+	/* 1 if TXN/TXP has inverted polarity */
+	int tx_pol_inv;
+	/* 1 if RXN/RXP has inverted polarity */
+	int rx_pol_inv;
+};
+void stxh205_configure_miphy(struct stxh205_miphy_config *config);
+
 #endif

@@ -33,7 +33,8 @@ config STM_PCIE
 
 config STM_MIPHY
 	def_bool y
-	depends on (SATA_STM || STM_PCIE)
+	depends on (SATA_STM || STM_PCIE) || \
+			(CPU_SUBTYPE_STXH205 && SATA_AHCI_PLATFORM)
 
 config STM_MIPHY_TAP
 	bool
@@ -47,7 +48,9 @@ config STM_MIPHY_TAP
 config STM_MIPHY_PCIE_MP
 	bool
 	depends on STM_MIPHY
-	default y if (CPU_SUBTYPE_STX7108 || CPU_SUBTYPE_FLI7510)
+	default y if CPU_SUBTYPE_STX7108
+	default y if CPU_SUBTYPE_FLI7510
+	default y if CPU_SUBTYPE_STXH205
 	default n
 
 config STM_MIPHY_DUMMY

@@ -178,7 +178,7 @@ static int __init hom_stx7108_setup(void)
 		early_console_base = (void *)
 		ioremap(stm_asc_configured_devices[stm_asc_console_device]
 			->resource[0].start, 0x1000);
-		pr_info("[STM]: [PM]: [HoM]: Early console @ 0x%x\n",
+		pr_info("[STM]: [PM]: [HoM]: Early console @ %p\n",
 			early_console_base);
 		stx7108_hom.early_console = stx7108_hom_early_console;
 	}

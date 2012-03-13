@@ -47,7 +47,7 @@ static void stx7108_pio_dump_pad_config(const char *name, int port,
 	for (i = 0; i < gpios_num; i++) {
 		struct stm_pad_gpio *pad_gpio = &pad_config->gpios[i];
 		struct stx7108_pio_config *priv = pad_gpio->priv;
-		struct stx7108_pio_retime_config *retime = priv->retime;
+		struct stm_pio_control_retime_config *retime = priv->retime;
 
 		pr_info("PIO%d[%d]  %d\t\t%d\t\t%d\t%d\t\t%d\t\t%d\n",
 			stm_gpio_port(pad_gpio->gpio),

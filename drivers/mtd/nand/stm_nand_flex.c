@@ -888,13 +888,13 @@ static void flex_print_regs(struct stm_nand_flex_controller *flex)
 	printk(KERN_INFO "\trbn_status = 0x%08x\n",
 	       (unsigned int)flex_readreg(NANDHAM_RBN_STA));
 	printk(KERN_INFO "\tinterrupt_enable = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_INTERRUPT_ENABLE));
+	       (unsigned int)flex_readreg(NANDHAM_INT_EN));
 	printk(KERN_INFO "\tinterrupt_status = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_INTERRUPT_STATUS));
+	       (unsigned int)flex_readreg(NANDHAM_INT_STA));
 	printk(KERN_INFO "\tinterrupt_clear = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_INTERRUPT_CLEAR));
+	       (unsigned int)flex_readreg(NANDHAM_INT_CLR));
 	printk(KERN_INFO "\tinterrupt_edgeconfig = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_INTERRUPT_EDGECONFIG));
+	       (unsigned int)flex_readreg(NANDHAM_INT_EDGE_CFG));
 	printk(KERN_INFO "\tcontrol_timing = 0x%08x\n",
 	       (unsigned int)flex_readreg(NANDHAM_CTL_TIMING));
 	printk(KERN_INFO "\twen_timing = 0x%08x\n",
@@ -902,11 +902,9 @@ static void flex_print_regs(struct stm_nand_flex_controller *flex)
 	printk(KERN_INFO "\tren_timing = 0x%08x\n",
 	       (unsigned int)flex_readreg(NANDHAM_REN_TIMING));
 	printk(KERN_INFO "\tflexmode_config = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_FLEXMODE_CONFIG));
+	       (unsigned int)flex_readreg(NANDHAM_FLEXMODE_CFG));
 	printk(KERN_INFO "\tmuxcontrol_reg = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_MUXCTL));
-	printk(KERN_INFO "\tcsn_alternate_reg = 0x%08x\n",
-	       (unsigned int)flex_readreg(NANDHAM_CSN_ALTERNATE));
+	       (unsigned int)flex_readreg(NANDHAM_FLEX_MUXCTRL));
 	printk(KERN_INFO "\tmulti_cs_config_reg = 0x%08x\n",
 	       (unsigned int)flex_readreg(NANDHAM_MULTI_CS_CONFIG_REG));
 	printk(KERN_INFO "\tversion_reg = 0x%08x\n",

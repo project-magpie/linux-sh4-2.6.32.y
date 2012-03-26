@@ -27,10 +27,6 @@
 #include <linux/stm/platform.h>
 #include <linux/clk.h>
 
-#ifdef CONFIG_SH_STANDARD_BIOS
-#include <asm/sh_bios.h>
-#endif
-
 #include "stm-asc.h"
 
 #define DRIVER_NAME "stm-asc"
@@ -897,36 +893,6 @@ static void asc_free_irq(struct uart_port *port)
 
 /*----------------------------------------------------------------------*/
 
-#if defined(CONFIG_SH_STANDARD_BIOS)
-
-static int get_char(struct uart_port *port)
-{
-	int c;
-	unsigned long status;
-
-	do {
-		status = asc_in(port, STA);
-	} while (!(status & ASC_STA_RBF));
-
-	c = asc_in(port, RXBUF);
-
-	return c;
-}
-
-/* Taken from sh-stub.c of GDB 4.18 */
-static const char hexchars[] = "0123456789abcdef";
-
-static __inline__ char highhex(int  x)
-{
-	return hexchars[(x >> 4) & 0xf];
-}
-
-static __inline__ char lowhex(int  x)
-{
-	return hexchars[x & 0xf];
-}
-#endif
-
 #ifdef CONFIG_SERIAL_STM_ASC_CONSOLE
 static int asc_txfifo_is_full(struct asc_port *ascport, unsigned long status)
 {
@@ -971,40 +937,6 @@ static void put_string(struct uart_port *port, const char *buffer, int count)
 {
 	int i;
 	const unsigned char *p = buffer;
-#if defined(CONFIG_SH_STANDARD_BIOS)
-	int checksum;
-	int usegdb = 0;
-
-	/* This call only does a trap the first time it is
-	 * called, and so is safe to do here unconditionally */
-	usegdb |= sh_bios_in_gdb_mode();
-
-	if (usegdb) {
-	    /*  $<packet info>#<checksum>. */
-	    do {
-		unsigned char c;
-
-		put_char(port, '$');
-		put_char(port, 'O'); /* 'O'utput to console */
-		checksum = 'O';
-
-		/* Don't use run length encoding */
-		for (i = 0; i < count; i++) {
-			int h, l;
-
-			c = *p++;
-			h = highhex(c);
-			l = lowhex(c);
-			put_char(port, h);
-			put_char(port, l);
-			checksum += h + l;
-		}
-		put_char(port, '#');
-		put_char(port, highhex(checksum));
-		put_char(port, lowhex(checksum));
-	    } while  (get_char(port) != '+');
-	} else
-#endif /* CONFIG_SH_STANDARD_BIOS */
 
 	for (i = 0; i < count; i++) {
 		if (*p == 10)

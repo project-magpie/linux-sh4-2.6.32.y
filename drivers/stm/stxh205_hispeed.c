@@ -654,8 +654,10 @@ static int stxh205_ahci_init(struct device *dev, void __iomem *mmio)
 	writel(0x80000000, mmio + SATA_OOBR);
 	writel(0x8204080C, mmio + SATA_OOBR);
 	writel(0x0204080C, mmio + SATA_OOBR);
-
-	stm_miphy_claim(0, SATA_MODE, dev);
+	if (!stm_miphy_claim(0, SATA_MODE, dev)) {
+		dev_err(dev, "Cannot claim MiPHY 0!\n");
+		return -ENODEV;
+	}
 	return 0;
 }
 

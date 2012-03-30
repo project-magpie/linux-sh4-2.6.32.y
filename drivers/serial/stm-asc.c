@@ -902,47 +902,69 @@ static int asc_txfifo_is_full(struct asc_port *ascport, unsigned long status)
 	return status & ASC_STA_TF;
 }
 
-static void put_char(struct uart_port *port, char c)
+static void asc_console_putchar(struct uart_port *port, int ch)
 {
-	unsigned long flags;
-	unsigned long status;
 	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
-	if (ascport->suspended)
-		return;
-try_again:
-	do {
+	unsigned int timeout;
+	unsigned long status;
+
+	/* Wait for upto 1 second in case flow control is stopping us. */
+	for (timeout = 1000000; timeout; timeout--) {
 		status = asc_in(port, STA);
-	} while (asc_txfifo_is_full(ascport, status));
-
-	spin_lock_irqsave(&port->lock, flags);
-
-	status = asc_in(port, STA);
-	if (asc_txfifo_is_full(ascport, status)) {
-		spin_unlock_irqrestore(&port->lock, flags);
-		goto try_again;
+		if (!asc_txfifo_is_full(ascport, status))
+			break;
+		udelay(1);
 	}
 
-	asc_out(port, TXBUF, c);
-
-	spin_unlock_irqrestore(&port->lock, flags);
+	asc_out(port, TXBUF, ch);
 }
 
 /*
- * Send the packet in buffer.  The host gets one chance to read it.
- * This routine does not wait for a positive acknowledge.
+ *  Print a string to the serial port trying not to disturb
+ *  any possible real use of the port...
  */
 
-static void put_string(struct uart_port *port, const char *buffer, int count)
+static void asc_console_write(struct console *co, const char *s, unsigned count)
 {
-	int i;
-	const unsigned char *p = buffer;
+	struct uart_port *port = &asc_ports[co->index].port;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
+	unsigned long flags;
+	unsigned long status;
+	int locked = 1;
+	unsigned long intenable;
 
-	for (i = 0; i < count; i++) {
-		if (*p == 10)
-			put_char(port, '\r');
-		put_char(port, *p++);
-	}
+	if (ascport->suspended)
+		return;
+
+	local_irq_save(flags);
+	if (port->sysrq) {
+		/* asc_interrupt has already claimed the lock */
+		locked = 0;
+	} else if (oops_in_progress) {
+		locked = spin_trylock(&port->lock);
+	} else
+		spin_lock(&port->lock);
+
+	/*
+	 * Disable interrupts so we don't get the IRQ line bouncing
+	 * up and down while interrupts are disabled.
+	 */
+	intenable = asc_in(port, INTEN);
+	asc_out(port, INTEN, 0);
+	(void)asc_in(port, INTEN);	/* Defeat write posting */
+
+	uart_console_write(port, s, count, asc_console_putchar);
+
+	do {
+		status = asc_in(port, STA);
+	} while (!(status & ASC_STA_TE));
+
+	asc_out(port, INTEN, intenable);
+
+	if (locked)
+		spin_unlock(&port->lock);
+	local_irq_restore(flags);
 }
 
 /*----------------------------------------------------------------------*/
@@ -978,17 +1000,5 @@ static int __init asc_console_setup(struct console *co, char *options)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
 
 	return uart_set_options(&ascport->port, co, baud, parity, bits, flow);
-}
-
-/*
- *  Print a string to the serial port trying not to disturb
- *  any possible real use of the port...
- */
-
-static void asc_console_write(struct console *co, const char *s, unsigned count)
-{
-	struct uart_port *port = &asc_ports[co->index].port;
-
-	put_string(port, s, count);
 }
 #endif /* CONFIG_SERIAL_STM_ASC_CONSOLE */

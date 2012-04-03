@@ -668,10 +668,10 @@ int pmb_unmap(unsigned long addr)
 static void noinline __uses_jump_to_uncached
 apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapping)
 {
-	register int i __asm__("r1");
-	register unsigned long c2uc __asm__("r2");
-	register struct pmb_entry *entry __asm__("r3");
-	register unsigned long flags __asm__("r4");
+	int i;
+	unsigned long c2uc;
+	struct pmb_entry *entry;
+	unsigned long flags;
 
 	/* We can execute this directly, as the current PMB is uncached */
 	if (uc_mapping)
@@ -685,6 +685,7 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 		__ocbwb(((void *)pmbe) + i);
 
 	jump_to_uncached();
+	__asm__ __volatile__("add	%0, r15" : : "r"(cached_to_uncached));
 
 	/*
 	 * We have to be cautious here, as we will temporarily lose access to
@@ -713,10 +714,31 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	ctrl_outl(i, MMUCR);
 
 	back_to_cached();
+	__asm__ __volatile__("sub	%0, r15" : : "r"(cached_to_uncached));
 }
 
 struct pmb_mapping *uc_mapping, *ram_mapping
 	__attribute__ ((__section__ (".uncached.data")));
+unsigned int uc_stack[128]
+	__attribute__ ((__section__ (".uncached.data")));
+
+static void call_apply_boot_mappings(struct pmb_mapping *uc_mapping,
+		struct pmb_mapping *ram_mapping)
+{
+	register struct pmb_mapping *p1 asm("r4") = uc_mapping;
+	register struct pmb_mapping *p2 asm("r5") = ram_mapping;
+
+	asm volatile(
+		"mov	r15, r8;"
+		"jsr	@%1;"
+		" mov	%0, r15;"
+		"mov	r8, r15;"
+		:
+		: "r"(&uc_stack[ARRAY_SIZE(uc_stack)]),
+		  "r"(&apply_boot_mappings),
+		  "r"(p1), "r"(p2)
+		: "r0", "r1", "r2", "r3", "r8", "t");
+}
 
 void __init pmb_init(void)
 {
@@ -757,8 +779,8 @@ void __init pmb_init(void)
 		(((unsigned long)&__uncached_start) &
 		 ~(uc_mapping->entries->size-1));
 
-	apply_boot_mappings(uc_mapping_present ? NULL : uc_mapping,
-			    ram_mapping);
+	call_apply_boot_mappings(uc_mapping_present ? NULL : uc_mapping,
+				 ram_mapping);
 }
 
 int pmb_virt_to_phys(void *addr, unsigned long *phys, unsigned long *flags)
@@ -897,7 +919,7 @@ subsys_initcall(pmb_sysdev_init);
 
 void __uses_jump_to_uncached stm_hom_pmb_init(void)
 {
-	apply_boot_mappings(uc_mapping, ram_mapping);
+	call_apply_boot_mappings(uc_mapping, ram_mapping);
 
 	/* Now I can call the pmb_sysdev_resume */
 	pmb_sysdev_suspend(NULL, PMSG_ON);

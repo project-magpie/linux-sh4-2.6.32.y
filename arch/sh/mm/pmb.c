@@ -94,6 +94,22 @@ static __always_inline unsigned long mk_pmb_data(unsigned int entry)
 	return mk_pmb_entry(entry) | PMB_DATA;
 }
 
+static __always_inline unsigned long pmb_size(unsigned long data)
+{
+	switch(data & PMB_SZ_MASK) {
+	case PMB_SZ_16M:
+		return 16 * 1024 * 1024;
+	case PMB_SZ_64M:
+		return 64 * 1024 * 1024;
+	case PMB_SZ_128M:
+		return 128 * 1024 * 1024;
+	case PMB_SZ_512M:
+		return 512 * 1024 * 1024;
+	default:
+		return 0;
+	}
+}
+
 static __always_inline void __set_pmb_entry(unsigned long vpn,
 	unsigned long ppn, unsigned long flags, int pos)
 {
@@ -790,22 +806,16 @@ static int pmb_seq_show(struct seq_file *file, void *iter)
 	for (i = 0; i < NR_PMB_ENTRIES; i++) {
 		unsigned long addr, data;
 		unsigned int size;
-		char *sz_str = NULL;
 
 		addr = ctrl_inl(mk_pmb_addr(i));
 		data = ctrl_inl(mk_pmb_data(i));
-
-		size = data & PMB_SZ_MASK;
-		sz_str = (size == PMB_SZ_16M)  ? " 16MB":
-			 (size == PMB_SZ_64M)  ? " 64MB":
-			 (size == PMB_SZ_128M) ? "128MB":
-					         "512MB";
+		size = pmb_size(data);
 
 		/* 02: V 0x88 0x08 128MB C CB  B */
-		seq_printf(file, "%02d: %c 0x%02lx 0x%02lx %s %c %s %s\n",
+		seq_printf(file, "%02d: %c 0x%02lx 0x%02lx %3dMB %c %s %s\n",
 			   i, ((addr & PMB_V) && (data & PMB_V)) ? 'V' : ' ',
 			   (addr >> 24) & 0xff, (data >> 24) & 0xff,
-			   sz_str, (data & PMB_C) ? 'C' : ' ',
+			   size/(1024*1024), (data & PMB_C) ? 'C' : ' ',
 			   (data & PMB_WT) ? "WT" : "CB",
 			   (data & PMB_UB) ? "UB" : " B");
 	}

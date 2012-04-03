@@ -171,7 +171,7 @@ static struct platform_device b2066_front_panel = {
 	},
 };
 
-
+#if 0
 static int b2066_mii0_phy_reset(void *bus)
 {
 	gpio_set_value(B2066_PIO_GMII0_NOTRESET, 0);
@@ -189,6 +189,7 @@ static int b2066_mii1_phy_reset(void *bus)
 
 	return 1;
 }
+#endif
 
 static void b2066_mi11_txclk_select(int txclk_250_not_25_mhz)
 {
@@ -196,15 +197,17 @@ static void b2066_mi11_txclk_select(int txclk_250_not_25_mhz)
 			!!txclk_250_not_25_mhz);
 }
 
-static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
-	.bus_id = 1,
-	.phy_reset = b2066_mii1_phy_reset,
-	.phy_mask = 0,
-};
-
+/* MoCA is managed by using fixed link support */
 static struct fixed_phy_status stmmac0_fixed_phy_status = {
 	.link = 1,
 	.speed = 100,
+	.duplex = 1,
+};
+
+/* Switch is managed by using fixed link support */
+static struct fixed_phy_status stmmac1_fixed_phy_status = {
+	.link = 1,
+	.speed = 1000,
 	.duplex = 1,
 };
 
@@ -380,6 +383,8 @@ static int __init b2066_device_init(void)
 			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
 	stx7108_configure_sata(1, &(struct stx7108_sata_config) { });
+
+	/* GMAC 0 + MoCA device */
 	BUG_ON(fixed_phy_add(PHY_POLL, 1, &stmmac0_fixed_phy_status));
 	stx7108_configure_ethernet(0, &(struct stx7108_ethernet_config) {
 			.mode = stx7108_ethernet_mode_mii,
@@ -388,13 +393,14 @@ static int __init b2066_device_init(void)
 			.phy_addr = 1,
 		});
 
+	/* GMAC 1 + RTK8363 switch */
+	BUG_ON(fixed_phy_add(PHY_POLL, 2, &stmmac1_fixed_phy_status));
 	stx7108_configure_ethernet(1, &(struct stx7108_ethernet_config) {
-			.mode = stx7108_ethernet_mode_gmii_gtx,
+			.mode = stx7108_ethernet_mode_rgmii_gtx,
 			.ext_clk = 0,
-			.phy_bus = 1,
+			.phy_bus = 0,
 			.txclk_select = b2066_mi11_txclk_select,
-			.phy_addr = 1,
-			.mdio_bus_data = &stmmac1_mdio_bus,
+			.phy_addr = 2,
 		});
 
 	/* Serial Flash support depends on silicon cut */

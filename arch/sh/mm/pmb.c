@@ -672,6 +672,34 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	unsigned long c2uc;
 	struct pmb_entry *entry;
 	unsigned long flags;
+	unsigned int trash;
+
+	/*
+	 * We are currenly running with the mappings set up by the
+	 * boot loader. These may be excessive, so indentify the
+	 * minimum subset needed to map the kernel text uncached and
+	 * delete the rest.
+	 */
+	trash = 0;
+	for (i=0; i<NR_PMB_ENTRIES; i++) {
+		unsigned long addr, data;
+		unsigned int size;
+		char *start, *end;
+
+		addr = ctrl_inl(mk_pmb_addr(i));
+		data = ctrl_inl(mk_pmb_data(i));
+		if (! (addr & PMB_V))
+			continue;
+
+		size = pmb_size(data);
+		start = (char*)(addr & ~(size-1));
+		end = start + size;
+
+		if ((end <= __uncached_start) || (start >= __uncached_end))
+			__clear_pmb_entry(i);
+		else
+			trash |= 1<<i;
+	}
 
 	/* We can execute this directly, as the current PMB is uncached */
 	if (uc_mapping)
@@ -698,8 +726,11 @@ apply_boot_mappings(struct pmb_mapping *uc_mapping, struct pmb_mapping *ram_mapp
 	entry = ram_mapping->entries;
 	flags = ram_mapping->flags;
 
-	for (i=0; i<NR_PMB_ENTRIES-1; i++)
+	for (i=0; i<NR_PMB_ENTRIES; i++) {
+		if (!(trash & (1<<i)))
+			continue;
 		__clear_pmb_entry(i);
+	}
 
 	do {
 		entry = (struct pmb_entry*)(((unsigned long)entry) + c2uc);

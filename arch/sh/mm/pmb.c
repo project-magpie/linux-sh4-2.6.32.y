@@ -737,7 +737,7 @@ void __init pmb_init(void)
 
 	/* Create the initial mappings */
 	entry = NR_PMB_ENTRIES-1;
-	uc_mapping = pmb_calc(__pa(&__uncached_start), &__uncached_end - &__uncached_start,
+	uc_mapping = pmb_calc(__pa(__uncached_start), __uncached_end - __uncached_start,
 		 P3SEG-pmb_sizes[0].size, &entry, PMB_WT | PMB_UB);
 	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
 

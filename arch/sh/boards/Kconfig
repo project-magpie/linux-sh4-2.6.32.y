@@ -349,6 +349,14 @@ config SH_ST_B2057
 	  Select SH_ST_B2057 if configuring for a
 	  STMicroelectronics STxH207-HDK Reference Board.
 
+config SH_ST_B2066
+	bool "b2066: STi7108M Compact reference board"
+	depends on CPU_SUBTYPE_STX7108
+	select FIXED_PHY
+	help
+	  Select SH_ST_B2066 if configuring for a
+	  STMicroelectronics STi7108M Compact Reference Board.
+
 config SH_ST_B2068
 	bool "B2068 : STx7167 Reference board"
 	depends on CPU_SUBTYPE_STX7105

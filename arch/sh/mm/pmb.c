@@ -789,9 +789,15 @@ void __init pmb_init(void)
 		pmbe[i].pos = i;
 
 	/* Create the initial mappings */
+#ifdef CONFIG_PMB_LARGE_UNCACHED_MAPPING
+	entry = 8;
+	uc_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P2SEG,
+		 &entry, PMB_WT | PMB_UB);
+#else
 	entry = NR_PMB_ENTRIES-1;
 	uc_mapping = pmb_calc(__pa(__uncached_start), __uncached_end - __uncached_start,
 		 P3SEG-pmb_sizes[0].size, &entry, PMB_WT | PMB_UB);
+#endif
 	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
 
 	/*

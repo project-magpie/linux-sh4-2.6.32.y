@@ -157,6 +157,22 @@ config PMB_64M_TILES_PHYS
 	  fill in holes in the virtual address space when PMB_64M_TILES
 	  is enabled.
 
+config PMB_LARGE_UNCACHED_MAPPING
+	bool "Map all of kernel memory uncached using the PMB"
+	depends on PMB
+	help
+	  Normally when the kernel boots it maps the entire kernel logical
+	  memory region into the kernel's address space using the PMB.
+	  A small uncached region is also created to map some key functions
+	  which must be executed from uncached code. In some circumstances
+	  it might be useful to have this uncached region expanded to cover
+	  the entire kernel memory space, for example if the P1/P2 portion
+	  of the address space has very little free space, and it is known
+	  that this uncached mapping will be needed later.
+
+	  Note that on systems with more than 512MB kernel memory this will
+	  prevent the system booting, so should not be enabled.
+
 config X2TLB
 	bool "Enable extended TLB mode"
 	depends on (CPU_SHX2 || CPU_SHX3) && MMU && EXPERIMENTAL

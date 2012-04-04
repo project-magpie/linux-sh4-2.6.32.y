@@ -52,6 +52,12 @@
 #define DDR_PHY_PGCR0			DDR_PHY_REG(2)		/* 0x08 */
 #define DDR_PHY_PGCR1			DDR_PHY_REG(3)		/* 0x0c */
 
+#define DDR_PHY_PGSR0			DDR_PHY_REG(4)		/* 0x10 */
+# define DDR_PHY_PGSR0_INIT			(1 << 0)
+# define DDR_PHY_PGSR0_PLLINIT			(1 << 1)
+# define DDR_PHY_PGSR0_CAL			(1 << 2)
+# define DDR_PHY_PGSR0_APLOCK			(1 << 5)
+
 #define DDR_PHY_ACIOCR			DDR_PHY_REG(12)		/* 0x30 */
 # define DDR_PHY_ACIOCR_OUTPUT_ENABLE		(1 << 1)
 # define DDR_PHY_ACIOCR_PDD			(1 << 3)
@@ -60,6 +66,11 @@
 #define DDR_PHY_DXCCR			DDR_PHY_REG(13)		/* 0x34 */
 # define DDR_PHY_DXCCR_DXODT			(1 << 0)
 # define DDR_PHY_DXCCR_PDR			(1 << 4)
+
+#define DDR_PHY_PLLREADY		(DDR_PHY_PGSR0_INIT | 	\
+					DDR_PHY_PGSR0_PLLINIT | \
+					DDR_PHY_PGSR0_CAL | 	\
+					DDR_PHY_PGSR0_APLOCK)
 
 
 /*
@@ -100,6 +111,9 @@
 #define synopsys_ddr32_phy_standby_exit(_ddr_base)			\
   /* DDR_Phy Pll out of reset */					\
   UPDATE32((_ddr_base) + DDR_PHY_PIR, ~DDR_PHY_PIR_PLL_RESET, 0),	\
+  /* Waiting for PLLs to be locked */					\
+  WHILE_NE32((_ddr_base) + DDR_PHY_PGSR0, DDR_PHY_PLLREADY,		\
+						DDR_PHY_PLLREADY),	\
   UPDATE32((_ddr_base) + DDR_PHY_DXCCR, ~DDR_PHY_DXCCR_DXODT, 0)
 
 /*

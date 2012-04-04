@@ -51,13 +51,6 @@
 
 #define CLKA0_ETH_PHY_ID		14
 #define CLKA0_ETH_MAC_ID		15
-/*
- * the following macros are valid only for SYSConf_Bank_1
-  * where there are the ClockGen_D management registers
- */
-#define SYS_BNK1_STA(x)		(0x4 * (x))
-#define SYS_BNK1_CFG(x)		(0x4 * (x) + 0x3C)
-
 
 static void __iomem *cga0;
 static void __iomem *cga1;
@@ -124,26 +117,22 @@ END_MARKER
 
 
 static unsigned long stx7108_mem_table_c2[] __cacheline_aligned = {
+
 synopsys_ddr32_in_self_refresh(DDR3SS0_REG),
 synopsys_ddr32_in_self_refresh(DDR3SS1_REG),
 
-/*WHILE_NE32(SYS_BNK1_STA(5), 1, 0),*/
+synopsys_ddr32_phy_standby_enter(DDR3SS0_REG),
+synopsys_ddr32_phy_standby_enter(DDR3SS1_REG),
 
-OR32(DDR3SS0_REG + DDR_PHY_DXCCR, 1),
-OR32(DDR3SS1_REG + DDR_PHY_DXCCR, 1),
-
-OR32(DDR3SS0_REG + DDR_PHY_PIR, 1 << 7),
-OR32(DDR3SS1_REG + DDR_PHY_PIR, 1 << 7),
  /* END. */
 END_MARKER,
 
-UPDATE32(DDR3SS0_REG + DDR_PHY_PIR, ~(1 << 7), 0),
-UPDATE32(DDR3SS1_REG + DDR_PHY_PIR, ~(1 << 7), 0),
+synopsys_ddr32_phy_standby_exit(DDR3SS0_REG),
+synopsys_ddr32_phy_standby_exit(DDR3SS1_REG),
 
-
-UPDATE32(DDR3SS0_REG + DDR_PHY_DXCCR, ~1, 0),
-UPDATE32(DDR3SS1_REG + DDR_PHY_DXCCR, ~1, 0),
-
+/* 2. Disables the DDR self refresh mode based on paraghaph 7.1.3
+ *    -> from LowPower to Access
+ */
 synopsys_ddr32_out_of_self_refresh(DDR3SS0_REG),
 synopsys_ddr32_out_of_self_refresh(DDR3SS1_REG),
 

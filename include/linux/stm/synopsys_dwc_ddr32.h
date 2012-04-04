@@ -23,6 +23,7 @@
 # define DDR_SCTL_WAKEUP			0x4
 
 #define DDR_STAT			0x8
+# define DDR_STAT_MASK				0x7
 # define DDR_STAT_CONFIG			0x1
 # define DDR_STAT_ACCESS			0x3
 # define DDR_STAT_LOW_POWER			0x5
@@ -68,7 +69,7 @@
   /* Enable the DDR self refresh mode */				\
   /* from ACCESS to LowPower (based on paraghaph. 7.1.4) */		\
   POKE32((_ddr_base) + DDR_SCTL, DDR_SCTL_SLEEP),			\
-  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_LOW_POWER, DDR_STAT_LOW_POWER)
+  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_MASK, DDR_STAT_LOW_POWER)
 
 /*
  * Synopsys DDR: out of Self-Refresh
@@ -77,13 +78,13 @@
   /* Disables the DDR self refresh mode	*/				\
   /* from LowPower to Access (based on paraghaph 7.1.3)	*/		\
   POKE32((_ddr_base) + DDR_SCTL, DDR_SCTL_WAKEUP),			\
-  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS),	\
+  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_MASK, DDR_STAT_ACCESS),	\
 									\
   POKE32((_ddr_base) + DDR_SCTL, DDR_SCTL_CFG),				\
-  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_CONFIG, DDR_STAT_CONFIG),	\
+  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_MASK, DDR_STAT_CONFIG),	\
 									\
   POKE32((_ddr_base) + DDR_SCTL, DDR_SCTL_GO),				\
-  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_ACCESS, DDR_STAT_ACCESS)
+  WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_MASK, DDR_STAT_ACCESS)
 
 /*
  * Synopsys DDR Phy: moving in Standby

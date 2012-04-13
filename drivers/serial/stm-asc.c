@@ -65,6 +65,7 @@ static inline void asc_disable_tx_interrupts(struct uart_port *port)
 	intenable = asc_in(port, INTEN);
 	intenable &= ~ASC_INTEN_THE;
 	asc_out(port, INTEN, intenable);
+	(void)asc_in(port, INTEN);	/* Defeat write posting */
 }
 
 static inline void asc_enable_tx_interrupts(struct uart_port *port)
@@ -85,8 +86,8 @@ static inline void asc_disable_rx_interrupts(struct uart_port *port)
 	intenable = asc_in(port, INTEN);
 	intenable &= ~ASC_INTEN_RBE;
 	asc_out(port, INTEN, intenable);
+	(void)asc_in(port, INTEN);	/* Defeat write posting */
 }
-
 
 static inline void asc_enable_rx_interrupts(struct uart_port *port)
 {
@@ -141,7 +142,6 @@ static void asc_start_tx(struct uart_port *port)
 		asc_fdma_tx_start(port);
 	else {
 		struct circ_buf *xmit = &port->state->xmit;
-		asc_transmit_chars(port);
 		if (!uart_circ_empty(xmit))
 			asc_enable_tx_interrupts(port);
 	}

@@ -375,7 +375,30 @@ static struct platform_device sth205_temp = {
 };
 
 /* MMC/SD */
+static struct stm_pad_config stxh205_mmc_pad_config  = {
+	.gpios_num = 1,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_OUT(14, 0, 1),	/* LED On */
+
+	},
+	.sysconfs_num = 1,
+	.sysconfs = (struct stm_pad_sysconf []) {
+		/* Disable boot from eMMC to allow access to ARASAN HC */
+		STM_PAD_SYSCONF(SYSCONF(242), 0, 4, 1),
+	},
+};
+
+static int mmc_pad_resources(struct sdhci_host *sdhci)
+{
+	if (!devm_stm_pad_claim(sdhci->mmc->parent, &stxh205_mmc_pad_config,
+				dev_name(sdhci->mmc->parent)))
+		return -ENODEV;
+
+	return 0;
+}
+
 static struct sdhci_pltfm_data stxh205_mmc_platform_data = {
+		.init = mmc_pad_resources,
 		.quirks = SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC |
 			  SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
 			  SDHCI_QUIRK_FORCE_MAX_VDD,
@@ -398,16 +421,11 @@ static struct platform_device stxh205_mmc_device = {
 void __init stxh205_configure_mmc(int emmc)
 {
 	struct sdhci_pltfm_data *plat_data;
-	struct sysconf_field *sc;
 
 	plat_data = &stxh205_mmc_platform_data;
 
 	if (unlikely(emmc))
 		plat_data->quirks |= SDHCI_QUIRK_NONREMOVABLE_CARD;
-
-	/* Disable boot from eMMC to allow access to ARASAN HC */
-	sc = sysconf_claim(SYSCONF(242), 0, 0, "mmc");
-	sysconf_write(sc, 0);
 
 	platform_device_register(&stxh205_mmc_device);
 }

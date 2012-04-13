@@ -59,44 +59,48 @@ static int __init asc_console_setup(struct console *, char *);
  */
 static inline void asc_disable_tx_interrupts(struct uart_port *port)
 {
-	unsigned long intenable;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
 	/* Clear TE (Transmitter empty) interrupt enable in INTEN */
-	intenable = asc_in(port, INTEN);
-	intenable &= ~ASC_INTEN_THE;
-	asc_out(port, INTEN, intenable);
-	(void)asc_in(port, INTEN);	/* Defeat write posting */
+	if (ascport->inten & ASC_INTEN_THE) {
+		ascport->inten &= ~ASC_INTEN_THE;
+		asc_out(port, INTEN, ascport->inten);
+		(void)asc_in(port, INTEN);	/* Defeat write posting */
+	}
 }
 
 static inline void asc_enable_tx_interrupts(struct uart_port *port)
 {
-	unsigned long intenable;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
 	/* Set TE (Transmitter empty) interrupt enable in INTEN */
-	intenable = asc_in(port, INTEN);
-	intenable |= ASC_INTEN_THE;
-	asc_out(port, INTEN, intenable);
+	if (! (ascport->inten & ASC_INTEN_THE)) {
+		ascport->inten |= ASC_INTEN_THE;
+		asc_out(port, INTEN, ascport->inten);
+	}
 }
 
 static inline void asc_disable_rx_interrupts(struct uart_port *port)
 {
-	unsigned long intenable;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
 	/* Clear RBE (Receive Buffer Full Interrupt Enable) bit in INTEN */
-	intenable = asc_in(port, INTEN);
-	intenable &= ~ASC_INTEN_RBE;
-	asc_out(port, INTEN, intenable);
-	(void)asc_in(port, INTEN);	/* Defeat write posting */
+	if (ascport->inten & ASC_INTEN_RBE) {
+		ascport->inten &= ~ASC_INTEN_RBE;
+		asc_out(port, INTEN, ascport->inten);
+		(void)asc_in(port, INTEN);	/* Defeat write posting */
+	}
 }
 
 static inline void asc_enable_rx_interrupts(struct uart_port *port)
 {
-	unsigned long intenable;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 
 	/* Set RBE (Receive Buffer Full Interrupt Enable) bit in INTEN */
-	intenable = asc_in(port, INTEN);
-	intenable |= ASC_INTEN_RBE;
-	asc_out(port, INTEN, intenable);
+	if (! (ascport->inten & ASC_INTEN_RBE)) {
+		ascport->inten |= ASC_INTEN_RBE;
+		asc_out(port, INTEN, ascport->inten);
+	}
 }
 
 /*----------------------------------------------------------------------*/
@@ -432,7 +436,6 @@ static int asc_serial_suspend(struct device *dev)
 	local_irq_save(flags);
 	mdelay(10);
 	ascport->pm_ctrl = asc_in(port, CTL);
-	ascport->pm_irq = asc_in(port, INTEN);
 
 	/* disable the FIFO to resume on a first button */
 	asc_out(port, CTL, ascport->pm_ctrl & ~ASC_CTL_FIFOENABLE);
@@ -468,7 +471,7 @@ static int asc_serial_resume(struct device *dev)
 	local_irq_save(flags);
 	asc_out(port, CTL, ascport->pm_ctrl);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
-	asc_out(port, INTEN, ascport->pm_irq);
+	asc_out(port, INTEN, ascport->inten);
 	asc_set_baud(port, ascport->pm_baud, clk_get_rate(ascport->clk));
 	ascport->suspended = 0;
 	local_irq_restore(flags);
@@ -482,7 +485,6 @@ static int asc_serial_freeze(struct device *dev)
 	struct uart_port *port   = &(ascport->port);
 
 	ascport->pm_ctrl = asc_in(port, CTL);
-	ascport->pm_irq = asc_in(port, INTEN);
 
 	clk_disable(ascport->clk);
 	return 0;
@@ -498,7 +500,7 @@ static int asc_serial_restore(struct device *dev)
 	/* program the port but do not enable it */
 	asc_out(port, CTL, ascport->pm_ctrl & ~ASC_CTL_RUN);
 	asc_out(port, TIMEOUT, 20);		/* hardcoded */
-	asc_out(port, INTEN, ascport->pm_irq);
+	asc_out(port, INTEN, ascport->inten);
 	asc_set_baud(port, ascport->pm_baud, clk_get_rate(ascport->clk));
 	/* reset fifo rx & tx */
 	asc_out(port, TXRESET, 1);
@@ -842,6 +844,7 @@ static inline void asc_receive_chars(struct uart_port *port)
 static irqreturn_t asc_interrupt(int irq, void *ptr)
 {
 	struct uart_port *port = ptr;
+	struct asc_port *ascport = container_of(port, struct asc_port, port);
 	unsigned long status;
 
 	spin_lock(&port->lock);
@@ -863,7 +866,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 		}
 
 		if ((status & ASC_STA_THE) &&
-				(asc_in(port, INTEN) & ASC_INTEN_THE)) {
+		    (ascport->inten & ASC_INTEN_THE)) {
 			/* Transmitter FIFO at least half empty */
 			asc_transmit_chars(port);
 		}
@@ -950,7 +953,6 @@ static void asc_console_write(struct console *co, const char *s, unsigned count)
 	 * Disable interrupts so we don't get the IRQ line bouncing
 	 * up and down while interrupts are disabled.
 	 */
-	intenable = asc_in(port, INTEN);
 	asc_out(port, INTEN, 0);
 	(void)asc_in(port, INTEN);	/* Defeat write posting */
 
@@ -960,7 +962,7 @@ static void asc_console_write(struct console *co, const char *s, unsigned count)
 		status = asc_in(port, STA);
 	} while (!(status & ASC_STA_TE));
 
-	asc_out(port, INTEN, intenable);
+	asc_out(port, INTEN, ascport->inten);
 
 	if (locked)
 		spin_unlock(&port->lock);

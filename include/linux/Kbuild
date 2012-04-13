@@ -3,6 +3,7 @@ header-y += can/
 header-y += dvb/
 header-y += hdlc/
 header-y += isdn/
+header-y += mmc/
 header-y += nfsd/
 header-y += raid/
 header-y += spi/

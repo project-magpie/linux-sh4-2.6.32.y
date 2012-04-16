@@ -292,6 +292,9 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	data.blksz = idata->ic.blksz;
 	data.blocks = idata->ic.blocks;
 
+	BUG_ON(data.blocks == 1 && data.blksz > 512);
+	WARN_ON(data.blocks == 0);
+
 	sg_init_one(data.sg, idata->buf, idata->buf_bytes);
 
 	if (idata->ic.write_flag)
@@ -340,21 +343,38 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		data.timeout_ns = idata->ic.cmd_timeout_ms * 1000000;
 	}
 
+	if (cmd.opcode == MMC_SWITCH)
+		cmd.data = NULL;
+
 	mmc_wait_for_req(card->host, &mrq);
 
-	if (cmd.error) {
-		dev_err(mmc_dev(card->host), "%s: cmd error %d\n",
-						__func__, cmd.error);
-		err = cmd.error;
-		goto cmd_rel_host;
-	}
-	if (data.error) {
-		dev_err(mmc_dev(card->host), "%s: data error %d\n",
-						__func__, data.error);
-		err = data.error;
-		goto cmd_rel_host;
-	}
+	if (cmd.opcode == MMC_SWITCH) {
+		u32 status;
 
+		/* Must check status to be sure of no errors */
+		do {
+			err = mmc_send_status(card, &status);
+			if (err)
+				return err;
+			if (card->host->caps & MMC_CAP_WAIT_WHILE_BUSY)
+				break;
+			if (mmc_host_is_spi(card->host))
+				break;
+		} while (R1_CURRENT_STATE(status) == 7);
+	} else {
+		if (cmd.error) {
+			dev_err(mmc_dev(card->host), "%s: cmd error %d\n",
+							__func__, cmd.error);
+			err = cmd.error;
+			goto cmd_rel_host;
+		}
+		if (data.error) {
+			dev_err(mmc_dev(card->host), "%s: data error %d\n",
+							__func__, data.error);
+			err = data.error;
+			goto cmd_rel_host;
+		}
+	}
 	/*
 	 * According to the SD specs, some commands require a delay after
 	 * issuing the command.

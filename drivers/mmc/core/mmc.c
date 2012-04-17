@@ -842,6 +842,13 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 					 EXT_CSD_BUS_WIDTH,
 					 ext_csd_bits[idx][0],
 					 0);
+
+			/* This actually is a dirty hack to allow some
+			 * card (e.g. Micron IZAI8 JW704 8GB) to well perform
+			 * the bus test step w/o failing.
+			 */
+			mdelay(10);
+
 			if (!err) {
 				mmc_set_bus_width(card->host, bus_width);
 

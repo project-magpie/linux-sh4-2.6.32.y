@@ -81,7 +81,6 @@
 #include <linux/errno.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/ssc.h>
-#include "i2c-stm.h"
 
 #undef dbg_print
 
@@ -1081,26 +1080,6 @@ static void iic_stm_setup_timing(struct iic_ssc *adap)
 	return;
 }
 
-static int iic_stm_control(struct i2c_adapter *adapter,
-			   unsigned int cmd, unsigned long arg)
-{
-	struct iic_ssc *iic_adap =
-	    container_of(adapter, struct iic_ssc, adapter);
-	switch (cmd) {
-	case I2C_STM_IOCTL_FAST:
-		dbg_print("ioctl fast 0x%lx\n", arg);
-		iic_adap->config &= ~IIC_STM_CONFIG_SPEED_MASK;
-		if (arg)
-			iic_adap->config |= IIC_STM_CONFIG_SPEED_FAST;
-		break;
-	default:
-		printk(KERN_WARNING " %s: i2c-ioctl not managed\n",
-		       __func__);
-	}
-
-	return 0;
-}
-
 static u32 iic_stm_func(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
@@ -1109,7 +1088,6 @@ static u32 iic_stm_func(struct i2c_adapter *adap)
 static struct i2c_algorithm iic_stm_algo = {
 	.master_xfer = iic_stm_xfer,
 	.functionality = iic_stm_func,
-/*	.algo_control = iic_stm_control */
 };
 
 static ssize_t iic_bus_show_fastmode(struct device *dev,
@@ -1128,9 +1106,19 @@ static ssize_t iic_bus_store_fastmode(struct device *dev,
 {
 	struct i2c_adapter *adapter =
 	    container_of(dev, struct i2c_adapter, dev);
-	unsigned long val = strict_strtoul(buf, 10, NULL);
+	struct iic_ssc *iic_adap =
+	    container_of(adapter, struct iic_ssc, adapter);
+	unsigned long val;
+	int ret;
 
-	iic_stm_control(adapter, I2C_STM_IOCTL_FAST, val);
+	ret = strict_strtoul(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	if (val)
+		iic_adap->config |= IIC_STM_CONFIG_SPEED_FAST;
+	else
+		iic_adap->config &= ~IIC_STM_CONFIG_SPEED_MASK;
 
 	return count;
 }

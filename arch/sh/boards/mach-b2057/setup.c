@@ -245,6 +245,9 @@ static int __init device_init(void)
 		});
 #endif
 
+	/* PHY IRQ has to be triggered LOW */
+	set_irq_type(ILC_IRQ(25), IRQ_TYPE_LEVEL_LOW);
+
 	stxh205_configure_usb(0);
 	stxh205_configure_usb(1);
 

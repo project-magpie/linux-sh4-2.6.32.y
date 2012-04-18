@@ -210,6 +210,8 @@ static int __init device_init(void)
 			.mdio_bus_data = &stmmac_mdio_bus,
 		});
 #endif
+	/* PHY IRQ has to be triggered LOW */
+	set_irq_type(ILC_IRQ(25), IRQ_TYPE_LEVEL_LOW);
 
 	stxh205_configure_miphy(&(struct stxh205_miphy_config){
 			.mode = SATA_MODE,

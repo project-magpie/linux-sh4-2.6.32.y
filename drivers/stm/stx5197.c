@@ -358,6 +358,8 @@ int __init stx5197_configure_ssc_i2c(int ssc,
 		break;
 	}
 
+	plat_data->i2c_fastmode = config->fastmode;
+
 	/* I2C bus number reservation (to prevent any hot-plug device
 	 * from using it) */
 	i2c_register_board_info(i2c_busnum, NULL, 0);

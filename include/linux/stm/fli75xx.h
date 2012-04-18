@@ -125,11 +125,14 @@ struct fli75xx_asc_config {
 void fli75xx_configure_asc(int asc, struct fli75xx_asc_config *config);
 
 
+struct fli75xx_ssc_i2c_config {
+	unsigned int fastmode:1;
+};
 struct fli75xx_ssc_spi_config {
 	void (*chipselect)(struct spi_device *spi, int is_on);
 };
 /* SSC configure functions return I2C/SPI bus number */
-int fli75xx_configure_ssc_i2c(int ssc);
+int fli75xx_configure_ssc_i2c(int ssc, struct fli7510_ssc_i2c_config *config);
 int fli75xx_configure_ssc_spi(int ssc, struct fli75xx_ssc_spi_config *config);
 
 

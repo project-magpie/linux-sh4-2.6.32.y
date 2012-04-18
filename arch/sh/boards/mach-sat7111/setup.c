@@ -223,9 +223,9 @@ static int __init sat7111_devices_init(void)
 			.out1_enabled = 0, });
 
 	stx7111_configure_ssc_spi(0, NULL);
-	stx7111_configure_ssc_i2c(1); /* J12=1-2, J16=1-2 */
-	peripherals_i2c_bus = stx7111_configure_ssc_i2c(2);
-	stx7111_configure_ssc_i2c(3);
+	stx7111_configure_ssc_i2c(1, NULL); /* J12=1-2, J16=1-2 */
+	peripherals_i2c_bus = stx7111_configure_ssc_i2c(2, NULL);
+	stx7111_configure_ssc_i2c(3, NULL);
 
 	stx7111_configure_usb(&(struct stx7111_usb_config) {
 			.invert_ovrcur = 1, });

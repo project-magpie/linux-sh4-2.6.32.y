@@ -115,7 +115,7 @@ static int __init mb519_device_init(void)
 	printk(KERN_NOTICE "mb519 PCB rev %X EPLD rev %dr%d\n",
 			pcb_rev, epld_rev >> 4, epld_rev & 0xf);
 
-	stx7200_configure_ssc_i2c(0); /* HDMI */
+	stx7200_configure_ssc_i2c(0, NULL); /* HDMI */
 	/* Usage of the remaining SSC is defined by the peripheral
 	 * board (eg. MB520) */
 

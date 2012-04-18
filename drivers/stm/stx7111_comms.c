@@ -341,9 +341,11 @@ static struct platform_device stx7111_ssc_devices[] = {
 
 static int __initdata stx7111_ssc_configured[ARRAY_SIZE(stx7111_ssc_devices)];
 
-int __init stx7111_configure_ssc_i2c(int ssc)
+int __init stx7111_configure_ssc_i2c(int ssc,
+		struct stx7111_ssc_i2c_config *config)
 {
 	static int i2c_busnum;
+	struct stm_plat_ssc_data *plat_data;
 
 	BUG_ON(ssc < 0 || ssc >= ARRAY_SIZE(stx7111_ssc_devices));
 
@@ -353,15 +355,15 @@ int __init stx7111_configure_ssc_i2c(int ssc)
 	stx7111_ssc_devices[ssc].name = "i2c-stm";
 	stx7111_ssc_devices[ssc].id = i2c_busnum;
 
+	plat_data = stx7111_ssc_devices[ssc].dev.platform_data;
+
 	/* The SSC3 is an internal I2C link and is hard-wired -
 	 * no pads to be claimed here... */
-	if (ssc < 3) {
-		struct stm_plat_ssc_data *plat_data =
-				stx7111_ssc_devices[ssc].dev.platform_data;
+	if (ssc < 3)
+		plat_data->pad_config = &stx7111_ssc_i2c_pad_configs[ssc];
 
-		plat_data->pad_config =
-				&stx7111_ssc_i2c_pad_configs[ssc];
-	}
+	if (config)
+		plat_data->i2c_fastmode = config->fastmode;
 
 	/* I2C bus number reservation (to prevent any hot-plug device
 	 * from using it) */

@@ -98,6 +98,7 @@ struct stx5197_ssc_i2c_config {
 			stx5197_ssc2_i2c_pio3,
 		} ssc2;
 	} routing;
+	unsigned int fastmode:1;
 };
 /* SSC configure functions return I2C/SPI bus number */
 int stx5197_configure_ssc_i2c(int ssc, struct stx5197_ssc_i2c_config *config);

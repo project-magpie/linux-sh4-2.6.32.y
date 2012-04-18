@@ -343,6 +343,7 @@ static struct platform_device fli75xx_ssc_devices[] = {
 static int __initdata fli75xx_ssc_configured[ARRAY_SIZE(fli75xx_ssc_devices)];
 
 int __init fli75xx_configure_ssc_i2c(int ssc)
+		struct fli75xx_ssc_i2c_config *config)
 {
 	static int i2c_busnum;
 	struct platform_device *dev;
@@ -373,6 +374,9 @@ int __init fli75xx_configure_ssc_i2c(int ssc)
 		res->start = ILC_IRQ(cpu_data->type == CPU_FLI7510 ? 23 : 47);
 		res->end = res->start;
 	}
+
+	if (config)
+		plat_data->i2c_fastmode = config->fastmode;
 
 	/* I2C bus number reservation (to prevent any hot-plug device
 	 * from using it) */

@@ -64,9 +64,9 @@ static int __init hdref_device_init(void)
 {
 	stx7100_configure_sata();
 
-	stx7100_configure_ssc_i2c(0);
+	stx7100_configure_ssc_i2c(0, NULL);
 	stx7100_configure_ssc_spi(1, NULL);
-	stx7100_configure_ssc_i2c(2);
+	stx7100_configure_ssc_i2c(2, NULL);
 
 	stx7100_configure_usb();
 

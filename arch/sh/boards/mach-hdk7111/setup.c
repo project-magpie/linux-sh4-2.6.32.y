@@ -317,9 +317,9 @@ static int __init hdk7111_devices_init(void)
 				});
 
 	stx7111_configure_ssc_spi(0, NULL);
-	stx7111_configure_ssc_i2c(1);
-	stx7111_configure_ssc_i2c(2);
-	stx7111_configure_ssc_i2c(3);
+	stx7111_configure_ssc_i2c(1, NULL);
+	stx7111_configure_ssc_i2c(2, NULL);
+	stx7111_configure_ssc_i2c(3, NULL);
 
 	stx7111_configure_usb(&(struct stx7111_usb_config) {
 				.invert_ovrcur = 1,

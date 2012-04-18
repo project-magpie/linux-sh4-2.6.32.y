@@ -268,12 +268,12 @@ static int __init hdk5289_devices_init(void)
 	gpio_direction_output(HDK5289_POWER_ON, 1);
 
 	/* Internal I2C link */
-	stx5206_configure_ssc_i2c(0);
+	stx5206_configure_ssc_i2c(0, NULL);
 	/* "FE": UC1 (LNB), NIM, JD2 */
-	stx5206_configure_ssc_i2c(1);
+	stx5206_configure_ssc_i2c(1, NULL);
 	/* "AV": UI2 (EEPROM), UN1 (AV buffer & filter), HDMI,
 	 *       JN4 (SCARD board connector) */
-	stx5206_configure_ssc_i2c(3);
+	stx5206_configure_ssc_i2c(3, NULL);
 
 	stx5206_configure_usb();
 

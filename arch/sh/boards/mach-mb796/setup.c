@@ -153,13 +153,13 @@ static int __init mb796_devices_init(void)
 	gpio_direction_output(MB796_NOTPIORESETMII, 1);
 
 	/* Internal I2C link */
-	stx5206_configure_ssc_i2c(0);
+	stx5206_configure_ssc_i2c(0, NULL);
 	/* LNB (IC20) & CN21 - J34-A & J34-B fitted  */
-	stx5206_configure_ssc_i2c(1);
+	stx5206_configure_ssc_i2c(1, NULL);
 	/* NIM, CN4, CN5 & CN7 - J26-E & J26-F fitted, J21-B 2-3, J19-A 2-3 */
-	stx5206_configure_ssc_i2c(2);
+	stx5206_configure_ssc_i2c(2, NULL);
 	/* HDMI chip (IC34) & CN31 - J26-G & J26-H fitted, J19-B 2-3, J25 2-3 */
-	stx5206_configure_ssc_i2c(3);
+	stx5206_configure_ssc_i2c(3, NULL);
 
 	stx5206_configure_pci(&mb796_pci_config);
 

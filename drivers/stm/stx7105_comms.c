@@ -503,6 +503,7 @@ int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 	}
 
 	plat_data->pad_config = pad_config;
+	plat_data->i2c_fastmode = config->i2c_fastmode;
 
 	/* I2C bus number reservation (to prevent any hot-plug device
 	 * from using it) */

@@ -107,6 +107,7 @@ struct stxh205_ssc_config {
 		} ssc3;
 	} routing;
 	void (*spi_chipselect)(struct spi_device *spi, int is_on);
+	unsigned int i2c_fastmode:1;
 };
 
 #define STXH205_SSC(x)	(((x) < 10) ? (x) : ((x)-10+4))

@@ -398,7 +398,8 @@ static struct platform_device stx7200_ssc_devices[] = {
 
 static int __initdata stx7200_ssc_configured[ARRAY_SIZE(stx7200_ssc_devices)];
 
-int __init stx7200_configure_ssc_i2c(int ssc)
+int __init stx7200_configure_ssc_i2c(int ssc,
+		struct stx7200_ssc_i2c_config *config)
 {
 	static int i2c_busnum;
 	struct stm_plat_ssc_data *plat_data;
@@ -413,6 +414,8 @@ int __init stx7200_configure_ssc_i2c(int ssc)
 
 	plat_data = stx7200_ssc_devices[ssc].dev.platform_data;
 	plat_data->pad_config = &stx7200_ssc_i2c_pad_configs[ssc];
+	if (config)
+		plat_data->i2c_fastmode = config->fastmode;
 
 	/* I2C bus number reservation (to prevent any hot-plug device
 	 * from using it) */

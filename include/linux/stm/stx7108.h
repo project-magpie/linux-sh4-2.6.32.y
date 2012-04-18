@@ -92,6 +92,7 @@ struct stx7108_ssc_config {
 		} ssc2;
 	} routing;
 	void (*spi_chipselect)(struct spi_device *spi, int is_on);
+	unsigned int i2c_fastmode:1;
 };
 int stx7108_configure_ssc_i2c(int ssc, struct stx7108_ssc_config *config);
 int stx7108_configure_ssc_spi(int ssc, struct stx7108_ssc_config *config);

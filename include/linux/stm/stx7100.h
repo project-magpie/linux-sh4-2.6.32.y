@@ -35,11 +35,14 @@ struct stx7100_asc_config {
 void stx7100_configure_asc(int asc, struct stx7100_asc_config *config);
 
 
+struct stx7100_ssc_i2c_config {
+	unsigned int fastmode:1;
+};
 struct stx7100_ssc_spi_config {
 	void (*chipselect)(struct spi_device *spi, int is_on);
 };
 /* SSC configure functions return I2C/SPI bus number */
-int stx7100_configure_ssc_i2c(int ssc);
+int stx7100_configure_ssc_i2c(int ssc, struct stx7100_ssc_i2c_config *config);
 int stx7100_configure_ssc_spi(int ssc, struct stx7100_ssc_spi_config *config);
 
 

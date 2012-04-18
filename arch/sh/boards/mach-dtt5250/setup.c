@@ -211,11 +211,11 @@ static int __init dtt5250_devices_init(void)
 	gpio_set_value(DTT5250_ETH_RST, 1);
 
 	/* Internal I2C link */
-	stx5206_configure_ssc_i2c(0);
+	stx5206_configure_ssc_i2c(0, NULL);
 
-	stx5206_configure_ssc_i2c(1);
+	stx5206_configure_ssc_i2c(1, NULL);
 
-	stx5206_configure_ssc_i2c(3);
+	stx5206_configure_ssc_i2c(3, NULL);
 
 	stx5206_configure_usb();
 

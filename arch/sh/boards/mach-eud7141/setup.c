@@ -375,11 +375,11 @@ static int __init eud7141_device_init(void)
 					.rbn.flex_connected = 1,});
 
 	stx7141_configure_ssc_spi(0, NULL);
-	stx7141_configure_ssc_i2c(2);
-	stx7141_configure_ssc_i2c(3);
-	stx7141_configure_ssc_i2c(4);
-	stx7141_configure_ssc_i2c(5);
-	stx7141_configure_ssc_i2c(6);
+	stx7141_configure_ssc_i2c(2, NULL);
+	stx7141_configure_ssc_i2c(3, NULL);
+	stx7141_configure_ssc_i2c(4, NULL);
+	stx7141_configure_ssc_i2c(5, NULL);
+	stx7141_configure_ssc_i2c(6, NULL);
 
 	stx7141_configure_usb(0, &(struct stx7141_usb_config) {
 		.ovrcur_mode = stx7141_usb_ovrcur_active_low,

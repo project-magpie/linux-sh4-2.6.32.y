@@ -149,14 +149,14 @@ static int __init fudb_device_init(void)
 			});
 
 	/* CNB2 ("I2C1" connector), CNJ2 ("FE Board" connector) */
-	fli75xx_configure_ssc_i2c(0);
+	fli75xx_configure_ssc_i2c(0, NULL);
 	/* CNB3 ("I2C2" connector), UB4 (EEPROM), UH4 (STM8 uC) */
-	fli75xx_configure_ssc_i2c(1);
+	fli75xx_configure_ssc_i2c(1, NULL);
 	/* CNB5 ("I2C3" connector), CND1 ("Mini PCI Express" connector),
 	 * CNF3 ("LVDS Out" connector), CNL1 ("Extension Board" connector) */
-	fli75xx_configure_ssc_i2c(2);
+	fli75xx_configure_ssc_i2c(2, NULL);
 	/* CNK4 ("VGA In" connector), UK1 (EEPROM) */
-	fli75xx_configure_ssc_i2c(3);
+	fli75xx_configure_ssc_i2c(3, NULL);
 	/* Leave SSC4 unconfigured, using SPI-FSM for Serial Flash */
 
 	fli75xx_configure_spifsm(&fudb_spifsm_flash);

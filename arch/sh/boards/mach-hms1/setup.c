@@ -97,9 +97,9 @@ static int __init hms1_device_init(void)
 			.out0_enabled = 0,
 			.out1_enabled = 1, });
 
-	stx7100_configure_ssc_i2c(0);
-	stx7100_configure_ssc_i2c(1);
-	stx7100_configure_ssc_i2c(2);
+	stx7100_configure_ssc_i2c(0, NULL);
+	stx7100_configure_ssc_i2c(1, NULL);
+	stx7100_configure_ssc_i2c(2, NULL);
 
 	stx7100_configure_usb();
 

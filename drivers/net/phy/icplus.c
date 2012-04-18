@@ -41,6 +41,7 @@ MODULE_LICENSE("GPL");
 #define IP1001_PHASE_SEL_MASK		3 /* IP1001 RX/TXPHASE_SEL */
 #define IP1001_APS_ON			11  /* IP1001 APS Mode  bit */
 #define IP101A_APS_ON			2   /* IP101A APS Mode bit */
+#define IP101A_IRQ_CONF_STATUS		0x11	/* Conf Info IRQ & Status Reg */
 
 static int ip175c_config_init(struct phy_device *phydev)
 {
@@ -178,6 +179,15 @@ static int ip175c_config_aneg(struct phy_device *phydev)
 	return 0;
 }
 
+static int ip101a_ack_interrupt(struct phy_device *phydev)
+{
+	int err = phy_read(phydev, IP101A_IRQ_CONF_STATUS);
+	if (err < 0)
+		return err;
+
+	return 0;
+}
+
 static struct phy_driver ip175c_driver = {
 	.phy_id		= 0x02430d80,
 	.name		= "ICPlus IP175C",
@@ -214,6 +224,8 @@ static struct phy_driver ip101a_driver = {
 	.config_init	= &ip101a_config_init,
 	.config_aneg	= &genphy_config_aneg,
 	.read_status	= &genphy_read_status,
+	.flags		= PHY_HAS_INTERRUPT,
+	.ack_interrupt	= ip101a_ack_interrupt,
 	.suspend	= genphy_suspend,
 	.resume		= genphy_resume,
 	.driver		= { .owner = THIS_MODULE,},

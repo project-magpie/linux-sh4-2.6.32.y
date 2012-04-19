@@ -23,7 +23,7 @@
 #include <linux/mtd/physmap.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <linux/stm/pci-glue.h>
 #include <asm/irq-ilc.h>
 #include <sound/stm.h>
@@ -41,15 +41,15 @@ static void __init fldb_setup(char **cmdline_p)
 	printk(KERN_INFO "STMicroelectronics Freeman Lite Development Board "
 			"initialisation\n");
 
-	fli7510_early_device_init();
+	fli75xx_early_device_init();
 
 	/* CNB1 ("UART 2" connector) */
-	fli7510_configure_asc(1, &(struct fli7510_asc_config) {
+	fli75xx_configure_asc(1, &(struct fli75xx_asc_config) {
 			.hw_flow_control = 1,
 			.is_console = 1, });
 
 	/* CNB4 ("UART 3" connector) */
-	fli7510_configure_asc(2, &(struct fli7510_asc_config) {
+	fli75xx_configure_asc(2, &(struct fli75xx_asc_config) {
 			.hw_flow_control = 0,
 			.is_console = 0, });
 }
@@ -192,7 +192,7 @@ static struct stm_plat_pci_config fldb_pci_config = {
 int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
        /* We can use the standard function on this board */
-       return fli7510_pcibios_map_platform_irq(&fldb_pci_config, pin);
+       return fli75xx_pcibios_map_platform_irq(&fldb_pci_config, pin);
 }
 
 
@@ -259,9 +259,9 @@ static int __init fldb_device_init(void)
 		printk(KERN_ERR "fldb: Failed to claim PCI_IDSEL PIO!\n");
 
 	/* And finally! */
-	fli7510_configure_pci(&fldb_pci_config);
+	fli75xx_configure_pci(&fldb_pci_config);
 
-	fli7510_configure_pwm(&(struct fli7510_pwm_config) {
+	fli75xx_configure_pwm(&(struct fli75xx_pwm_config) {
 			.out0_enabled = 1,
 #if 0
 			/* Connected to DF1 LED, currently used as a
@@ -276,37 +276,37 @@ static int __init fldb_device_init(void)
 			});
 
 	/* CNB2 ("I2C1" connector), CNJ2 ("FE Board" connector) */
-	fli7510_configure_ssc_i2c(0);
+	fli75xx_configure_ssc_i2c(0);
 	/* CNB3 ("I2C2" connector), UB2 (EEPROM), UH4 (STM8 uC),
 	 * CNJ2 ("FE Board" connector) */
-	fli7510_configure_ssc_i2c(1);
+	fli75xx_configure_ssc_i2c(1);
 	/* CNB5 ("I2C3" connector), CNF3 ("LVDS Out C and D" connector),
 	 * CNL1 ("Extension Board" connector) */
-	fli7510_configure_ssc_i2c(2);
+	fli75xx_configure_ssc_i2c(2);
 	/* CNK4 ("VGA In" connector), UK1 (EEPROM) */
-	fli7510_configure_ssc_i2c(3);
+	fli75xx_configure_ssc_i2c(3);
 	/* Leave SSC4 unconfigured, using SPI-FSM for Serial Flash */
 
-	fli7510_configure_spifsm(&fldb_spifsm_flash);
+	fli75xx_configure_spifsm(&fldb_spifsm_flash);
 
-	fli7510_configure_nand(&(struct stm_nand_config) {
+	fli75xx_configure_nand(&(struct stm_nand_config) {
 			.driver = stm_nand_flex,
 			.nr_banks = 1,
 			.banks = &fldb_nand_flash,
 			.rbn.flex_connected = 1,});
 
-	fli7510_configure_usb(0, &(struct fli7510_usb_config) {
-			.ovrcur_mode = fli7510_usb_ovrcur_active_low, });
+	fli75xx_configure_usb(0, &(struct fli75xx_usb_config) {
+			.ovrcur_mode = fli75xx_usb_ovrcur_active_low, });
 
-	fli7510_configure_ethernet(&(struct fli7510_ethernet_config) {
-			.mode = fli7510_ethernet_mode_mii,
+	fli75xx_configure_ethernet(&(struct fli75xx_ethernet_config) {
+			.mode = fli75xx_ethernet_mode_mii,
 			.ext_clk = 0,
 			.phy_bus = 0,
 			.phy_addr = 1,
 			.mdio_bus_data = &stmmac_mdio_bus,
 		});
 
-	fli7510_configure_lirc();
+	fli75xx_configure_lirc();
 
 	/*
 	 * --------------------------------------------------------
@@ -318,11 +318,11 @@ static int __init fldb_device_init(void)
 	 * - Connect the metallic MMC cover to GND (near CNG7)
 	 *   otherwise the card is not detected.
 	 */
-	fli7510_configure_mmc();
+	fli75xx_configure_mmc();
 
-	fli7510_configure_audio(&(struct fli7510_audio_config) {
+	fli75xx_configure_audio(&(struct fli75xx_audio_config) {
 			.pcm_player_0_output_mode =
-					fli7510_pcm_player_0_output_8_channels,
+					fli75xx_pcm_player_0_output_8_channels,
 			.spdif_player_output_enabled = 1, });
 
 	return platform_add_devices(fldb_devices,

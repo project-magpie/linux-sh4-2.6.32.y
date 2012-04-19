@@ -1,6 +1,6 @@
 /*****************************************************************************
  *
- * File name   : clock-fli7510.h
+ * File name   : clock-fli75xx.h
  * Description : Low Level API - Clocks identifiers
  *
  * COPYRIGHT (C) 2011 STMicroelectronics - All Rights Reserved

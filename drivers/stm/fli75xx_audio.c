@@ -13,7 +13,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/irq.h>
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <asm/irq-ilc.h>
 #include <sound/stm.h>
 
@@ -23,8 +23,8 @@
 
 /* Audio subsystem glue */
 
-static struct platform_device fli7510_glue = {
-	.name = "snd_fli7510_glue",
+static struct platform_device fli75xx_glue = {
+	.name = "snd_fli75xx_glue",
 	.id = -1,
 	.num_resources = 1,
 	.resource = (struct resource []) {
@@ -33,7 +33,7 @@ static struct platform_device fli7510_glue = {
 };
 
 /* Audio mute */
-static struct platform_device fli7510_snd_conv_gpio = {
+static struct platform_device fli75xx_snd_conv_gpio = {
 	.name = "snd_conv_gpio",
 	.id = 0,
 	.dev.platform_data = &(struct snd_stm_conv_gpio_info) {
@@ -55,17 +55,17 @@ static struct platform_device fli7510_snd_conv_gpio = {
 
 /* PCM players */
 
-static struct snd_stm_pcm_player_info fli7510_pcm_player_0_info = {
+static struct snd_stm_pcm_player_info fli75xx_pcm_player_0_info = {
 	.name = "PCM player LS",
 	.ver = 6,
 	.card_device = 0,
 	.channels = 8,
 	.fdma_initiator = 0,
 	.fdma_request_line = 41,
-	/* .pad_config set by fli7510_configure_audio() */
+	/* .pad_config set by fli75xx_configure_audio() */
 };
 
-static struct stm_pad_config fli7510_pcm_player_0_pad_config = {
+static struct stm_pad_config fli75xx_pcm_player_0_pad_config = {
 	.gpios_num = 7,
 	.gpios = (struct stm_pad_gpio []) {
 		STM_PAD_PIO_OUT(6, 4, 1),	/* I2SA MCLK  */
@@ -78,7 +78,7 @@ static struct stm_pad_config fli7510_pcm_player_0_pad_config = {
 	},
 };
 
-static struct platform_device fli7510_pcm_player_0 = {
+static struct platform_device fli75xx_pcm_player_0 = {
 	.name = "snd_pcm_player",
 	.id = 0,
 	.num_resources = 2,
@@ -86,20 +86,20 @@ static struct platform_device fli7510_pcm_player_0 = {
 		STM_PLAT_RESOURCE_MEM(0xfd618000, 0x28),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(10), -1),
 	},
-	.dev.platform_data = &fli7510_pcm_player_0_info,
+	.dev.platform_data = &fli75xx_pcm_player_0_info,
 };
 
-static struct snd_stm_pcm_player_info fli7510_pcm_player_1_info = {
+static struct snd_stm_pcm_player_info fli75xx_pcm_player_1_info = {
 	.name = "PCM player AUX/Encoder",
 	.ver = 6,
 	.card_device = 1,
 	.channels = 2,
 	.fdma_initiator = 0,
 	.fdma_request_line = 42,
-	/* .pad_config set by fli7510_configure_audio() */
+	/* .pad_config set by fli75xx_configure_audio() */
 };
 
-static struct stm_pad_config fli7510_pcm_player_1_pad_config = {
+static struct stm_pad_config fli75xx_pcm_player_1_pad_config = {
 	.gpios_num = 4,
 	.gpios = (struct stm_pad_gpio []) {
 		STM_PAD_PIO_OUT(8, 1, 1),	/* I2SC MCLK */
@@ -109,7 +109,7 @@ static struct stm_pad_config fli7510_pcm_player_1_pad_config = {
 	},
 };
 
-static struct platform_device fli7510_pcm_player_1 = {
+static struct platform_device fli75xx_pcm_player_1 = {
 	.name = "snd_pcm_player",
 	.id = 1,
 	.num_resources = 2,
@@ -117,10 +117,10 @@ static struct platform_device fli7510_pcm_player_1 = {
 		STM_PLAT_RESOURCE_MEM(0xfd61c000, 0x28),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(11), -1),
 	},
-	.dev.platform_data = &fli7510_pcm_player_1_info,
+	.dev.platform_data = &fli75xx_pcm_player_1_info,
 };
 
-static struct platform_device fli7510_pcm_player_2 = {
+static struct platform_device fli75xx_pcm_player_2 = {
 	.name = "snd_pcm_player",
 	.id = 2,
 	.num_resources = 2,
@@ -194,23 +194,23 @@ static struct platform_device fli7510_pcm_player_4 = {
 
 /* SPDIF player */
 
-static struct snd_stm_spdif_player_info fli7510_spdif_player_info = {
+static struct snd_stm_spdif_player_info fli75xx_spdif_player_info = {
 	.name = "SPDIF player",
 	.ver = 4,
 	.card_device = 5,
 	.fdma_initiator = 0,
 	.fdma_request_line = 40,
-	/* .pad_config set by fli7510_configure_audio() */
+	/* .pad_config set by fli75xx_configure_audio() */
 };
 
-static struct stm_pad_config fli7510_spdif_player_pad_config = {
+static struct stm_pad_config fli75xx_spdif_player_pad_config = {
 	.gpios_num = 1,
 	.gpios = (struct stm_pad_gpio []) {
 		STM_PAD_PIO_OUT(6, 7, 1),  /* SPDIF OUT */
 	},
 };
 
-static struct platform_device fli7510_spdif_player = {
+static struct platform_device fli75xx_spdif_player = {
 	.name = "snd_spdif_player",
 	.id = -1,
 	.num_resources = 2,
@@ -218,12 +218,12 @@ static struct platform_device fli7510_spdif_player = {
 		STM_PLAT_RESOURCE_MEM(0xfd638000, 0x44),
 		STM_PLAT_RESOURCE_IRQ(ILC_IRQ(4), -1),
 	},
-	.dev.platform_data = &fli7510_spdif_player_info,
+	.dev.platform_data = &fli75xx_spdif_player_info,
 };
 
 /* PCM readers */
 
-static struct platform_device fli7510_pcm_reader_0 = {
+static struct platform_device fli75xx_pcm_reader_0 = {
 	.name = "snd_pcm_reader",
 	.id = 0,
 	.num_resources = 2,
@@ -241,7 +241,7 @@ static struct platform_device fli7510_pcm_reader_0 = {
 	},
 };
 
-static struct platform_device fli7510_pcm_reader_1 = {
+static struct platform_device fli75xx_pcm_reader_1 = {
 	.name = "snd_pcm_reader",
 	.id = 1,
 	.num_resources = 2,
@@ -259,7 +259,7 @@ static struct platform_device fli7510_pcm_reader_1 = {
 	},
 };
 
-static struct platform_device fli7510_pcm_reader_2 = {
+static struct platform_device fli75xx_pcm_reader_2 = {
 	.name = "snd_pcm_reader",
 	.id = 2,
 	.num_resources = 2,
@@ -277,7 +277,7 @@ static struct platform_device fli7510_pcm_reader_2 = {
 	},
 };
 
-static struct platform_device fli7510_pcm_reader_3 = {
+static struct platform_device fli75xx_pcm_reader_3 = {
 	.name = "snd_pcm_reader",
 	.id = 3,
 	.num_resources = 2,
@@ -295,7 +295,7 @@ static struct platform_device fli7510_pcm_reader_3 = {
 	},
 };
 
-static struct platform_device fli7510_pcm_reader_4 = {
+static struct platform_device fli75xx_pcm_reader_4 = {
 	.name = "snd_pcm_reader",
 	.id = 4,
 	.num_resources = 2,
@@ -334,38 +334,38 @@ static struct platform_device fli7520_pcm_reader_5 = {
 /* Devices */
 
 static struct platform_device *fli7510_audio_devices[] __initdata = {
-	&fli7510_glue,
-	&fli7510_snd_conv_gpio,
-	&fli7510_pcm_player_0,
-	&fli7510_pcm_player_1,
-	&fli7510_pcm_player_2,
+	&fli75xx_glue,
+	&fli75xx_snd_conv_gpio,
+	&fli75xx_pcm_player_0,
+	&fli75xx_pcm_player_1,
+	&fli75xx_pcm_player_2,
 	&fli7510_pcm_player_3,
 	&fli7510_pcm_player_4,
-	&fli7510_spdif_player,
-	&fli7510_pcm_reader_0,
-	&fli7510_pcm_reader_1,
-	&fli7510_pcm_reader_2,
-	&fli7510_pcm_reader_3,
-	&fli7510_pcm_reader_4,
+	&fli75xx_spdif_player,
+	&fli75xx_pcm_reader_0,
+	&fli75xx_pcm_reader_1,
+	&fli75xx_pcm_reader_2,
+	&fli75xx_pcm_reader_3,
+	&fli75xx_pcm_reader_4,
 };
 
 static struct platform_device *fli7520_audio_devices[] __initdata = {
-	&fli7510_glue,
-	&fli7510_snd_conv_gpio,
-	&fli7510_pcm_player_0,
-	&fli7510_pcm_player_1,
-	&fli7510_pcm_player_2,
+	&fli75xx_glue,
+	&fli75xx_snd_conv_gpio,
+	&fli75xx_pcm_player_0,
+	&fli75xx_pcm_player_1,
+	&fli75xx_pcm_player_2,
 	&fli7520_pcm_player_3,
-	&fli7510_spdif_player,
-	&fli7510_pcm_reader_0,
-	&fli7510_pcm_reader_1,
-	&fli7510_pcm_reader_2,
-	&fli7510_pcm_reader_3,
-	&fli7510_pcm_reader_4,
+	&fli75xx_spdif_player,
+	&fli75xx_pcm_reader_0,
+	&fli75xx_pcm_reader_1,
+	&fli75xx_pcm_reader_2,
+	&fli75xx_pcm_reader_3,
+	&fli75xx_pcm_reader_4,
 	&fli7520_pcm_reader_5,
 };
 
-static int __init fli7510_audio_devices_setup(void)
+static int __init fli75xx_audio_devices_setup(void)
 {
 	if (cpu_data->type == CPU_FLI7510)
 		return platform_add_devices(fli7510_audio_devices,
@@ -374,11 +374,11 @@ static int __init fli7510_audio_devices_setup(void)
 		return platform_add_devices(fli7520_audio_devices,
 				ARRAY_SIZE(fli7520_audio_devices));
 }
-device_initcall(fli7510_audio_devices_setup);
+device_initcall(fli75xx_audio_devices_setup);
 
 /* Configuration */
 
-void __init fli7510_configure_audio(struct fli7510_audio_config *config)
+void __init fli75xx_configure_audio(struct fli75xx_audio_config *config)
 {
 	static int configured;
 
@@ -386,20 +386,20 @@ void __init fli7510_configure_audio(struct fli7510_audio_config *config)
 	configured = 1;
 
 	if (config->pcm_player_0_output_mode >
-			fli7510_pcm_player_0_output_disabled) {
+			fli75xx_pcm_player_0_output_disabled) {
 		int unused = 4 - config->pcm_player_0_output_mode;
 
-		fli7510_pcm_player_0_info.pad_config =
-				&fli7510_pcm_player_0_pad_config;
+		fli75xx_pcm_player_0_info.pad_config =
+				&fli75xx_pcm_player_0_pad_config;
 
-		fli7510_pcm_player_0_pad_config.gpios_num -= unused;
+		fli75xx_pcm_player_0_pad_config.gpios_num -= unused;
 	}
 
 	if (config->pcm_player_1_output_enabled)
-		fli7510_pcm_player_1_info.pad_config =
-				&fli7510_pcm_player_1_pad_config;
+		fli75xx_pcm_player_1_info.pad_config =
+				&fli75xx_pcm_player_1_pad_config;
 
 	if (config->spdif_player_output_enabled)
-		fli7510_spdif_player_info.pad_config =
-				&fli7510_spdif_player_pad_config;
+		fli75xx_spdif_player_info.pad_config =
+				&fli75xx_spdif_player_pad_config;
 }

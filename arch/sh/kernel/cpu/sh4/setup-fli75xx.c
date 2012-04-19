@@ -12,7 +12,7 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/stm/platform.h>
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 

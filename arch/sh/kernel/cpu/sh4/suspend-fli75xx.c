@@ -18,7 +18,7 @@
 #include <linux/irqflags.h>
 #include <linux/io.h>
 
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <linux/stm/sysconf.h>
 #include <linux/stm/clk.h>
 #include <linux/stm/wakeup_devices.h>
@@ -52,7 +52,7 @@
 					    */
 
 /*
- * Fli7510 uses the Synopsys IP Dram Controller
+ * Fli75xx uses the Synopsys IP Dram Controller
  */
 #define DDR0_BASE_REG	     0xFD320000	/* 32 */
 #define DDR1_BASE_REG	     0xFD360000	/* 16 */
@@ -117,7 +117,7 @@ END_MARKER
 
 static struct stm_wakeup_devices wkd;
 
-static int fli7510_suspend_begin(suspend_state_t state)
+static int fli75xx_suspend_begin(suspend_state_t state)
 {
 	pr_info("[STM][PM] Analyzing the wakeup devices\n");
 
@@ -137,7 +137,7 @@ static int fli7510_suspend_begin(suspend_state_t state)
 	return 0;
 }
 
-static int fli7510_suspend_core(suspend_state_t state, int suspending)
+static int fli75xx_suspend_core(suspend_state_t state, int suspending)
 {
 	static unsigned char *clka_pll0_div;
 	static unsigned char *clka_pll1_div;
@@ -265,28 +265,28 @@ error:
 	return -ENOMEM;
 }
 
-static int fli7510_suspend_pre_enter(suspend_state_t state)
+static int fli75xx_suspend_pre_enter(suspend_state_t state)
 {
-	return fli7510_suspend_core(state, 1);
+	return fli75xx_suspend_core(state, 1);
 }
 
-static int fli7510_suspend_post_enter(suspend_state_t state)
+static int fli75xx_suspend_post_enter(suspend_state_t state)
 {
-	return fli7510_suspend_core(state, 0);
+	return fli75xx_suspend_core(state, 0);
 }
 
-static int fli7510_evttoirq(unsigned long evt)
+static int fli75xx_evttoirq(unsigned long evt)
 {
 	return ((evt < 0x400) ? ilc2irq(evt) : evt2irq(evt));
 }
 
-static struct stm_platform_suspend_t fli7510_suspend __cacheline_aligned = {
+static struct stm_platform_suspend_t fli75xx_suspend __cacheline_aligned = {
 
-	.ops.begin = fli7510_suspend_begin,
+	.ops.begin = fli75xx_suspend_begin,
 
-	.evt_to_irq = fli7510_evttoirq,
-	.pre_enter = fli7510_suspend_pre_enter,
-	.post_enter = fli7510_suspend_post_enter,
+	.evt_to_irq = fli75xx_evttoirq,
+	.pre_enter = fli75xx_suspend_pre_enter,
+	.post_enter = fli75xx_suspend_post_enter,
 
 	.stby_tbl = (unsigned long)fli7510_standby_table,
 	.stby_size = DIV_ROUND_UP(ARRAY_SIZE(fli7510_standby_table) *
@@ -298,7 +298,7 @@ static struct stm_platform_suspend_t fli7510_suspend __cacheline_aligned = {
 
 };
 
-static int __init fli7510_suspend_setup(void)
+static int __init fli75xx_suspend_setup(void)
 {
 
 	struct sysconf_field *sc[2];
@@ -317,7 +317,7 @@ static int __init fli7510_suspend_setup(void)
 	ca_pll_clk = ca_ic_100_clk->parent;
 	ca_ref_clk = ca_pll_clk->parent;
 
-	return stm_suspend_register(&fli7510_suspend);
+	return stm_suspend_register(&fli75xx_suspend);
 
 error:
 
@@ -329,4 +329,4 @@ error:
 	return 0;
 }
 
-module_init(fli7510_suspend_setup);
+module_init(fli75xx_suspend_setup);

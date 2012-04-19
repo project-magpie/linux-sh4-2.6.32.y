@@ -15,14 +15,14 @@
 #include <linux/i2c.h>
 #include <linux/stm/pad.h>
 #include <linux/stm/emi.h>
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <asm/irq-ilc.h>
 
 
 
 /* ASC resources ---------------------------------------------------------- */
 
-static struct stm_pad_config fli7510_asc_pad_configs[] = {
+static struct stm_pad_config fli75xx_asc_pad_configs[] = {
 	[0] = {
 		.gpios_num = 4,
 		.gpios = (struct stm_pad_gpio []) {
@@ -50,10 +50,10 @@ static struct stm_pad_config fli7510_asc_pad_configs[] = {
 	},
 };
 
-static struct platform_device fli7510_asc_devices[] = {
+static struct platform_device fli75xx_asc_devices[] = {
 	[0] = {
 		.name = "stm-asc",
-		/* .id set in fli7510_configure_asc() */
+		/* .id set in fli75xx_configure_asc() */
 		.num_resources = 4,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb30000, 0x2c),
@@ -62,12 +62,12 @@ static struct platform_device fli7510_asc_devices[] = {
 			STM_PLAT_RESOURCE_DMA_NAMED("tx_half_empty", 6),
 		},
 		.dev.platform_data = &(struct stm_plat_asc_data) {
-			.pad_config = &fli7510_asc_pad_configs[0],
+			.pad_config = &fli75xx_asc_pad_configs[0],
 		},
 	},
 	[1] = {
 		.name = "stm-asc",
-		/* .id set in fli7510_configure_asc() */
+		/* .id set in fli75xx_configure_asc() */
 		.num_resources = 4,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb31000, 0x2c),
@@ -76,12 +76,12 @@ static struct platform_device fli7510_asc_devices[] = {
 			STM_PLAT_RESOURCE_DMA_NAMED("tx_half_empty", 8),
 		},
 		.dev.platform_data = &(struct stm_plat_asc_data) {
-			.pad_config = &fli7510_asc_pad_configs[1],
+			.pad_config = &fli75xx_asc_pad_configs[1],
 		},
 	},
 	[2] = {
 		.name = "stm-asc",
-		/* .id set in fli7510_configure_asc() */
+		/* .id set in fli75xx_configure_asc() */
 		.num_resources = 4,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb32000, 0x2c),
@@ -90,7 +90,7 @@ static struct platform_device fli7510_asc_devices[] = {
 			STM_PLAT_RESOURCE_DMA_NAMED("tx_half_empty", 10),
 		},
 		.dev.platform_data = &(struct stm_plat_asc_data) {
-			.pad_config = &fli7510_asc_pad_configs[2],
+			.pad_config = &fli75xx_asc_pad_configs[2],
 		},
 	},
 };
@@ -104,24 +104,24 @@ int __initdata stm_asc_console_device;
 /* Platform devices to register */
 unsigned int __initdata stm_asc_configured_devices_num;
 struct platform_device __initdata
-		*stm_asc_configured_devices[ARRAY_SIZE(fli7510_asc_devices)];
+		*stm_asc_configured_devices[ARRAY_SIZE(fli75xx_asc_devices)];
 
-void __init fli7510_configure_asc(int asc, struct fli7510_asc_config *config)
+void __init fli75xx_configure_asc(int asc, struct fli75xx_asc_config *config)
 {
-	static int configured[ARRAY_SIZE(fli7510_asc_devices)];
+	static int configured[ARRAY_SIZE(fli75xx_asc_devices)];
 	static int tty_id;
-	struct fli7510_asc_config default_config = {};
+	struct fli75xx_asc_config default_config = {};
 	struct platform_device *pdev;
 	struct stm_plat_asc_data *plat_data;
 
-	BUG_ON(asc < 0 || asc >= ARRAY_SIZE(fli7510_asc_devices));
+	BUG_ON(asc < 0 || asc >= ARRAY_SIZE(fli75xx_asc_devices));
 
 	BUG_ON(configured[asc]++);
 
 	if (!config)
 		config = &default_config;
 
-	pdev = &fli7510_asc_devices[asc];
+	pdev = &fli75xx_asc_devices[asc];
 	plat_data = pdev->dev.platform_data;
 
 	pdev->id = tty_id++;
@@ -144,12 +144,12 @@ void __init fli7510_configure_asc(int asc, struct fli7510_asc_config *config)
 }
 
 /* Add platform device as configured by board specific code */
-static int __init fli7510_add_asc(void)
+static int __init fli75xx_add_asc(void)
 {
 	return platform_add_devices(stm_asc_configured_devices,
 			stm_asc_configured_devices_num);
 }
-arch_initcall(fli7510_add_asc);
+arch_initcall(fli75xx_add_asc);
 
 
 
@@ -281,84 +281,84 @@ static struct stm_pad_config fli7520_ssc4_spi_pad_config = {
 	},
 };
 
-static struct platform_device fli7510_ssc_devices[] = {
+static struct platform_device fli75xx_ssc_devices[] = {
 	[0] = {
-		/* .name & .id set in fli7510_configure_ssc_*() */
+		/* .name & .id set in fli75xx_configure_ssc_*() */
 		.num_resources = 2,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb40000, 0x110),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(19), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			/* .pad_config_* set in fli7510_configure_ssc_*() */
+			/* .pad_config_* set in fli75xx_configure_ssc_*() */
 		},
 	},
 	[1] = {
-		/* .name & .id set in fli7510_configure_ssc_*() */
+		/* .name & .id set in fli75xx_configure_ssc_*() */
 		.num_resources = 2,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb41000, 0x110),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(20), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			/* .pad_config_* set in fli7510_configure_ssc_*() */
+			/* .pad_config_* set in fli75xx_configure_ssc_*() */
 		},
 	},
 	[2] = {
-		/* .name & .id set in fli7510_configure_ssc_*() */
+		/* .name & .id set in fli75xx_configure_ssc_*() */
 		.num_resources = 2,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb42000, 0x110),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(21), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			/* .pad_config_* set in fli7510_configure_ssc_*() */
+			/* .pad_config_* set in fli75xx_configure_ssc_*() */
 		},
 	},
 	[3] = {
-		/* .name & .id set in fli7510_configure_ssc_*() */
+		/* .name & .id set in fli75xx_configure_ssc_*() */
 		.num_resources = 2,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb43000, 0x110),
 			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(22), -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			/* .pad_config_* set in fli7510_configure_ssc_*() */
+			/* .pad_config_* set in fli75xx_configure_ssc_*() */
 		},
 	},
 	[4] = {
-		/* .name & .id set in fli7510_configure_ssc_*() */
+		/* .name & .id set in fli75xx_configure_ssc_*() */
 		.num_resources = 2,
 		.resource = (struct resource[]) {
 			STM_PLAT_RESOURCE_MEM(0xfdb44000, 0x110),
-			/* IRQ set in fli7510_configure_ssc_*() */
+			/* IRQ set in fli75xx_configure_ssc_*() */
 			STM_PLAT_RESOURCE_IRQ(-1, -1),
 		},
 		.dev.platform_data = &(struct stm_plat_ssc_data) {
-			/* .pad_config_* set in fli7510_configure_ssc_*() */
+			/* .pad_config_* set in fli75xx_configure_ssc_*() */
 		},
 	},
 };
 
-static int __initdata fli7510_ssc_configured[ARRAY_SIZE(fli7510_ssc_devices)];
+static int __initdata fli75xx_ssc_configured[ARRAY_SIZE(fli75xx_ssc_devices)];
 
-int __init fli7510_configure_ssc_i2c(int ssc)
+int __init fli75xx_configure_ssc_i2c(int ssc)
 {
 	static int i2c_busnum;
 	struct platform_device *dev;
 	struct stm_plat_ssc_data *plat_data;
 
-	BUG_ON(ssc < 0 || ssc >= ARRAY_SIZE(fli7510_ssc_devices));
+	BUG_ON(ssc < 0 || ssc >= ARRAY_SIZE(fli75xx_ssc_devices));
 
-	BUG_ON(fli7510_ssc_configured[ssc]);
-	fli7510_ssc_configured[ssc] = 1;
+	BUG_ON(fli75xx_ssc_configured[ssc]);
+	fli75xx_ssc_configured[ssc] = 1;
 
-	dev = &fli7510_ssc_devices[ssc];
+	dev = &fli75xx_ssc_devices[ssc];
 
 	dev->name = "i2c-stm";
 	dev->id = i2c_busnum;
 
-	plat_data = fli7510_ssc_devices[ssc].dev.platform_data;
+	plat_data = fli75xx_ssc_devices[ssc].dev.platform_data;
 	if (cpu_data->type != CPU_FLI7510 && ssc == 2)
 		plat_data->pad_config = &fli7520_ssc2_i2c_pad_config;
 	else if (cpu_data->type != CPU_FLI7510 && ssc == 4)
@@ -383,8 +383,8 @@ int __init fli7510_configure_ssc_i2c(int ssc)
 	return i2c_busnum++;
 }
 
-int __init fli7510_configure_ssc_spi(int ssc,
-		struct fli7510_ssc_spi_config *config)
+int __init fli75xx_configure_ssc_spi(int ssc,
+		struct fli75xx_ssc_spi_config *config)
 {
 	static int spi_busnum;
 	struct platform_device *dev;
@@ -393,10 +393,10 @@ int __init fli7510_configure_ssc_spi(int ssc,
 	/* Only SSC4 can be used as a SPI device */
 	BUG_ON(ssc != 4);
 
-	BUG_ON(fli7510_ssc_configured[ssc]);
-	fli7510_ssc_configured[ssc] = 1;
+	BUG_ON(fli75xx_ssc_configured[ssc]);
+	fli75xx_ssc_configured[ssc] = 1;
 
-	dev = &fli7510_ssc_devices[ssc];
+	dev = &fli75xx_ssc_devices[ssc];
 
 	dev->name = "spi-stm";
 	dev->id = spi_busnum;
@@ -409,7 +409,7 @@ int __init fli7510_configure_ssc_spi(int ssc,
 		res->end = res->start;
 	}
 
-	plat_data = fli7510_ssc_devices[ssc].dev.platform_data;
+	plat_data = fli75xx_ssc_devices[ssc].dev.platform_data;
 	if (config)
 		plat_data->spi_chipselect = config->chipselect;
 	if (cpu_data->type == CPU_FLI7510)
@@ -426,7 +426,7 @@ int __init fli7510_configure_ssc_spi(int ssc,
 
 /* LiRC resources --------------------------------------------------------- */
 
-static struct platform_device fli7510_lirc_device = {
+static struct platform_device fli75xx_lirc_device = {
 	.name = "lirc-stm",
 	.id = -1,
 	.num_resources = 2,
@@ -456,20 +456,20 @@ static struct platform_device fli7510_lirc_device = {
 	},
 };
 
-void __init fli7510_configure_lirc(void)
+void __init fli75xx_configure_lirc(void)
 {
 	static int configured;
 
 	BUG_ON(configured++);
 
-	platform_device_register(&fli7510_lirc_device);
+	platform_device_register(&fli75xx_lirc_device);
 }
 
 
 
 /* PWM resources ---------------------------------------------------------- */
 
-static struct stm_plat_pwm_data fli7510_pwm_platform_data = {
+static struct stm_plat_pwm_data fli75xx_pwm_platform_data = {
 	.channel_pad_config = {
 		[0] = &(struct stm_pad_config) {
 			.gpios_num = 1,
@@ -503,7 +503,7 @@ static struct stm_plat_pwm_data fli7510_pwm_platform_data = {
 		},
 #endif
 
-static struct platform_device fli7510_pwm_device = {
+static struct platform_device fli75xx_pwm_device = {
 	.name = "stm-pwm",
 	.id = -1,
 	.num_resources = 2,
@@ -511,10 +511,10 @@ static struct platform_device fli7510_pwm_device = {
 		STM_PLAT_RESOURCE_MEM(0xfd010000, 0x68),
 		STM_PLAT_RESOURCE_IRQ(evt2irq(0x11c0), -1),
 	},
-	.dev.platform_data = &fli7510_pwm_platform_data,
+	.dev.platform_data = &fli75xx_pwm_platform_data,
 };
 
-void __init fli7510_configure_pwm(struct fli7510_pwm_config *config)
+void __init fli75xx_configure_pwm(struct fli75xx_pwm_config *config)
 {
 	static int configured;
 
@@ -522,21 +522,21 @@ void __init fli7510_configure_pwm(struct fli7510_pwm_config *config)
 	configured = 1;
 
 	if (config) {
-		fli7510_pwm_platform_data.channel_enabled[0] =
+		fli75xx_pwm_platform_data.channel_enabled[0] =
 				config->out0_enabled;
 		/* PWM output 0 is physically unavailable on 7520 & 7530 */
 		WARN_ON(config->out0_enabled &&
 				(cpu_data->type == CPU_FLI7520 ||
 				cpu_data->type == CPU_FLI7530));
 
-		fli7510_pwm_platform_data.channel_enabled[1] =
+		fli75xx_pwm_platform_data.channel_enabled[1] =
 				config->out1_enabled;
 
 		/* At the time of writing this code, PWM driver
 		 * supported only 2 channels of PWM... */
 
 #if 0
-		fli7510_pwm_platform_data.channel_enabled[2] =
+		fli75xx_pwm_platform_data.channel_enabled[2] =
 				config->out2_enabled;
 		/* PWM output 0 is physically unavailable on 7520 & 7530 */
 		WARN_ON(config->out2_enabled &&
@@ -546,11 +546,11 @@ void __init fli7510_configure_pwm(struct fli7510_pwm_config *config)
 		WARN_ON(config->out2_enabled);
 
 #if 0
-		fli7510_pwm_platform_data.channel_enabled[3] =
+		fli75xx_pwm_platform_data.channel_enabled[3] =
 				config->out3_enabled;
 #endif
 		WARN_ON(config->out3_enabled);
 	}
 
-	platform_device_register(&fli7510_pwm_device);
+	platform_device_register(&fli75xx_pwm_device);
 }

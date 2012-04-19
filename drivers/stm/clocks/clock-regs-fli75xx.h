@@ -1,6 +1,6 @@
 /*****************************************************************************
  *
- * File name   : clock-regs-fli7510.h
+ * File name   : clock-regs-fli75xx.h
  * Description : Low Level API - Base addresses & register definitions.
  *
  * COPYRIGHT (C) 2011 STMicroelectronics - All Rights Reserved

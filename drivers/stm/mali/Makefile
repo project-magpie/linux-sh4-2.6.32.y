@@ -49,7 +49,7 @@ COMMON_OBJS := $(addprefix ./common/, \
         mali_kernel_descriptor_mapping.o \
         mali_kernel_vsync.o )
 
-ifeq ($(CONFIG_CPU_SUBTYPE_STIH415)$(CONFIG_CPU_SUBTYPE_STX7108)$(CONFIG_CPU_SUBTYPE_FLI7510),y)
+ifeq ($(CONFIG_CPU_SUBTYPE_STIH415)$(CONFIG_CPU_SUBTYPE_STX7108)$(CONFIG_CPU_SUBTYPE_FLI75XX),y)
 
 ifeq ($(CONFIG_CPU_SUBTYPE_STIH415),y)
 SOC                      := stih415
@@ -67,7 +67,7 @@ PLATFORM_OBJS := $(addprefix ./platform/default/, \
         mali_platform.o )
 
 endif
-ifeq ($(CONFIG_CPU_SUBTYPE_FLI7510),y)
+ifeq ($(CONFIG_CPU_SUBTYPE_FLI75XX),y)
 SOC                      := fli75x0
 PLATFORM_OBJS := $(addprefix ./platform/default/, \
         mali_platform.o )

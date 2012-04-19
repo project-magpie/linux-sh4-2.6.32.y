@@ -117,7 +117,7 @@ module_param_named(debug, snd_stm_debug_level, int, S_IRUGO | S_IWUSR);
 #define SPDIF_PLAYER_EN__DISABLED	(0 << SPDIF_PLAYER_EN)
 #define SPDIF_PLAYER_EN__ENABLED	(1 << SPDIF_PLAYER_EN)
 
-struct snd_stm_fli7510_glue {
+struct snd_stm_fli75xx_glue {
 	struct resource *mem_region;
 	void *base;
 
@@ -126,44 +126,44 @@ struct snd_stm_fli7510_glue {
 	snd_stm_magic_field;
 };
 
-static void snd_stm_fli7510_glue_dump_registers(struct snd_info_entry *entry,
+static void snd_stm_fli75xx_glue_dump_registers(struct snd_info_entry *entry,
 		struct snd_info_buffer *buffer)
 {
-	struct snd_stm_fli7510_glue *fli7510_glue = entry->private_data;
+	struct snd_stm_fli75xx_glue *fli75xx_glue = entry->private_data;
 
-	BUG_ON(!fli7510_glue);
-	BUG_ON(!snd_stm_magic_valid(fli7510_glue));
+	BUG_ON(!fli75xx_glue);
+	BUG_ON(!snd_stm_magic_valid(fli75xx_glue));
 
-	snd_iprintf(buffer, "--- snd_fli7510_glue ---\n");
+	snd_iprintf(buffer, "--- snd_fli75xx_glue ---\n");
 	snd_iprintf(buffer, "AUD_CONFIG_REG1 (0x%p) = 0x%08x\n",
-			AUD_CONFIG_REG1(fli7510_glue->base),
-			readl(AUD_CONFIG_REG1(fli7510_glue->base)));
+			AUD_CONFIG_REG1(fli75xx_glue->base),
+			readl(AUD_CONFIG_REG1(fli75xx_glue->base)));
 	snd_iprintf(buffer, "AUD_CONFIG_REG2 (0x%p) = 0x%08x\n",
-			AUD_CONFIG_REG2(fli7510_glue->base),
-			readl(AUD_CONFIG_REG2(fli7510_glue->base)));
+			AUD_CONFIG_REG2(fli75xx_glue->base),
+			readl(AUD_CONFIG_REG2(fli75xx_glue->base)));
 
 	snd_iprintf(buffer, "\n");
 }
 
-static int __init snd_stm_fli7510_glue_probe(struct platform_device *pdev)
+static int __init snd_stm_fli75xx_glue_probe(struct platform_device *pdev)
 {
 	int result = 0;
-	struct snd_stm_fli7510_glue *fli7510_glue;
+	struct snd_stm_fli75xx_glue *fli75xx_glue;
 	unsigned int value;
 
 	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
-	fli7510_glue = kzalloc(sizeof(*fli7510_glue), GFP_KERNEL);
-	if (!fli7510_glue) {
+	fli75xx_glue = kzalloc(sizeof(*fli75xx_glue), GFP_KERNEL);
+	if (!fli75xx_glue) {
 		snd_stm_printe("Can't allocate memory "
 				"for a device description!\n");
 		result = -ENOMEM;
 		goto error_alloc;
 	}
-	snd_stm_magic_set(fli7510_glue);
+	snd_stm_magic_set(fli75xx_glue);
 
-	result = snd_stm_memory_request(pdev, &fli7510_glue->mem_region,
-			&fli7510_glue->base);
+	result = snd_stm_memory_request(pdev, &fli75xx_glue->mem_region,
+			&fli75xx_glue->base);
 	if (result < 0) {
 		snd_stm_printe("Memory region request failed!\n");
 		goto error_memory_request;
@@ -185,7 +185,7 @@ static int __init snd_stm_fli7510_glue_probe(struct platform_device *pdev)
 	value |= DAC_CLK__CLK_256FS_DEC_2;
 	value |= SPDIF_CLK_DIV2_EN__DISABLED;
 	value |= SPDIF_IN_PAD_HYST_EN__DISABLED;
-	writel(value, AUD_CONFIG_REG1(fli7510_glue->base));
+	writel(value, AUD_CONFIG_REG1(fli75xx_glue->base));
 
 	value = SPDIF__PLAYER;
 	if (cpu_data->type == CPU_FLI7510) {
@@ -196,49 +196,49 @@ static int __init snd_stm_fli7510_glue_probe(struct platform_device *pdev)
 		value |= FLI7520_SEC_I2S__PCM_PLAYER_1;
 	}
 	value |= SPDIF_PLAYER_EN__ENABLED;
-	writel(value, AUD_CONFIG_REG2(fli7510_glue->base));
+	writel(value, AUD_CONFIG_REG2(fli75xx_glue->base));
 
 	/* Additional procfs info */
-	snd_stm_info_register(&fli7510_glue->proc_entry, "fli7510_glue",
-			snd_stm_fli7510_glue_dump_registers, fli7510_glue);
+	snd_stm_info_register(&fli75xx_glue->proc_entry, "fli75xx_glue",
+			snd_stm_fli75xx_glue_dump_registers, fli75xx_glue);
 
-	platform_set_drvdata(pdev, fli7510_glue);
+	platform_set_drvdata(pdev, fli75xx_glue);
 
 	return result;
 
 error_memory_request:
-	snd_stm_magic_clear(fli7510_glue);
-	kfree(fli7510_glue);
+	snd_stm_magic_clear(fli75xx_glue);
+	kfree(fli75xx_glue);
 error_alloc:
 	return result;
 }
 
-static int __exit snd_stm_fli7510_glue_remove(struct platform_device *pdev)
+static int __exit snd_stm_fli75xx_glue_remove(struct platform_device *pdev)
 {
-	struct snd_stm_fli7510_glue *fli7510_glue = platform_get_drvdata(pdev);
+	struct snd_stm_fli75xx_glue *fli75xx_glue = platform_get_drvdata(pdev);
 
 	snd_stm_printd(0, "%s('%s')\n", __func__, dev_name(&pdev->dev));
 
-	BUG_ON(!fli7510_glue);
-	BUG_ON(!snd_stm_magic_valid(fli7510_glue));
+	BUG_ON(!fli75xx_glue);
+	BUG_ON(!snd_stm_magic_valid(fli75xx_glue));
 
 	/* Remove procfs entry */
-	snd_stm_info_unregister(fli7510_glue->proc_entry);
+	snd_stm_info_unregister(fli75xx_glue->proc_entry);
 
 	/* Disable audio outputs */
 
-	snd_stm_memory_release(fli7510_glue->mem_region, fli7510_glue->base);
+	snd_stm_memory_release(fli75xx_glue->mem_region, fli75xx_glue->base);
 
-	snd_stm_magic_clear(fli7510_glue);
-	kfree(fli7510_glue);
+	snd_stm_magic_clear(fli75xx_glue);
+	kfree(fli75xx_glue);
 
 	return 0;
 }
 
-static struct platform_driver snd_stm_fli7510_glue_driver = {
-	.driver.name = "snd_fli7510_glue",
-	.probe = snd_stm_fli7510_glue_probe,
-	.remove = snd_stm_fli7510_glue_remove,
+static struct platform_driver snd_stm_fli75xx_glue_driver = {
+	.driver.name = "snd_fli75xx_glue",
+	.probe = snd_stm_fli75xx_glue_probe,
+	.remove = snd_stm_fli75xx_glue_remove,
 };
 
 
@@ -247,7 +247,7 @@ static struct platform_driver snd_stm_fli7510_glue_driver = {
  * Audio initialization
  */
 
-static int __init snd_stm_fli7510_init(void)
+static int __init snd_stm_fli75xx_init(void)
 {
 	int result;
 
@@ -265,7 +265,7 @@ static int __init snd_stm_fli7510_init(void)
 		goto error_soc_type;
 	}
 
-	result = platform_driver_register(&snd_stm_fli7510_glue_driver);
+	result = platform_driver_register(&snd_stm_fli75xx_glue_driver);
 	if (result != 0) {
 		snd_stm_printe("Failed to register audio glue driver!\n");
 		goto error_glue_driver_register;
@@ -280,22 +280,22 @@ static int __init snd_stm_fli7510_init(void)
 	return 0;
 
 error_card_register:
-	platform_driver_unregister(&snd_stm_fli7510_glue_driver);
+	platform_driver_unregister(&snd_stm_fli75xx_glue_driver);
 error_glue_driver_register:
 error_soc_type:
 	return result;
 }
 
-static void __exit snd_stm_fli7510_exit(void)
+static void __exit snd_stm_fli75xx_exit(void)
 {
 	snd_stm_printd(0, "%s()\n", __func__);
 
-	platform_driver_unregister(&snd_stm_fli7510_glue_driver);
+	platform_driver_unregister(&snd_stm_fli75xx_glue_driver);
 }
 
 MODULE_AUTHOR("Pawel Moll <pawel.moll@st.com>");
 MODULE_DESCRIPTION("STMicroelectronics Freeman 510/520/530/540 audio driver");
 MODULE_LICENSE("GPL");
 
-module_init(snd_stm_fli7510_init);
-module_exit(snd_stm_fli7510_exit);
+module_init(snd_stm_fli75xx_init);
+module_exit(snd_stm_fli75xx_exit);

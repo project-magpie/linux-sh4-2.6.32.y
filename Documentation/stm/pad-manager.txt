@@ -92,7 +92,7 @@ struct stm_pad_config {
 An example configuration could look like this:
 
 --------8<--------8<--------8<--------
-static struct stm_pad_config fli7510_usb_pad_config = {
+static struct stm_pad_config fli75xx_usb_pad_config = {
 	.gpios_num = 2,
 	.gpios = (struct stm_pad_gpio []) {
 		STM_PAD_PIO_IN(27, 1, -1),	/* USB_A_OVRCUR */
@@ -105,15 +105,15 @@ static struct stm_pad_config fli7510_usb_pad_config = {
 		/* usba_ovrcur_polarity */
 		STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 11, 11, 0),
 	},
-	.custom_claim = fli7510_usb_xtal_claim,
-	.custom_release = fli7510_usb_xtal_release,
+	.custom_claim = fli75xx_usb_xtal_claim,
+	.custom_release = fli75xx_usb_xtal_release,
 }
 --------8<--------8<--------8<--------
 
 It says that in order to get USB host controller running correctly,
 PIO27.1 should be configured as input, PIO27.2 as an "alternative function 1"
 output, two sysconfig bits (CFG_COMMS_CONFIG_1.12 and .11) should be set
-to 0 and additionally a special function "fli7510_usb_xtal_claim" called.
+to 0 and additionally a special function "fli75xx_usb_xtal_claim" called.
 All used macros are described below.
 
 

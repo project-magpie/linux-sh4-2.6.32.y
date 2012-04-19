@@ -28,7 +28,7 @@ static struct sysconf_field* copro_reset_out;
 struct cpu_reg {
 	struct sysconf_field* boot;
 	struct sysconf_field* reset;
-#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#if defined(CONFIG_CPU_SUBTYPE_FLI75XX)
 	struct sysconf_field *boot_ctl;
 	struct sysconf_field *periph;
 	unsigned int periph_value;
@@ -61,7 +61,7 @@ int __init coproc_cpu_init(coproc_t * cop)
 	const unsigned int boot_lookup[] = { 6, 7, 8 };
 	const unsigned int reset_lookup[]  = { 0, 0, 0 };
 	const int sys_cfg = 1; /* hdk7108 SYS_CFG_BANK0 */
-#elif defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#elif defined(CONFIG_CPU_SUBTYPE_FLI75XX)
 	const unsigned int boot_lookup[] =    { 1, 3, 5 };
 	const unsigned int reset_lookup[]  =  { 5, 6, 7 };
 	const unsigned int periph_lookup[] =  { 0, 2, 4 };
@@ -77,7 +77,7 @@ int __init coproc_cpu_init(coproc_t * cop)
 	BUG_ON(id >= ARRAY_SIZE(boot_lookup));
 	BUG_ON(id >= coproc_info.max_coprs);
 
-#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#if defined(CONFIG_CPU_SUBTYPE_FLI75XX)
 	if (!cpu_regs[id].boot)
 		cpu_regs[id].boot = sysconf_claim(vdec_pu_cfg_1,
 						  boot_lookup[id],
@@ -177,7 +177,7 @@ int coproc_cpu_grant(coproc_t * cop, unsigned long arg)
 	DPRINTK(">>> platform: st231.%u start from 0x%x...\n",
 					id, (unsigned int)bootAddr);
 
-#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#if defined(CONFIG_CPU_SUBTYPE_FLI75XX)
 	/* ST231 reset */
 	sysconf_write(cpu_regs[id].reset, 1);
 	msleep(5);
@@ -252,7 +252,7 @@ int coproc_cpu_reset(coproc_t * cop)
 
  	DPRINTK("\n");
 
-#if defined(CONFIG_CPU_SUBTYPE_FLI7510)
+#if defined(CONFIG_CPU_SUBTYPE_FLI75XX)
 	/* Reset the CPU */
 	sysconf_write(cpu_regs[id].reset,
 		      sysconf_read(cpu_regs[id].reset) | 1);

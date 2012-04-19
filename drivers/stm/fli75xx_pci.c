@@ -17,7 +17,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/device.h>
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <linux/pci.h>
 #include <asm/irq-ilc.h>
 
@@ -28,7 +28,7 @@
 /* You may pass one of the PCI_PIN_* constants to use dedicated pin or
  * just pass interrupt number generated with gpio_to_irq() when PIO pads
  * are used as interrupts or IRLx_IRQ when using external interrupts inputs */
-int fli7510_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
+int fli75xx_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 		u8 pin)
 {
 	int result;
@@ -81,7 +81,7 @@ int fli7510_pcibios_map_platform_irq(struct stm_plat_pci_config *pci_config,
 	return result;
 }
 
-static void fli7510_pci_power(struct stm_device_state *device_state,
+static void fli75xx_pci_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
 {
 	int i;
@@ -98,7 +98,7 @@ static void fli7510_pci_power(struct stm_device_state *device_state,
 	return;
 }
 
-static struct platform_device fli7510_pci_device = {
+static struct platform_device fli75xx_pci_device = {
 	.name = "pci_stm",
 	.id = -1,
 	.num_resources = 7,
@@ -116,7 +116,7 @@ static struct platform_device fli7510_pci_device = {
 		STM_PLAT_RESOURCE_MEM_NAMED("pci ahb", 0xfd080000, 0xff),
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci dma", ILC_IRQ(47), -1),
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci err", ILC_IRQ(48), -1),
-		/* SERR interrupt set in fli7510_configure_pci() */
+		/* SERR interrupt set in fli75xx_configure_pci() */
 		STM_PLAT_RESOURCE_IRQ_NAMED("pci serr", -1, -1),
 	},
 	.dev.platform_data = &(struct stm_device_config){
@@ -127,17 +127,17 @@ static struct platform_device fli7510_pci_device = {
 			STM_DEVICE_SYSCONF(CFG_PCI_ROPC_STATUS,
 				18, 18, "PCI_ACK"),
 		},
-		.power = fli7510_pci_power,
+		.power = fli75xx_pci_power,
 
 	}
 };
 
-#define FLI7510_PIO_PCI_REQ(i)   stm_gpio(15, (i - 1) * 2)
-#define FLI7510_PIO_PCI_GNT(i)   stm_gpio(15, ((i - 1) * 2) + 1)
-#define FLI7510_PIO_PCI_INT(i)   stm_gpio(25, i)
-#define FLI7510_PIO_PCI_SERR     stm_gpio(16, 6)
+#define FLI75XX_PIO_PCI_REQ(i)   stm_gpio(15, (i - 1) * 2)
+#define FLI75XX_PIO_PCI_GNT(i)   stm_gpio(15, ((i - 1) * 2) + 1)
+#define FLI75XX_PIO_PCI_INT(i)   stm_gpio(25, i)
+#define FLI75XX_PIO_PCI_SERR     stm_gpio(16, 6)
 
-void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
+void __init fli75xx_configure_pci(struct stm_plat_pci_config *pci_conf)
 {
 	struct sysconf_field *sc;
 	int i;
@@ -167,7 +167,7 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 	BUG_ON(pci_conf->req_gnt[3] != PCI_PIN_UNUSED);
 
 	/* Copy over platform specific data to driver */
-	fli7510_pci_device.dev.platform_data = pci_conf;
+	fli75xx_pci_device.dev.platform_data = pci_conf;
 
 	/* REQ/GNT[1..2] PIOs setup */
 	for (i = 1; i <= 2; i++) {
@@ -177,16 +177,16 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 			sc = sysconf_claim(CFG_COMMS_CONFIG_1,
 					24 + (i - 1), 24 + (i - 1), "PCI");
 			sysconf_write(sc, 1);
-			if (gpio_request(FLI7510_PIO_PCI_REQ(i),
+			if (gpio_request(FLI75XX_PIO_PCI_REQ(i),
 					"PCI_REQ") == 0)
-				stm_gpio_direction(FLI7510_PIO_PCI_REQ(i),
+				stm_gpio_direction(FLI75XX_PIO_PCI_REQ(i),
 						STM_GPIO_DIRECTION_IN);
 			else
 				printk(KERN_ERR "Unable to configure PIO for "
 						"PCI_REQ%d\n", i);
-			if (gpio_request(FLI7510_PIO_PCI_GNT(i),
+			if (gpio_request(FLI75XX_PIO_PCI_GNT(i),
 					"PCI_GNT") == 0)
-				stm_gpio_direction(FLI7510_PIO_PCI_GNT(i),
+				stm_gpio_direction(FLI75XX_PIO_PCI_GNT(i),
 						STM_GPIO_DIRECTION_ALT_OUT);
 			else
 				printk(KERN_ERR "Unable to configure PIO for "
@@ -215,7 +215,7 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 				BUG();
 				break;
 			}
-			if (gpio_request(FLI7510_PIO_PCI_INT(i),
+			if (gpio_request(FLI75XX_PIO_PCI_INT(i),
 					int_name[i]) != 0)
 				printk(KERN_ERR "Unable to claim PIO for "
 						"%s\n", int_name[0]);
@@ -233,10 +233,10 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 	/* Configure the SERR interrupt (if wired up) */
 	switch (pci_conf->serr_irq) {
 	case PCI_PIN_DEFAULT:
-		if (gpio_request(FLI7510_PIO_PCI_SERR, "PCI SERR#") == 0) {
-			stm_gpio_direction(FLI7510_PIO_PCI_SERR,
+		if (gpio_request(FLI75XX_PIO_PCI_SERR, "PCI SERR#") == 0) {
+			stm_gpio_direction(FLI75XX_PIO_PCI_SERR,
 					STM_GPIO_DIRECTION_IN);
-			pci_conf->serr_irq = gpio_to_irq(FLI7510_PIO_PCI_SERR);
+			pci_conf->serr_irq = gpio_to_irq(FLI75XX_PIO_PCI_SERR);
 			set_irq_type(pci_conf->serr_irq, IRQ_TYPE_LEVEL_LOW);
 		} else {
 			printk(KERN_WARNING "%s(): Failed to claim PCI SERR# "
@@ -252,20 +252,20 @@ void __init fli7510_configure_pci(struct stm_plat_pci_config *pci_conf)
 	}
 	if (pci_conf->serr_irq == PCI_PIN_UNUSED) {
 		/* "Disable" the SERR IRQ resource (it's last on the list) */
-		fli7510_pci_device.num_resources--;
+		fli75xx_pci_device.num_resources--;
 	} else {
 		struct resource *res = platform_get_resource_byname(
-				&fli7510_pci_device, IORESOURCE_IRQ,
+				&fli75xx_pci_device, IORESOURCE_IRQ,
 				"pci serr");
 
 		res->start = pci_conf->serr_irq;
 		res->end = pci_conf->serr_irq;
 	}
 
-	fli7510_pci_device.dev.parent =
+	fli75xx_pci_device.dev.parent =
 		bus_find_device_by_name(&platform_bus_type, NULL, "emi");
 
-	platform_device_register(&fli7510_pci_device);
+	platform_device_register(&fli75xx_pci_device);
 }
 
 

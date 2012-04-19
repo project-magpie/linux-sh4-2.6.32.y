@@ -1,6 +1,6 @@
 /*****************************************************************************
  *
- * File name   : clock-fli7510.c
+ * File name   : clock-fli75xx.c
  * Description : Low Level API - HW specific implementation
  * Author: Francesco Virlinzi <francesco.virlinzi@st.com>
  *
@@ -16,12 +16,12 @@
 
 /* Includes ----------------------------------------------------------------- */
 
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <linux/stm/clk.h>
 #include <linux/io.h>
 #include <linux/delay.h>
-#include "clock-fli7510.h"
-#include "clock-regs-fli7510.h"
+#include "clock-fli75xx.h"
+#include "clock-regs-fli75xx.h"
 
 #include "clock-oslayer.h"
 #include "clock-common.h"

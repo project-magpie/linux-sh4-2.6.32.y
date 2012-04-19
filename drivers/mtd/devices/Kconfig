@@ -109,7 +109,7 @@ config MTD_STM_SPI_FSM
 	depends on (CPU_SUBTYPE_STX7105 || \
 		    CPU_SUBTYPE_STX5206 || \
 		    CPU_SUBTYPE_STX7108 || \
-		    CPU_SUBTYPE_FLI7510 || \
+		    CPU_SUBTYPE_FLI75XX || \
 		    CPU_SUBTYPE_STXH205)
 	help
 	  This provides a MTD device driver for the ST Microelectronics SPI

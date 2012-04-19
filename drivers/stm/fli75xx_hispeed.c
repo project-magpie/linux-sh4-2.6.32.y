@@ -20,15 +20,15 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/device.h>
-#include <linux/stm/fli7510.h>
+#include <linux/stm/fli75xx.h>
 #include <asm/irq-ilc.h>
 
 
 
 /* Ethernet MAC resources ------------------------------------------------- */
 
-static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
-	[fli7510_ethernet_mode_mii] = {
+static struct stm_pad_config fli75xx_ethernet_pad_configs[] = {
+	[fli75xx_ethernet_mode_mii] = {
 		.gpios_num = 19,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_OUT(18, 0, 1),	/* MDC */
@@ -56,7 +56,7 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 			/* gmac_mii_enable */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 8, 8, 1),
 			/* gmac_phy_clock_sel
-			 * value set in fli7510_configure_ethernet() */
+			 * value set in fli75xx_configure_ethernet() */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 9, 9, -1),
 			/* gmac_enable */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 24, 24, 1),
@@ -64,7 +64,7 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 26, 28, 0),
 		},
 	},
-	[fli7510_ethernet_mode_gmii] = { /* Not supported by 7510! */
+	[fli75xx_ethernet_mode_gmii] = { /* Not supported by 7510! */
 		.gpios_num = 27,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_OUT(18, 0, 1),	/* MDC */
@@ -107,7 +107,7 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 26, 28, 0),
 		},
 	},
-	[fli7510_ethernet_mode_rmii] = {
+	[fli75xx_ethernet_mode_rmii] = {
 		.gpios_num = 11,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_OUT(18, 0, 1),	/* MDC */
@@ -127,7 +127,7 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 			/* gmac_mii_enable */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 8, 8, 1),
 			/* gmac_phy_clock_sel
-			 * value set in fli7510_configure_ethernet() */
+			 * value set in fli75xx_configure_ethernet() */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 9, 9, -1),
 			/* gmac_enable */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 24, 24, 1),
@@ -135,7 +135,7 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 26, 28, 4),
 		},
 	},
-	[fli7510_ethernet_mode_reverse_mii] = {
+	[fli75xx_ethernet_mode_reverse_mii] = {
 		.gpios_num = 19,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_IN(18, 0, 1),	/* MDC */
@@ -163,7 +163,7 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 			/* gmac_mii_enable */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 8, 8, 0),
 			/* gmac_phy_clock_sel
-			 * value set in fli7510_configure_ethernet() */
+			 * value set in fli75xx_configure_ethernet() */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 9, 9, -1),
 			/* gmac_enable */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_2, 24, 24, 1),
@@ -173,25 +173,25 @@ static struct stm_pad_config fli7510_ethernet_pad_configs[] = {
 	},
 };
 
-static void fli7510_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
+static void fli75xx_ethernet_fix_mac_speed(void *bsp_priv, unsigned int speed)
 {
 	struct sysconf_field *mac_speed_sel = bsp_priv;
 
 	sysconf_write(mac_speed_sel, (speed == SPEED_100) ? 1 : 0);
 }
 
-static struct plat_stmmacenet_data fli7510_ethernet_platform_data = {
+static struct plat_stmmacenet_data fli75xx_ethernet_platform_data = {
 	.pbl = 32,
 	.has_gmac = 1,
 	.enh_desc = 1,
 	.tx_coe = 1,
 	.bugged_jumbo =1,
 	.pmt = 1,
-	.fix_mac_speed = fli7510_ethernet_fix_mac_speed,
+	.fix_mac_speed = fli75xx_ethernet_fix_mac_speed,
 	.init = &stmmac_claim_resource,
 };
 
-static struct platform_device fli7510_ethernet_device = {
+static struct platform_device fli75xx_ethernet_device = {
 	.name = "stmmaceth",
 	.id = -1,
 	.num_resources = 2,
@@ -199,19 +199,19 @@ static struct platform_device fli7510_ethernet_device = {
 		STM_PLAT_RESOURCE_MEM(0xfd920000, 0x08000),
 		STM_PLAT_RESOURCE_IRQ_NAMED("macirq", ILC_IRQ(40), -1),
 	},
-	.dev.platform_data = &fli7510_ethernet_platform_data,
+	.dev.platform_data = &fli75xx_ethernet_platform_data,
 };
 
-void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
+void __init fli75xx_configure_ethernet(struct fli75xx_ethernet_config *config)
 {
 	static int configured;
-	struct fli7510_ethernet_config default_config;
+	struct fli75xx_ethernet_config default_config;
 	struct stm_pad_config *pad_config;
 	const int interfaces[] = {
-		[fli7510_ethernet_mode_mii] = PHY_INTERFACE_MODE_MII,
-		[fli7510_ethernet_mode_gmii] = PHY_INTERFACE_MODE_GMII,
-		[fli7510_ethernet_mode_rmii] = PHY_INTERFACE_MODE_RMII,
-		[fli7510_ethernet_mode_reverse_mii] = PHY_INTERFACE_MODE_MII,
+		[fli75xx_ethernet_mode_mii] = PHY_INTERFACE_MODE_MII,
+		[fli75xx_ethernet_mode_gmii] = PHY_INTERFACE_MODE_GMII,
+		[fli75xx_ethernet_mode_rmii] = PHY_INTERFACE_MODE_RMII,
+		[fli75xx_ethernet_mode_reverse_mii] = PHY_INTERFACE_MODE_MII,
 	};
 
 	BUG_ON(configured);
@@ -220,17 +220,17 @@ void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
 	if (!config)
 		config = &default_config;
 
-	pad_config = &fli7510_ethernet_pad_configs[config->mode];
+	pad_config = &fli75xx_ethernet_pad_configs[config->mode];
 
-	fli7510_ethernet_platform_data.custom_cfg = (void *) pad_config;
-	fli7510_ethernet_platform_data.interface = interfaces[config->mode];
-	fli7510_ethernet_platform_data.bus_id = config->phy_bus;
-	fli7510_ethernet_platform_data.phy_addr = config->phy_addr;
-	fli7510_ethernet_platform_data.mdio_bus_data = config->mdio_bus_data;
+	fli75xx_ethernet_platform_data.custom_cfg = (void *) pad_config;
+	fli75xx_ethernet_platform_data.interface = interfaces[config->mode];
+	fli75xx_ethernet_platform_data.bus_id = config->phy_bus;
+	fli75xx_ethernet_platform_data.phy_addr = config->phy_addr;
+	fli75xx_ethernet_platform_data.mdio_bus_data = config->mdio_bus_data;
 
 	switch (config->mode) {
-	case fli7510_ethernet_mode_mii:
-	case fli7510_ethernet_mode_reverse_mii:
+	case fli75xx_ethernet_mode_mii:
+	case fli75xx_ethernet_mode_reverse_mii:
 		if (config->ext_clk) {
 			stm_pad_set_pio_ignored(pad_config, "PHYCLK");
 			pad_config->sysconfs[1].value = 1;
@@ -240,13 +240,13 @@ void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
 		stm_pad_set_pio(pad_config, "TXCLK", 20,
 				cpu_data->type == CPU_FLI7510 ? 6 : 5);
 		break;
-	case fli7510_ethernet_mode_gmii:
+	case fli75xx_ethernet_mode_gmii:
 		if (cpu_data->type == CPU_FLI7510) {
 			BUG(); /* Not supported */
 			return;
 		}
 		break;
-	case fli7510_ethernet_mode_rmii:
+	case fli75xx_ethernet_mode_rmii:
 		if (config->ext_clk) {
 			stm_pad_set_pio_in(pad_config, "PHYCLK", -1);
 			pad_config->sysconfs[1].value = 1;
@@ -260,42 +260,42 @@ void __init fli7510_configure_ethernet(struct fli7510_ethernet_config *config)
 		break;
 	}
 
-	fli7510_ethernet_platform_data.bsp_priv =
+	fli75xx_ethernet_platform_data.bsp_priv =
 			sysconf_claim(CFG_COMMS_CONFIG_2, 25, 25,
 			"gmac_mac_speed");
 
-	platform_device_register(&fli7510_ethernet_device);
+	platform_device_register(&fli75xx_ethernet_device);
 }
 
 
 
 /* USB resources ---------------------------------------------------------- */
 
-static u64 fli7510_usb_dma_mask = DMA_BIT_MASK(32);
+static u64 fli75xx_usb_dma_mask = DMA_BIT_MASK(32);
 
-static int fli7510_usb_xtal_initialized;
-static struct sysconf_field *fli7510_usb_xtal_sc;
+static int fli75xx_usb_xtal_initialized;
+static struct sysconf_field *fli75xx_usb_xtal_sc;
 
-static int fli7510_usb_xtal_claim(struct stm_pad_state *state, void *priv)
+static int fli75xx_usb_xtal_claim(struct stm_pad_state *state, void *priv)
 {
-	if (!fli7510_usb_xtal_initialized++) {
-		fli7510_usb_xtal_sc = sysconf_claim(CFG_SPARE_1, 1, 1,
+	if (!fli75xx_usb_xtal_initialized++) {
+		fli75xx_usb_xtal_sc = sysconf_claim(CFG_SPARE_1, 1, 1,
 				"USB_xtal_valid");
-		BUG_ON(!fli7510_usb_xtal_sc);
-		sysconf_write(fli7510_usb_xtal_sc, 1);
+		BUG_ON(!fli75xx_usb_xtal_sc);
+		sysconf_write(fli75xx_usb_xtal_sc, 1);
 	}
 
 	return 0;
 }
 
-static void fli7510_usb_xtal_release(struct stm_pad_state *state, void *priv)
+static void fli75xx_usb_xtal_release(struct stm_pad_state *state, void *priv)
 {
-	if (!--fli7510_usb_xtal_initialized)
-		sysconf_release(fli7510_usb_xtal_sc);
+	if (!--fli75xx_usb_xtal_initialized)
+		sysconf_release(fli75xx_usb_xtal_sc);
 }
 
 static struct stm_pad_config fli7510_usb_pad_configs[] = {
-	[fli7510_usb_ovrcur_disabled] = {
+	[fli75xx_usb_ovrcur_disabled] = {
 		.gpios_num = 1,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_OUT(27, 2, 1),	/* USB_A_PWREN */
@@ -307,11 +307,11 @@ static struct stm_pad_config fli7510_usb_pad_configs[] = {
 			/* usba_ovrcur */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 13, 13, 1),
 		},
-		.custom_claim = fli7510_usb_xtal_claim,
-		.custom_release = fli7510_usb_xtal_release,
+		.custom_claim = fli75xx_usb_xtal_claim,
+		.custom_release = fli75xx_usb_xtal_release,
 
 	},
-	[fli7510_usb_ovrcur_active_high] = {
+	[fli75xx_usb_ovrcur_active_high] = {
 		.gpios_num = 2,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_IN(27, 1, -1),	/* USB_A_OVRCUR */
@@ -324,10 +324,10 @@ static struct stm_pad_config fli7510_usb_pad_configs[] = {
 			/* usba_ovrcur_polarity */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 11, 11, 0),
 		},
-		.custom_claim = fli7510_usb_xtal_claim,
-		.custom_release = fli7510_usb_xtal_release,
+		.custom_claim = fli75xx_usb_xtal_claim,
+		.custom_release = fli75xx_usb_xtal_release,
 	},
-	[fli7510_usb_ovrcur_active_low] = {
+	[fli75xx_usb_ovrcur_active_low] = {
 		.gpios_num = 2,
 		.gpios = (struct stm_pad_gpio []) {
 			STM_PAD_PIO_IN(27, 1, -1),	/* USB_A_OVRCUR */
@@ -340,8 +340,8 @@ static struct stm_pad_config fli7510_usb_pad_configs[] = {
 			/* usba_ovrcur_polarity */
 			STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 11, 11, 1),
 		},
-		.custom_claim = fli7510_usb_xtal_claim,
-		.custom_release = fli7510_usb_xtal_release,
+		.custom_claim = fli75xx_usb_xtal_claim,
+		.custom_release = fli75xx_usb_xtal_release,
 	}
 };
 
@@ -367,7 +367,7 @@ static struct stm_plat_usb_data fli7510_usb_platform_data = {
 		STM_PLAT_USB_FLAGS_STRAP_PLL |
 		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256,
 	.device_config = &(struct stm_device_config){
-		/* .pad_config set in fli7510_configure_usb() */
+		/* .pad_config set in fli75xx_configure_usb() */
 		.sysconfs_num = 2,
 		.sysconfs = (struct stm_device_sysconf []){
 			STM_DEVICE_SYSCONF(CFG_COMMS_CONFIG_1,
@@ -383,7 +383,7 @@ static struct platform_device fli7510_usb_device = {
 	.name = "stm-usb",
 	.id = -1,
 	.dev = {
-		.dma_mask = &fli7510_usb_dma_mask,
+		.dma_mask = &fli75xx_usb_dma_mask,
 		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = &fli7510_usb_platform_data,
 	},
@@ -400,7 +400,7 @@ static struct platform_device fli7510_usb_device = {
 
 static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 	[0] = (struct stm_pad_config []) {
-		[fli7510_usb_ovrcur_disabled] = {
+		[fli75xx_usb_ovrcur_disabled] = {
 			.gpios_num = 1,
 			.gpios = (struct stm_pad_gpio []) {
 				STM_PAD_PIO_OUT(26, 4, 1), /* USB_A_PWREN */
@@ -416,11 +416,11 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 				/* conf_usb1_rst_n */
 				STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 23, 23, 1),
 			},
-			.custom_claim = fli7510_usb_xtal_claim,
-			.custom_release = fli7510_usb_xtal_release,
+			.custom_claim = fli75xx_usb_xtal_claim,
+			.custom_release = fli75xx_usb_xtal_release,
 
 		},
-		[fli7510_usb_ovrcur_active_high] = {
+		[fli75xx_usb_ovrcur_active_high] = {
 			.gpios_num = 2,
 			.gpios = (struct stm_pad_gpio []) {
 				STM_PAD_PIO_IN(26, 3, -1), /* USB_A_OVRCUR */
@@ -437,10 +437,10 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 				/* conf_usb1_rst_n */
 				STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 23, 23, 1),
 			},
-			.custom_claim = fli7510_usb_xtal_claim,
-			.custom_release = fli7510_usb_xtal_release,
+			.custom_claim = fli75xx_usb_xtal_claim,
+			.custom_release = fli75xx_usb_xtal_release,
 		},
-		[fli7510_usb_ovrcur_active_low] = {
+		[fli75xx_usb_ovrcur_active_low] = {
 			.gpios_num = 2,
 			.gpios = (struct stm_pad_gpio []) {
 				STM_PAD_PIO_IN(26, 3, -1), /* USB_A_OVRCUR */
@@ -457,12 +457,12 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 				/* conf_usb1_rst_n */
 				STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 23, 23, 1),
 			},
-			.custom_claim = fli7510_usb_xtal_claim,
-			.custom_release = fli7510_usb_xtal_release,
+			.custom_claim = fli75xx_usb_xtal_claim,
+			.custom_release = fli75xx_usb_xtal_release,
 		}
 	},
 	[1] = (struct stm_pad_config []) {
-		[fli7510_usb_ovrcur_disabled] = {
+		[fli75xx_usb_ovrcur_disabled] = {
 			.gpios_num = 1,
 			.gpios = (struct stm_pad_gpio []) {
 				STM_PAD_PIO_OUT(26, 6, 1), /* USB_C_PWREN */
@@ -478,11 +478,11 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 				/* conf_usb2_rst_n */
 				STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 24, 24, 1),
 			},
-			.custom_claim = fli7510_usb_xtal_claim,
-			.custom_release = fli7510_usb_xtal_release,
+			.custom_claim = fli75xx_usb_xtal_claim,
+			.custom_release = fli75xx_usb_xtal_release,
 
 		},
-		[fli7510_usb_ovrcur_active_high] = {
+		[fli75xx_usb_ovrcur_active_high] = {
 			.gpios_num = 2,
 			.gpios = (struct stm_pad_gpio []) {
 				STM_PAD_PIO_IN(26, 5, -1), /* USB_C_OVRCUR */
@@ -499,10 +499,10 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 				/* conf_usb2_rst_n */
 				STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 24, 24, 1),
 			},
-			.custom_claim = fli7510_usb_xtal_claim,
-			.custom_release = fli7510_usb_xtal_release,
+			.custom_claim = fli75xx_usb_xtal_claim,
+			.custom_release = fli75xx_usb_xtal_release,
 		},
-		[fli7510_usb_ovrcur_active_low] = {
+		[fli75xx_usb_ovrcur_active_low] = {
 			.gpios_num = 2,
 			.gpios = (struct stm_pad_gpio []) {
 				STM_PAD_PIO_IN(26, 5, -1), /* USB_C_OVRCUR */
@@ -519,8 +519,8 @@ static struct stm_pad_config *fli7520_usb_pad_configs[] = {
 				/* conf_usb2_rst_n */
 				STM_PAD_SYSCONF(CFG_COMMS_CONFIG_1, 24, 24, 1),
 			},
-			.custom_claim = fli7510_usb_xtal_claim,
-			.custom_release = fli7510_usb_xtal_release,
+			.custom_claim = fli75xx_usb_xtal_claim,
+			.custom_release = fli75xx_usb_xtal_release,
 		}
 	},
 };
@@ -567,7 +567,7 @@ static struct stm_plat_usb_data fli7520_usb_platform_data[] = {
 			STM_PLAT_USB_FLAGS_STRAP_PLL |
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
-			/* .pad_config set in fli7510_configure_usb() */
+			/* .pad_config set in fli75xx_configure_usb() */
 			.init = fli7520_usb_init,
 			.power = fli7520_usb_power,
 			.exit = fli7520_usb_exit,
@@ -578,7 +578,7 @@ static struct stm_plat_usb_data fli7520_usb_platform_data[] = {
 			STM_PLAT_USB_FLAGS_STRAP_PLL |
 			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
 		.device_config = &(struct stm_device_config){
-			/* .pad_config set in fli7510_configure_usb() */
+			/* .pad_config set in fli75xx_configure_usb() */
 			.init = fli7520_usb_init,
 			.power = fli7520_usb_power,
 			.exit = fli7520_usb_exit,
@@ -591,7 +591,7 @@ static struct platform_device fli7520_usb_devices[] = {
 		.name = "stm-usb",
 		.id = 0,
 		.dev = {
-			.dma_mask = &fli7510_usb_dma_mask,
+			.dma_mask = &fli75xx_usb_dma_mask,
 			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &fli7520_usb_platform_data[0],
 		},
@@ -611,7 +611,7 @@ static struct platform_device fli7520_usb_devices[] = {
 		.name = "stm-usb",
 		.id = 1,
 		.dev = {
-			.dma_mask = &fli7510_usb_dma_mask,
+			.dma_mask = &fli75xx_usb_dma_mask,
 			.coherent_dma_mask = DMA_BIT_MASK(32),
 			.platform_data = &fli7520_usb_platform_data[1],
 		},
@@ -629,10 +629,10 @@ static struct platform_device fli7520_usb_devices[] = {
 	}
 };
 
-void __init fli7510_configure_usb(int port, struct fli7510_usb_config *config)
+void __init fli75xx_configure_usb(int port, struct fli75xx_usb_config *config)
 {
 	static int configured[ARRAY_SIZE(fli7520_usb_devices)];
-	struct fli7510_usb_config default_config;
+	struct fli75xx_usb_config default_config;
 
 	BUG_ON(port < 0 || port > ARRAY_SIZE(fli7520_usb_devices));
 

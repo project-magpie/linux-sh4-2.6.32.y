@@ -382,6 +382,13 @@ config SH_ST_B2068
 	  Select B2068 if configuring for an
 	  STMicroelectronics STx7167 Reference Board.
 
+config SH_ST_B2069
+	bool "B2069: STx7111 KC board"
+	depends on CPU_SUBTYPE_STX7111
+	help
+	  Select B2069 if configuring for an
+	  STMicroelectronics STx7111 KC Reference Board
+
 config SH_ST_B2076
 	bool "B2076: STxH207-HVK (LiegeC) processor module board"
 	depends on CPU_SUBTYPE_STXH205

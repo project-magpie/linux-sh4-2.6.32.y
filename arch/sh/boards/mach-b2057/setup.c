@@ -28,6 +28,7 @@
 
 #define B2057_GPIO_POWER_ON_ETH		stm_gpio(2, 5)
 #define B2057_MII1_TXER			stm_gpio(0, 4)
+#define B2057_POWER_ON			stm_gpio(3, 7)
 
 static void __init b2057_setup(char **cmdline_p)
 {
@@ -209,6 +210,10 @@ static int __init device_init(void)
 	 * but it isn't... ;-) */
 	gpio_request(B2057_GPIO_POWER_ON_ETH, "POWER_ON_ETH");
 	gpio_direction_output(B2057_GPIO_POWER_ON_ETH, 0);
+
+	/* This PIO controls power of board */
+	gpio_request(B2057_POWER_ON, "POWER_ON");
+	gpio_direction_output(B2057_POWER_ON, 0);
 
 #ifdef CONFIG_STM_B2057_INT_PHY_IC101A
 	/*

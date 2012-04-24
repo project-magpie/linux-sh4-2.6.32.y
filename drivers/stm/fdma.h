@@ -17,7 +17,7 @@
 #define NAME_MAX_LEN 22 /* "fdma_<cpu_subtype>_X.elf" */
 #define CHAN_ALL_ENABLE 				3
 
-#define NODE_DATA_OFFSET				0x40
+#define LEGACY_NODE_DATA_SIZE				0x40
 #define CMD_STAT_OFFSET       				0x04
 
 /**cmd stat vals*/
@@ -131,6 +131,7 @@ struct fdma_regs {
 	unsigned long cntn;
 	unsigned long saddrn;
 	unsigned long daddrn;
+	unsigned long node_size;
 	unsigned long req_ctln;
 	unsigned long sync_reg;
 	unsigned long cmd_sta;

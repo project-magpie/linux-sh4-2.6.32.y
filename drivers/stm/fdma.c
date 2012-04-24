@@ -245,7 +245,7 @@ static void fdma_start_channel(struct fdma_channel *channel,
 
 	/* See comment in fdma_get_residue() for why we do this. */
 	writel(initial_count, fdma->io_base + (channel->chan_num *
-			NODE_DATA_OFFSET) + fdma->regs.cntn);
+			fdma->regs.node_size) + fdma->regs.cntn);
 
 	writel(cmd_sta_value, CMD_STAT_REG(channel->chan_num));
 	writel(MBOX_CMD_START_CHANNEL << (channel->chan_num * 2),
@@ -763,7 +763,7 @@ static int fdma_get_residue(struct dma_channel *dma_chan)
 		struct fdma_xfer_descriptor *desc =
 			(struct fdma_xfer_descriptor *)params->priv;
 		void __iomem *chan_base = fdma->io_base +
-				(channel->chan_num * NODE_DATA_OFFSET);
+				(channel->chan_num * fdma->regs.node_size);
 		unsigned long current_node_phys;
 		unsigned long stat1, stat2;
 		struct fdma_llu_node *current_node;
@@ -1305,11 +1305,11 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	fdma->phys_mem = request_mem_region(res->start,
-			res->end - res->start + 1, pdev->name);
+				resource_size(res), pdev->name);
 	if (fdma->phys_mem == NULL)
 		return -EBUSY;
 
-	fdma->io_base = ioremap_nocache(res->start, res->end - res->start + 1);
+	fdma->io_base = ioremap_nocache(res->start, resource_size(res));
 	if (fdma->io_base == NULL)
 		return -EINVAL;
 
@@ -1334,6 +1334,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 	fdma->regs.cntn = fdma->fw->cntn;
 	fdma->regs.saddrn = fdma->fw->saddrn;
 	fdma->regs.daddrn = fdma->fw->daddrn;
+	fdma->regs.node_size = fdma->fw->node_size ? : LEGACY_NODE_DATA_SIZE;
 	fdma->regs.sync_reg = fdma->hw->periph_regs.sync_reg;
 	fdma->regs.cmd_sta = fdma->hw->periph_regs.cmd_sta;
 	fdma->regs.cmd_set = fdma->hw->periph_regs.cmd_set;

@@ -396,6 +396,7 @@ struct stm_plat_fdma_fw_regs {
 	unsigned long cntn;
 	unsigned long saddrn;
 	unsigned long daddrn;
+	unsigned long node_size;
 };
 
 struct stm_plat_fdma_data {

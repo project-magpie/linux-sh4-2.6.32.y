@@ -1597,7 +1597,7 @@ bad_vid_hdr:
 	ubi_dbg_dump_vid_hdr(vidh);
 
 out:
-	ubi_dbg_dump_stack();
+	dump_stack();
 	return -EINVAL;
 }
 

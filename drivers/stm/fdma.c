@@ -125,6 +125,7 @@ static struct fdma_llu_node *fdma_extrapolate_sg_src(
 	int i;
 	struct scatterlist *sg = params->srcsg;
 	struct fdma_llu_node *last_llu_node = llu_node;
+	int offset = 0;
 
 	for (i = 0; i < params->sglen; i++) {
 		struct fdma_llu_entry *dest_llu = llu_node->virt_addr;
@@ -132,13 +133,16 @@ static struct fdma_llu_node *fdma_extrapolate_sg_src(
 		dest_llu->control = desc->template_llu.control;
 		dest_llu->size_bytes = sg_dma_len(sg);
 		dest_llu->saddr	= sg_dma_address(sg);
-		dest_llu->daddr	= params->dar;
+		dest_llu->daddr	= params->dar + offset;
 		if (desc->extrapolate_line_len)
 			dest_llu->line_len = sg_dma_len(sg);
 		else
 			dest_llu->line_len = desc->template_llu.line_len;
 		dest_llu->sstride = desc->template_llu.sstride;
 		dest_llu->dstride = 0;
+
+		if (DIM_DST(params->dim) != 0)
+			offset += sg_dma_len(sg);
 
 		last_llu_node = llu_node++;
 		dest_llu->next_item = llu_node->dma_addr;
@@ -156,13 +160,14 @@ static struct fdma_llu_node *fdma_extrapolate_sg_dst(
 	int i;
 	struct scatterlist *sg = params->dstsg;
 	struct fdma_llu_node *last_llu_node = llu_node;
+	int offset = 0;
 
 	for (i = 0; i < params->sglen; i++) {
 		struct fdma_llu_entry *dest_llu = llu_node->virt_addr;
 
 		dest_llu->control = desc->template_llu.control;
 		dest_llu->size_bytes = sg_dma_len(sg);
-		dest_llu->saddr	 = params->sar;
+		dest_llu->saddr	 = params->sar + offset;
 		dest_llu->daddr	 = sg_dma_address(sg);
 		if (desc->extrapolate_line_len)
 			dest_llu->line_len = sg_dma_len(sg);
@@ -170,6 +175,9 @@ static struct fdma_llu_node *fdma_extrapolate_sg_dst(
 			dest_llu->line_len = desc->template_llu.line_len;
 		dest_llu->sstride = 0;
 		dest_llu->dstride = desc->template_llu.dstride;
+
+		if (DIM_SRC(params->dim) != 0)
+			offset += sg_dma_len(sg);
 
 		last_llu_node = llu_node++;
 		dest_llu->next_item = llu_node->dma_addr;

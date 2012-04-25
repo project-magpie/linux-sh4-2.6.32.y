@@ -1041,13 +1041,8 @@ static int exit_thread_pre_handler(struct kprobe *p, struct pt_regs *regs)
 static int daemonize_pre_handler(struct kprobe *p, struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	char name[KPTRACE_SMALL_BUF];
 
-	if (strncpy_from_user(name, (char *)regs->regs[4],
-			      KPTRACE_SMALL_BUF) < 0)
-		snprintf(name, KPTRACE_SMALL_BUF, "<copy_from_user failed>");
-
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "KD %s\n", name);
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "KD %s\n", (char*)regs->regs[4]);
 	write_trace_record(p, regs, tbuf);
 	return 0;
 }
@@ -1065,14 +1060,10 @@ static int kthread_create_rp_handler(struct kretprobe_instance *ri,
 				     struct pt_regs *regs)
 {
 	char tbuf[KPTRACE_SMALL_BUF];
-	char name[KPTRACE_SMALL_BUF];
 	struct task_struct *new_task = (struct task_struct *)regs->regs[0];
 
-	if (strncpy_from_user(name, (char *)new_task->comm,
-			      KPTRACE_SMALL_BUF) < 0)
-		snprintf(name, KPTRACE_SMALL_BUF, "<copy_from_user failed>");
-
-	snprintf(tbuf, KPTRACE_SMALL_BUF, "Kc %d %s\n", new_task->pid, name);
+	snprintf(tbuf, KPTRACE_SMALL_BUF, "Kc %d %s\n", new_task->pid,
+			new_task->comm);
 	write_trace_record_no_callstack(tbuf);
 	return 0;
 }

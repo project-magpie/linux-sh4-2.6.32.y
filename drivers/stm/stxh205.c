@@ -512,6 +512,85 @@ void __init stxh205_configure_nand(struct stm_nand_config *config)
 	}
 }
 
+
+/* FDMA resources --------------------------------------------------------- */
+
+static struct stm_plat_fdma_fw_regs stxh205_fdma_fw = {
+	.rev_id    = 0x10000,
+	.cmd_statn = 0x10200,
+	.req_ctln  = 0x10240,
+	.ptrn      = 0x10800,
+	.cntn      = 0x10808,
+	.saddrn    = 0x1080c,
+	.daddrn    = 0x10810,
+	.node_size = 128,
+};
+
+static struct stm_plat_fdma_hw stxh205_fdma_hw = {
+	.slim_regs = {
+		.id       = 0x0000 + (0x000 << 2), /* 0x0000 */
+		.ver      = 0x0000 + (0x001 << 2), /* 0x0004 */
+		.en       = 0x0000 + (0x002 << 2), /* 0x0008 */
+		.clk_gate = 0x0000 + (0x003 << 2), /* 0x000c */
+	},
+	.dmem = {
+		.offset = 0x10000,
+		.size   = 0xc00 << 2, /* 3072 * 4 = 12K */
+	},
+	.periph_regs = {
+		.sync_reg = 0x17f88,
+		.cmd_sta  = 0x17fc0,
+		.cmd_set  = 0x17fc4,
+		.cmd_clr  = 0x17fc8,
+		.cmd_mask = 0x17fcc,
+		.int_sta  = 0x17fd0,
+		.int_set  = 0x17fd4,
+		.int_clr  = 0x17fd8,
+		.int_mask = 0x17fdc,
+	},
+	.imem = {
+		.offset = 0x18000,
+		.size   = 0x2000 << 2, /* 8192 * 4 = 32K (24K populated) */
+	},
+};
+
+static struct stm_plat_fdma_data stxh205_fdma_platform_data = {
+	.hw = &stxh205_fdma_hw,
+	.fw = &stxh205_fdma_fw,
+};
+
+static struct platform_device stxh205_fdma_devices[] = {
+	{
+		.name = "stm-fdma",
+		.id = 0,
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfda00000, 0x20000),
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(27), -1),
+		},
+		.dev.platform_data = &stxh205_fdma_platform_data,
+	}, {
+		.name = "stm-fdma",
+		.id = 1,
+		.num_resources = 2,
+		.resource = (struct resource[2]) {
+			STM_PLAT_RESOURCE_MEM(0xfd9e0000, 0x20000),
+			STM_PLAT_RESOURCE_IRQ(ILC_IRQ(29), -1),
+		},
+		.dev.platform_data = &stxh205_fdma_platform_data,
+	}
+};
+
+static struct platform_device stxh205_fdma_xbar_device = {
+	.name = "stm-fdma-xbar",
+	.id = -1,
+	.num_resources = 1,
+	.resource = (struct resource[]) {
+		STM_PLAT_RESOURCE_MEM(0xfdabb000, 0x1000),
+	},
+};
+
+
 /* Pre-arch initialisation ------------------------------------------------ */
 
 static int __init stxh205_postcore_setup(void)
@@ -536,6 +615,9 @@ static struct platform_device *stxh205_devices[] __initdata = {
 	&stxh205_sysconf_devices[3],
 	&stxh205_sysconf_devices[4],
 	&sth205_temp,
+	&stxh205_fdma_devices[0],
+	&stxh205_fdma_devices[1],
+	&stxh205_fdma_xbar_device,
 };
 
 static int __init stxh205_devices_setup(void)

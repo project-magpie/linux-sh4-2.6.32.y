@@ -37,6 +37,7 @@ struct asc_port {
 	struct clk *clk;
 	unsigned long inten;
 	int hw_flow_control:1;
+	/* GNBvd77004: UART tx fifo full status flag unusable */
 	int txfifo_bug:1;
 	int suspended:1;
 	int check_parity:1;

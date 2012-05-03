@@ -165,6 +165,7 @@ static struct platform_driver ohci_hcd_stm_driver = {
 	.shutdown = usb_hcd_platform_shutdown,
 	.driver = {
 		.name = "stm-ohci",
+		.owner = THIS_MODULE,
 	},
 };
 

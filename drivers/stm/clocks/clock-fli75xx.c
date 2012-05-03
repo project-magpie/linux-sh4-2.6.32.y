@@ -526,7 +526,7 @@ static int __init clkgen_audio_init(void)
 	unsigned long value;
 	int i;
 
-	if (cpu_data->type == CPU_FLI7510)
+	if ((cpu_data->type == CPU_FLI7510) || (cpu_data->type == CPU_FLI7560))
 		clkgen_audio_base = ioremap(0xfdee0000, 0x30);
 	else
 		clkgen_audio_base = ioremap(0xfe0e0000, 0x30);
@@ -578,8 +578,18 @@ int __init plat_clk_init(void)
 	int ret;
 	unsigned long base_address;
 
-	base_address = (cpu_data->type == CPU_FLI7510) ?
-			FLI7510_CKGA_BASE_ADDRESS : FLI7520_CKGA_BASE_ADDRESS;
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
+		base_address = FLI7510_CKGA_BASE_ADDRESS;
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
+	default:
+		base_address = FLI7520_CKGA_BASE_ADDRESS;
+		break;
+	}
 
 	clkgen_a_base = ioremap(base_address, 0x1000);
 	if (!clkgen_a_base)

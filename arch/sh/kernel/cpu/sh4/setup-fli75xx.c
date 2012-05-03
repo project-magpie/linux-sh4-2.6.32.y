@@ -102,7 +102,9 @@ static int __init fli7510_sh4_devices_setup(void)
 	else
 		result = platform_device_register(&fli7510_st40rt_ilc3_device);
 
-	if (result == 0 && cpu_data->type != CPU_FLI7510)
+	if (result == 0 &&
+			(cpu_data->type != CPU_FLI7510) &&
+			(cpu_data->type != CPU_FLI7560))
 		result = platform_device_register(&fli7520_l2_cache_device);
 
 	return result;

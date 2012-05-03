@@ -116,8 +116,8 @@ void __init fli75xx_configure_nand(struct stm_nand_config *config)
 		break;
 	case stm_nand_bch:
 		/* Configure device for stm-nand-bch driver */
+		/* BCH controller not available on fli7510 */
 		BUG_ON(cpu_data->type == CPU_FLI7510);
-		BUG_ON(cpu_data->cut_major < 1);
 		BUG_ON(config->nr_banks > 1);
 		emiss_nandi_select(STM_NANDI_BCH);
 		fli75xx_nand_bch_data.bank = config->banks;
@@ -185,10 +185,19 @@ void __init fli75xx_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
 	fli75xx_spifsm_device.dev.platform_data = data;
 
-	if (cpu_data->type == CPU_FLI7510)
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
 		data->pads = &fli7510_spifsm_pad_config;
-	else
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
 		data->pads = &fli7520_spifsm_pad_config;
+		break;
+	default:
+		BUG();
+	}
 
 	/* SoC/IP Capabilities */
 	data->capabilities.quad_mode = 0;
@@ -713,7 +722,8 @@ static void fli75xx_sysconf_setup(void)
 {
 	struct resource *mem_res = &fli75xx_sysconf_devices[6].resource[0];
 
-	if (cpu_data->type != CPU_FLI7510) {
+	if ((cpu_data->type != CPU_FLI7510) &&
+		(cpu_data->type != CPU_FLI7560)) {
 		mem_res->start = 0xfd5d4000;
 		mem_res->end = mem_res->start + 0x20 - 1;
 
@@ -740,16 +750,11 @@ void __init fli75xx_early_device_init(void)
 	unsigned long chip_revision;
 	int gpios_num;
 
-	verid = *((unsigned *)0xfd9e9078) >> 16;
-
-	if (cpu_data->type == CPU_FLI7510) {
-		if (verid != 0x1d56)
-			printk(KERN_WARNING "Wrong chip variant data, "
-					"assuming FLI7510!\n");
-		chip_variant = "510";
-	} else {
+	if (cpu_data->type == CPU_FLI7520) {
 		/* CPU should be detected as 520 so far... */
 		WARN_ON(!CPU_FLI7520);
+
+		verid = *((unsigned *)0xfd9e9078) >> 16;
 
 		switch (verid) {
 		case 0x1d60:
@@ -773,20 +778,48 @@ void __init fli75xx_early_device_init(void)
 		}
 	}
 
-
 	/* Initialise PIO and sysconf drivers */
 	fli75xx_sysconf_setup();
 	sysconf_early_init(fli75xx_sysconf_devices, FLI75XX_NUM_SYSCONFS);
 
 	if (cpu_data->type == CPU_FLI7510) {
+		/* The FLI7510 and FLI7560 can only be
+		 * differentiated by devid */
+		sc = sysconf_claim(CFG_DEVICE_ID, 0, 31, "devid");
+		devid = (sysconf_read(sc) >> 12) & 0x3ff;
+		sysconf_release(sc);
+
+		switch (devid) {
+		case 0x40:
+			cpu_data->type = CPU_FLI7560;
+			chip_variant = "560";
+			break;
+		default:
+			printk(KERN_WARNING "Wrong devid, assuming FLI7510!\n");
+		case 0x3c:
+			chip_variant = "510";
+			break;
+		}
+	}
+
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
 		gpios_num = ARRAY_SIZE(fli7510_pio_devices);
 		stm_gpio_early_init(fli7510_pio_devices, gpios_num,
-				ILC_FIRST_IRQ + ILC_NR_IRQS);
-	} else {
+					ILC_FIRST_IRQ + ILC_NR_IRQS);
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
 		gpios_num = ARRAY_SIZE(fli7520_pio_devices);
 		stm_gpio_early_init(fli7520_pio_devices, gpios_num,
 				ILC_FIRST_IRQ + ILC_NR_IRQS);
+		break;
+	default:
+		BUG();
 	}
+
 	stm_pad_init(gpios_num * STM_GPIO_PINS_PER_PORT,
 		     -1, 0, fli75xx_pio_config);
 
@@ -794,6 +827,7 @@ void __init fli75xx_early_device_init(void)
 	devid = sysconf_read(sc);
 	chip_revision = (devid >> 28);
 	boot_cpu_data.cut_major = chip_revision;
+	sysconf_release(sc);
 
 	printk(KERN_INFO "Freeman %s version %ld.x, ST40%s core\n",
 			chip_variant, chip_revision,
@@ -815,20 +849,28 @@ static int __init fli75xx_postcore_setup(void)
 
 	result = platform_device_register(&fli75xx_emi);
 
-	if (cpu_data->type == CPU_FLI7510) {
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
 		for (i = 0; i < ARRAY_SIZE(fli7510_pio_devices) &&
-				result == 0; i++) {
+						result == 0; i++) {
 			result = platform_device_register(
 					&fli7510_pio_devices[i]);
 		}
-	} else {
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
 		for (i = 0; i < ARRAY_SIZE(fli7520_pio_devices) &&
-				result == 0; i++) {
+						result == 0; i++) {
 			/* Skip non-existing ports... */
 			if (fli7520_pio_devices[i].name)
 				result = platform_device_register(
-						&fli7520_pio_devices[i]);
+					&fli7520_pio_devices[i]);
 		}
+		break;
+	default:
+		BUG();
 	}
 
 	return result;

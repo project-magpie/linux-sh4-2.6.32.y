@@ -394,13 +394,13 @@ config CPU_SUBTYPE_SH4_202
 # ST40 Processor Support
 
 config CPU_SUBTYPE_FLI75XX
-	bool "Support Freeman 510/520/530/540 processors"
+	bool "Support Freeman 510/520/530/540/560 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
 	help
 	  Select this if you have Freeman 510 (FLI7510),
-	  Freeman 520 (FLI7520), Freeman 530 (FLI7530) or
-	  Freeman 540 (FLI7540) CPU.
+	  Freeman 520 (FLI7520), Freeman 530 (FLI7530),
+	  Freeman 540 (FLI7540) or Freeman 560 (FLI7560) CPU.
 
 config CPU_SUBTYPE_ST40STB1
 	bool "Support ST40STB1/ST40RA processors"

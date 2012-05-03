@@ -1,6 +1,6 @@
 /*
  *   STMicrolectronics Freeman 510/520/530/540 (FLI7510/FLI7520/FLI7530/
- *   FLI7540) audio glue driver
+ *   FLI7540/FLI7560) audio glue driver
  *
  *   Copyright (c) 2010-2011 STMicroelectronics Limited
  *
@@ -188,13 +188,22 @@ static int __init snd_stm_fli75xx_glue_probe(struct platform_device *pdev)
 	writel(value, AUD_CONFIG_REG1(fli75xx_glue->base));
 
 	value = SPDIF__PLAYER;
-	if (cpu_data->type == CPU_FLI7510) {
+
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
 		value |= FLI7510_MAIN_I2S__PCM_PLAYER_0;
 		value |= FLI7510_SEC_I2S__PCM_PLAYER_1;
-	} else {
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
 		value |= FLI7520_MAIN_I2S__PCM_PLAYER_0;
 		value |= FLI7520_SEC_I2S__PCM_PLAYER_1;
+	default:
+		BUG();
 	}
+
 	value |= SPDIF_PLAYER_EN__ENABLED;
 	writel(value, AUD_CONFIG_REG2(fli75xx_glue->base));
 
@@ -258,6 +267,7 @@ static int __init snd_stm_fli75xx_init(void)
 	case CPU_FLI7520:
 	case CPU_FLI7530:
 	case CPU_FLI7540:
+	case CPU_FLI7560:
 		break;
 	default:
 		snd_stm_printe("Unsupported (non-Freeman) SOC detected!\n");

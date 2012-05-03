@@ -5,7 +5,7 @@
  * May be copied or modified under the terms of the GNU General Public
  * License v2.  See linux/COPYING for more information.
  *
- * Code to handle the clock aliases on the Fli7510.
+ * Code to handle the clock aliases on the Fli75xx.
  */
 
 #include <linux/init.h>

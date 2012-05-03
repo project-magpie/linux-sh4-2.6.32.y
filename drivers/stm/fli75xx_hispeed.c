@@ -237,11 +237,23 @@ void __init fli75xx_configure_ethernet(struct fli75xx_ethernet_config *config)
 		} else {
 			pad_config->sysconfs[1].value = 0;
 		}
-		stm_pad_set_pio(pad_config, "TXCLK", 20,
-				cpu_data->type == CPU_FLI7510 ? 6 : 5);
+		switch (cpu_data->type) {
+		case CPU_FLI7510:
+		case CPU_FLI7560:
+			stm_pad_set_pio(pad_config, "TXCLK", 20, 6);
+			break;
+		case CPU_FLI7520:
+		case CPU_FLI7530:
+		case CPU_FLI7540:
+			stm_pad_set_pio(pad_config, "TXCLK", 20, 5);
+			break;
+		default:
+			BUG();
+		}
 		break;
 	case fli75xx_ethernet_mode_gmii:
-		if (cpu_data->type == CPU_FLI7510) {
+		if ((cpu_data->type == CPU_FLI7510) ||
+		   (cpu_data->type == CPU_FLI7560)) {
 			BUG(); /* Not supported */
 			return;
 		}
@@ -636,7 +648,9 @@ void __init fli75xx_configure_usb(int port, struct fli75xx_usb_config *config)
 
 	BUG_ON(port < 0 || port > ARRAY_SIZE(fli7520_usb_devices));
 
-	if (port != 0 && cpu_data->type == CPU_FLI7510) {
+	if ((port != 0) &&
+		((cpu_data->type == CPU_FLI7510) ||
+		 (cpu_data->type == CPU_FLI7560))) {
 		BUG();
 		return;
 	}
@@ -646,17 +660,23 @@ void __init fli75xx_configure_usb(int port, struct fli75xx_usb_config *config)
 	if (!config)
 		config = &default_config;
 
-	if (cpu_data->type == CPU_FLI7510) {
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
 		fli7510_usb_platform_data.device_config->pad_config =
 				&fli7510_usb_pad_configs[config->ovrcur_mode];
-
 		platform_device_register(&fli7510_usb_device);
-	} else {
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
 		fli7520_usb_platform_data[port].device_config->pad_config =
 				&fli7520_usb_pad_configs[port]
 				[config->ovrcur_mode];
-
 		platform_device_register(&fli7520_usb_devices[port]);
+		break;
+	default:
+		BUG();
 	}
 }
 

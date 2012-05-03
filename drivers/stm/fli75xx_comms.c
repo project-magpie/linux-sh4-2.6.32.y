@@ -360,18 +360,34 @@ int __init fli75xx_configure_ssc_i2c(int ssc)
 	dev->id = i2c_busnum;
 
 	plat_data = fli75xx_ssc_devices[ssc].dev.platform_data;
-	if (cpu_data->type != CPU_FLI7510 && ssc == 2)
-		plat_data->pad_config = &fli7520_ssc2_i2c_pad_config;
-	else if (cpu_data->type != CPU_FLI7510 && ssc == 4)
-		plat_data->pad_config = &fli7520_ssc4_i2c_pad_config;
-	else
+
+	if ((cpu_data->type != CPU_FLI7510) &&
+			(cpu_data->type != CPU_FLI7560) &&
+			((ssc == 2) || (ssc == 4))) {
+		if (ssc == 2)
+			plat_data->pad_config = &fli7520_ssc2_i2c_pad_config;
+		if (ssc == 4)
+			plat_data->pad_config = &fli7520_ssc4_i2c_pad_config;
+	} else
 		plat_data->pad_config = &fli7510_ssc_i2c_pad_configs[ssc];
 
 	if (ssc == 4) {
 		struct resource *res = platform_get_resource(dev,
 				IORESOURCE_IRQ, 0);
 
-		res->start = ILC_IRQ(cpu_data->type == CPU_FLI7510 ? 23 : 47);
+		switch (cpu_data->type) {
+		case CPU_FLI7510:
+		case CPU_FLI7560:
+			res->start = ILC_IRQ(23);
+			break;
+		case CPU_FLI7520:
+		case CPU_FLI7530:
+		case CPU_FLI7540:
+			res->start = ILC_IRQ(47);
+			break;
+		default:
+			BUG();
+		}
 		res->end = res->start;
 	}
 
@@ -409,17 +425,39 @@ int __init fli75xx_configure_ssc_spi(int ssc,
 		struct resource *res = platform_get_resource(dev,
 				IORESOURCE_IRQ, 0);
 
-		res->start = ILC_IRQ(cpu_data->type == CPU_FLI7510 ? 23 : 47);
+		switch (cpu_data->type) {
+		case CPU_FLI7510:
+		case CPU_FLI7560:
+			res->start = ILC_IRQ(23);
+			break;
+		case CPU_FLI7520:
+		case CPU_FLI7530:
+		case CPU_FLI7540:
+			res->start = ILC_IRQ(47);
+			break;
+		default:
+			BUG();
+		}
 		res->end = res->start;
 	}
 
 	plat_data = fli75xx_ssc_devices[ssc].dev.platform_data;
 	if (config)
 		plat_data->spi_chipselect = config->chipselect;
-	if (cpu_data->type == CPU_FLI7510)
+
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
 		plat_data->pad_config = &fli7510_ssc4_spi_pad_config;
-	else
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
 		plat_data->pad_config = &fli7520_ssc4_spi_pad_config;
+		break;
+	default:
+		BUG();
+	}
 
 	platform_device_register(dev);
 

@@ -367,12 +367,25 @@ static struct platform_device *fli7520_audio_devices[] __initdata = {
 
 static int __init fli75xx_audio_devices_setup(void)
 {
-	if (cpu_data->type == CPU_FLI7510)
-		return platform_add_devices(fli7510_audio_devices,
-				ARRAY_SIZE(fli7510_audio_devices));
-	else
-		return platform_add_devices(fli7520_audio_devices,
-				ARRAY_SIZE(fli7520_audio_devices));
+	int ret;
+
+	switch (cpu_data->type) {
+	case CPU_FLI7510:
+	case CPU_FLI7560:
+		ret = platform_add_devices(fli7510_audio_devices,
+					ARRAY_SIZE(fli7510_audio_devices));
+		break;
+	case CPU_FLI7520:
+	case CPU_FLI7530:
+	case CPU_FLI7540:
+		ret = platform_add_devices(fli7520_audio_devices,
+					ARRAY_SIZE(fli7520_audio_devices));
+		break;
+	default:
+		BUG();
+	}
+
+	return ret;
 }
 device_initcall(fli75xx_audio_devices_setup);
 

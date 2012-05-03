@@ -62,7 +62,7 @@ stm_ehci_bus_resume(struct usb_hcd *hcd)
 
 static const struct hc_driver ehci_stm_hc_driver = {
 	.description = hcd_name,
-	.product_desc = "st-ehci",
+	.product_desc = "STMicroelectronics EHCI Host Controller",
 	.hcd_priv_size = sizeof(struct ehci_hcd),
 
 	/*

@@ -151,6 +151,9 @@ struct i2c_driver {
 	void (*shutdown)(struct i2c_client *);
 	int (*suspend)(struct i2c_client *, pm_message_t mesg);
 	int (*resume)(struct i2c_client *);
+	int (*freeze)(struct i2c_client *);
+	int (*thaw)(struct i2c_client *);
+	int (*restore)(struct i2c_client *);
 
 	/* a ioctl like command that can be used to perform specific functions
 	 * with the device.

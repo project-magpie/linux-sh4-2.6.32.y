@@ -181,6 +181,47 @@ static int i2c_device_resume(struct device *dev)
 	return driver->resume(client);
 }
 
+#ifdef CONFIG_PM
+static int i2c_device_freeze(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct i2c_driver *driver;
+
+	if (!client || !dev->driver)
+		return 0;
+	driver = to_i2c_driver(dev->driver);
+	if (!driver->freeze)
+		return 0;
+	return driver->freeze(client);
+}
+
+static int i2c_device_thaw(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct i2c_driver *driver;
+
+	if (!client || !dev->driver)
+		return 0;
+	driver = to_i2c_driver(dev->driver);
+	if (!driver->thaw)
+		return 0;
+	return driver->thaw(client);
+}
+
+static int i2c_device_restore(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct i2c_driver *driver;
+
+	if (!client || !dev->driver)
+		return 0;
+	driver = to_i2c_driver(dev->driver);
+	if (!driver->restore)
+		return 0;
+	return driver->restore(client);
+}
+#endif
+
 static void i2c_client_dev_release(struct device *dev)
 {
 	kfree(to_i2c_client(dev));
@@ -219,11 +260,22 @@ static const struct attribute_group *i2c_dev_attr_groups[] = {
 	NULL
 };
 
+#ifdef CONFIG_PM
+static struct dev_pm_ops i2c_pm_ops = {
+	.freeze = i2c_device_freeze,
+	.thaw = i2c_device_thaw,
+	.restore = i2c_device_restore,
+};
+#endif
+
 struct bus_type i2c_bus_type = {
 	.name		= "i2c",
 	.match		= i2c_device_match,
 	.probe		= i2c_device_probe,
 	.remove		= i2c_device_remove,
+#ifdef CONFIG_PM
+	.pm		= &i2c_pm_ops,
+#endif
 	.shutdown	= i2c_device_shutdown,
 	.suspend	= i2c_device_suspend,
 	.resume		= i2c_device_resume,

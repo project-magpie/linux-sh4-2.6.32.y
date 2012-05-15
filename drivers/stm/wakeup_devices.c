@@ -33,7 +33,7 @@ static int __check_wakeup_device(struct device *dev, void *data)
 
 	if (device_may_wakeup(dev)) {
 		pr_info("[STM][PM] -> device %s can wakeup\n", dev_name(dev));
-		if (!strcmp(dev_name(dev), "lirc"))
+		if (!strcmp(dev_name(dev), "lirc-stm"))
 			wkd->lirc_can_wakeup = 1;
 		else if (!strcmp(dev_name(dev), "hdmi"))
 			wkd->hdmi_can_wakeup = 1;

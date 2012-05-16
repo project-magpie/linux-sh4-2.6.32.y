@@ -293,7 +293,7 @@ out_len:
 out:
 	if (!quiet) {
 		ubifs_err("bad node at LEB %d:%d", lnum, offs);
-		dbg_dump_node(c, buf);
+		ubifs_dump_node(c, buf);
 		dump_stack();
 	}
 	return err;
@@ -840,9 +840,9 @@ exit:
 out:
 	ubifs_err("cannot write %d bytes to LEB %d:%d, error %d",
 		  len, wbuf->lnum, wbuf->offs, err);
-	dbg_dump_node(c, buf);
+	ubifs_dump_node(c, buf);
 	dump_stack();
-	dbg_dump_leb(c, wbuf->lnum);
+	ubifs_dump_leb(c, wbuf->lnum);
 	return err;
 }
 
@@ -880,7 +880,7 @@ int ubifs_write_node(struct ubifs_info *c, void *buf, int len, int lnum,
 	ubifs_prepare_node(c, buf, len, 1);
 	err = ubifs_leb_write(c, lnum, buf, offs, buf_len, dtype);
 	if (err)
-		dbg_dump_node(c, buf);
+		ubifs_dump_node(c, buf);
 
 	return err;
 }
@@ -959,7 +959,7 @@ int ubifs_read_node_wbuf(struct ubifs_wbuf *wbuf, void *buf, int type, int len,
 
 out:
 	ubifs_err("bad node at LEB %d:%d", lnum, offs);
-	dbg_dump_node(c, buf);
+	ubifs_dump_node(c, buf);
 	dump_stack();
 	return -EINVAL;
 }
@@ -1016,7 +1016,7 @@ int ubifs_read_node(const struct ubifs_info *c, void *buf, int type, int len,
 out:
 	ubifs_err("bad node at LEB %d:%d, LEB mapping status %d", lnum, offs,
 		  ubi_is_mapped(c->ubi, lnum));
-	dbg_dump_node(c, buf);
+	ubifs_dump_node(c, buf);
 	dump_stack();
 	return -EINVAL;
 }

@@ -3274,8 +3274,6 @@ out_unlock:
 	return err;
 }
 
-#ifdef CONFIG_UBIFS_FS_DEBUG
-
 /**
  * dbg_check_inode_size - check if inode size is correct.
  * @c: UBIFS file-system description object
@@ -3342,5 +3340,3 @@ out_unlock:
 	mutex_unlock(&c->tnc_mutex);
 	return err;
 }
-
-#endif /* CONFIG_UBIFS_FS_DEBUG */

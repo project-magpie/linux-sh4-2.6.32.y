@@ -27,11 +27,7 @@
 #include <linux/math64.h>
 #include "ubi.h"
 
-#ifdef CONFIG_MTD_UBI_DEBUG
 static int paranoid_check_volumes(struct ubi_device *ubi);
-#else
-#define paranoid_check_volumes(ubi) 0
-#endif
 
 static ssize_t vol_attribute_show(struct device *dev,
 				  struct device_attribute *attr, char *buf);
@@ -710,8 +706,6 @@ void ubi_free_volume(struct ubi_device *ubi, struct ubi_volume *vol)
 	volume_sysfs_close(vol);
 }
 
-#ifdef CONFIG_MTD_UBI_DEBUG
-
 /**
  * paranoid_check_volume - check volume information.
  * @ubi: UBI device description object
@@ -881,4 +875,3 @@ static int paranoid_check_volumes(struct ubi_device *ubi)
 
 	return err;
 }
-#endif

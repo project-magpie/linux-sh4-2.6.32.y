@@ -61,11 +61,7 @@
 #include <asm/div64.h>
 #include "ubi.h"
 
-#ifdef CONFIG_MTD_UBI_DEBUG
 static void paranoid_vtbl_check(const struct ubi_device *ubi);
-#else
-#define paranoid_vtbl_check(ubi)
-#endif
 
 /* Empty volume table record */
 static struct ubi_vtbl_record empty_vtbl_record;
@@ -859,8 +855,6 @@ out_free:
 	return err;
 }
 
-#ifdef CONFIG_MTD_UBI_DEBUG
-
 /**
  * paranoid_vtbl_check - check volume table.
  * @ubi: UBI device description object
@@ -875,5 +869,3 @@ static void paranoid_vtbl_check(const struct ubi_device *ubi)
 		BUG();
 	}
 }
-
-#endif /* CONFIG_MTD_UBI_DEBUG */

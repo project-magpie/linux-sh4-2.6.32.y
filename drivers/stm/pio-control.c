@@ -177,11 +177,11 @@ void __init stm_pio_control_init(const struct stm_pio_control_config *config,
 			"PIO Output Enable Control");
 		if (!pio_control[i].oe) goto failed;
 		pio_control[i].pu = sysconf_claim(config[i].pu.group,
-			config[i].pu.num, config[i].oe.lsb, config[i].pu.msb,
+			config[i].pu.num, config[i].pu.lsb, config[i].pu.msb,
 			"PIO Pull Up Control");
 		if (!pio_control[i].pu) goto failed;
 		pio_control[i].od = sysconf_claim(config[i].od.group,
-			config[i].od.num, config[i].oe.lsb, config[i].od.msb,
+			config[i].od.num, config[i].od.lsb, config[i].od.msb,
 			"PIO Open Drain Control");
 		if (!pio_control[i].od) goto failed;
 

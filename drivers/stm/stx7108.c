@@ -374,7 +374,7 @@ static struct platform_device stx7108_fdma_xbar_device = {
 /* Hardware RNG resources ------------------------------------------------- */
 
 static struct platform_device stx7108_devhwrandom_device = {
-	.name		= "stm_hwrandom",
+	.name		= "stm-hwrandom",
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= (struct resource []) {
@@ -383,7 +383,7 @@ static struct platform_device stx7108_devhwrandom_device = {
 };
 
 static struct platform_device stx7108_devrandom_device = {
-	.name		= "stm_rng",
+	.name		= "stm-rng",
 	.id		= 0,
 	.num_resources	= 1,
 	.resource	= (struct resource []) {

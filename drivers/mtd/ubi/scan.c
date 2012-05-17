@@ -124,7 +124,7 @@ static int add_to_list(struct ubi_attach_info *ai, int pnum, int ec,
 	} else
 		BUG();
 
-	aeb = kmem_cache_alloc(ai->scan_leb_slab, GFP_KERNEL);
+	aeb = kmem_cache_alloc(ai->aeb_slab_cache, GFP_KERNEL);
 	if (!aeb)
 		return -ENOMEM;
 
@@ -153,7 +153,7 @@ static int add_corrupted(struct ubi_attach_info *ai, int pnum, int ec)
 
 	dbg_bld("add to corrupted: PEB %d, EC %d", pnum, ec);
 
-	aeb = kmem_cache_alloc(ai->scan_leb_slab, GFP_KERNEL);
+	aeb = kmem_cache_alloc(ai->aeb_slab_cache, GFP_KERNEL);
 	if (!aeb)
 		return -ENOMEM;
 
@@ -561,7 +561,7 @@ int ubi_add_to_av(struct ubi_device *ubi, struct ubi_attach_info *ai, int pnum,
 	if (err)
 		return err;
 
-	aeb = kmem_cache_alloc(ai->scan_leb_slab, GFP_KERNEL);
+	aeb = kmem_cache_alloc(ai->aeb_slab_cache, GFP_KERNEL);
 	if (!aeb)
 		return -ENOMEM;
 
@@ -1132,10 +1132,10 @@ struct ubi_attach_info *ubi_scan(struct ubi_device *ubi)
 	ai->volumes = RB_ROOT;
 
 	err = -ENOMEM;
-	ai->scan_leb_slab = kmem_cache_create("ubi_scan_leb_slab",
-					      sizeof(struct ubi_ainf_peb),
-					      0, 0, NULL);
-	if (!ai->scan_leb_slab)
+	ai->aeb_slab_cache = kmem_cache_create("ubi_aeb_slab_cache",
+					       sizeof(struct ubi_ainf_peb),
+					       0, 0, NULL);
+	if (!ai->aeb_slab_cache)
 		goto out_ai;
 
 	ech = kzalloc(ubi->ec_hdr_alsize, GFP_KERNEL);
@@ -1234,7 +1234,7 @@ static void destroy_av(struct ubi_attach_info *ai, struct ubi_ainf_volume *av)
 					this->rb_right = NULL;
 			}
 
-			kmem_cache_free(ai->scan_leb_slab, aeb);
+			kmem_cache_free(ai->aeb_slab_cache, aeb);
 		}
 	}
 	kfree(av);
@@ -1252,19 +1252,19 @@ void ubi_destroy_ai(struct ubi_attach_info *ai)
 
 	list_for_each_entry_safe(aeb, aeb_tmp, &ai->alien, u.list) {
 		list_del(&aeb->u.list);
-		kmem_cache_free(ai->scan_leb_slab, aeb);
+		kmem_cache_free(ai->aeb_slab_cache, aeb);
 	}
 	list_for_each_entry_safe(aeb, aeb_tmp, &ai->erase, u.list) {
 		list_del(&aeb->u.list);
-		kmem_cache_free(ai->scan_leb_slab, aeb);
+		kmem_cache_free(ai->aeb_slab_cache, aeb);
 	}
 	list_for_each_entry_safe(aeb, aeb_tmp, &ai->corr, u.list) {
 		list_del(&aeb->u.list);
-		kmem_cache_free(ai->scan_leb_slab, aeb);
+		kmem_cache_free(ai->aeb_slab_cache, aeb);
 	}
 	list_for_each_entry_safe(aeb, aeb_tmp, &ai->free, u.list) {
 		list_del(&aeb->u.list);
-		kmem_cache_free(ai->scan_leb_slab, aeb);
+		kmem_cache_free(ai->aeb_slab_cache, aeb);
 	}
 
 	/* Destroy the volume RB-tree */
@@ -1289,8 +1289,8 @@ void ubi_destroy_ai(struct ubi_attach_info *ai)
 		}
 	}
 
-	if (ai->scan_leb_slab)
-		kmem_cache_destroy(ai->scan_leb_slab);
+	if (ai->aeb_slab_cache)
+		kmem_cache_destroy(ai->aeb_slab_cache);
 
 	kfree(ai);
 }

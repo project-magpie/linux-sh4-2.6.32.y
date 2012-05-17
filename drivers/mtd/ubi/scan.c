@@ -666,7 +666,7 @@ void ubi_scan_rm_volume(struct ubi_attach_info *ai, struct ubi_ainf_volume *av)
 }
 
 /**
- * ubi_scan_erase_peb - erase a physical eraseblock.
+ * early_erase_peb - erase a physical eraseblock.
  * @ubi: UBI device description object
  * @ai: attaching information
  * @pnum: physical eraseblock number to erase;
@@ -678,8 +678,8 @@ void ubi_scan_rm_volume(struct ubi_attach_info *ai, struct ubi_ainf_volume *av)
  * This function returns zero in case of success and a negative error code in
  * case of failure.
  */
-int ubi_scan_erase_peb(struct ubi_device *ubi, const struct ubi_attach_info *ai,
-		       int pnum, int ec)
+static int early_erase_peb(struct ubi_device *ubi,
+			   const struct ubi_attach_info *ai, int pnum, int ec)
 {
 	int err;
 	struct ubi_ec_hdr *ec_hdr;
@@ -747,7 +747,7 @@ struct ubi_ainf_peb *ubi_scan_get_free_peb(struct ubi_device *ubi,
 		if (aeb->ec == UBI_SCAN_UNKNOWN_EC)
 			aeb->ec = ai->mean_ec;
 
-		err = ubi_scan_erase_peb(ubi, ai, aeb->pnum, aeb->ec+1);
+		err = early_erase_peb(ubi, ai, aeb->pnum, aeb->ec+1);
 		if (err)
 			continue;
 

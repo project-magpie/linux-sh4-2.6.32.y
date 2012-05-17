@@ -373,7 +373,7 @@ out_free:
  */
 static struct ubi_vtbl_record *process_lvol(struct ubi_device *ubi,
 					    struct ubi_scan_info *si,
-					    struct ubi_scan_volume *sv)
+					    struct ubi_ainf_volume *sv)
 {
 	int err;
 	struct rb_node *rb;
@@ -536,7 +536,7 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 			const struct ubi_vtbl_record *vtbl)
 {
 	int i, reserved_pebs = 0;
-	struct ubi_scan_volume *sv;
+	struct ubi_ainf_volume *sv;
 	struct ubi_volume *vol;
 
 	for (i = 0; i < ubi->vtbl_slots; i++) {
@@ -669,7 +669,7 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
  * to the data read from the volume tabla, and %-EINVAL if not.
  */
 static int check_sv(const struct ubi_volume *vol,
-		    const struct ubi_scan_volume *sv)
+		    const struct ubi_ainf_volume *sv)
 {
 	int err;
 
@@ -716,7 +716,7 @@ static int check_scanning_info(const struct ubi_device *ubi,
 			       struct ubi_scan_info *si)
 {
 	int err, i;
-	struct ubi_scan_volume *sv;
+	struct ubi_ainf_volume *sv;
 	struct ubi_volume *vol;
 
 	if (si->vols_found > UBI_INT_VOL_COUNT + ubi->vtbl_slots) {
@@ -780,7 +780,7 @@ static int check_scanning_info(const struct ubi_device *ubi,
 int ubi_read_volume_table(struct ubi_device *ubi, struct ubi_scan_info *si)
 {
 	int i, err;
-	struct ubi_scan_volume *sv;
+	struct ubi_ainf_volume *sv;
 
 	empty_vtbl_record.crc = cpu_to_be32(0xf116c36b);
 

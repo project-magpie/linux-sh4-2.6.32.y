@@ -606,7 +606,7 @@ static int attach_by_scanning(struct ubi_device *ubi)
 	if (err)
 		goto out_wl;
 
-	ubi_scan_destroy_ai(ai);
+	ubi_destroy_ai(ai);
 	return 0;
 
 out_wl:
@@ -615,7 +615,7 @@ out_vtbl:
 	free_internal_volumes(ubi);
 	vfree(ubi->vtbl);
 out_ai:
-	ubi_scan_destroy_ai(ai);
+	ubi_destroy_ai(ai);
 	return err;
 }
 

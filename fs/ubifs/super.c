@@ -1290,7 +1290,7 @@ static int mount_ubifs(struct ubifs_info *c)
 	if (!c->ro_mount && c->space_fixup) {
 		err = ubifs_fixup_free_space(c);
 		if (err)
-			goto out_master;
+			goto out_lpt;
 	}
 
 	if (!c->ro_mount) {

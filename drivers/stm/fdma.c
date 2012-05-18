@@ -500,6 +500,15 @@ static void fdma_reset_channels(struct fdma *fdma)
 		writel(0, CMD_STAT_REG(chan_num));
 }
 
+static void fdma_reset_all(struct fdma *fdma)
+{
+	fdma_disable_all_channels(fdma);
+	fdma_reset_channels(fdma);
+	/* reset the CPU program counter and all the
+	 * instruction pipeline registers */
+	writel(5, fdma->io_base + fdma->regs.clk_gate);
+}
+
 static struct stm_dma_req *fdma_configure_pace_channel(
 		struct fdma_channel *channel,
 		struct stm_dma_req_config *req_config)
@@ -1395,8 +1404,7 @@ static int __init fdma_driver_probe(struct platform_device *pdev)
 		panic("Cant Register irq %d for FDMA engine err %d\n",
 				fdma->irq, err);
 
-	fdma_disable_all_channels(fdma);
-	fdma_reset_channels(fdma);
+	fdma_reset_all(fdma);
 	fdma_register_caps(fdma);
 
 	fdma_check_firmware_state(fdma);
@@ -1410,7 +1418,7 @@ static int fdma_driver_remove(struct platform_device *pdev)
 {
 	struct fdma *fdma = platform_get_drvdata(pdev);
 
-	fdma_disable_all_channels(fdma);
+	fdma_reset_all(fdma);
 	stm_fdma_clk_disable(fdma);
 	iounmap(fdma->io_base);
 	dma_pool_destroy(fdma->llu_pool);

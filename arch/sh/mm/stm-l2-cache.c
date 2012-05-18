@@ -616,6 +616,12 @@ static void stm_l2_set_mode(enum stm_l2_mode new_mode)
 }
 
 
+void stm_l2_disable(void)
+{
+	stm_l2_set_mode(MODE_BYPASS);
+}
+EXPORT_SYMBOL(stm_l2_disable);
+
 
 /* sysfs interface */
 

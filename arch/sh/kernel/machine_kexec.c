@@ -118,6 +118,7 @@ void machine_kexec(struct kimage *image)
 
 	kexec_info(image);
 	flush_cache_all();
+	stm_l2_disable();
 
 #if defined(CONFIG_SH_STANDARD_BIOS)
 	asm volatile("ldc %0, vbr" :

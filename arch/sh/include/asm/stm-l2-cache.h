@@ -16,5 +16,10 @@
 void stm_l2_flush_wback(unsigned long start, int size, int is_phys);
 void stm_l2_flush_purge(unsigned long start, int size, int is_phys);
 void stm_l2_flush_invalidate(unsigned long start, int size, int is_phys);
+#ifdef CONFIG_STM_L2_CACHE
+void stm_l2_disable(void);
+#else
+static inline void stm_l2_disable(void) { }
+#endif
 
 #endif /* __ASM_SH_STM_L2_CACHE_H */

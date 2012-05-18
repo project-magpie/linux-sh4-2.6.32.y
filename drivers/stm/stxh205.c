@@ -375,11 +375,79 @@ static struct platform_device sth205_temp = {
 };
 
 /* MMC/SD */
-static struct stm_pad_config stxh205_mmc_pad_config  = {
-	.gpios_num = 1,
-	.gpios = (struct stm_pad_gpio []) {
-		STM_PAD_PIO_OUT(14, 0, 1),	/* LED On */
+#define STXH205_PIO_MMC_CLK_OUT(_port, _pin, funct) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_custom, \
+		.function = funct, \
+		.name = "MMCCLK", \
+		.priv = &(struct stxh205_pio_config) {	\
+			.mode = &(struct stm_pio_control_mode_config) { \
+				.oe = 1, \
+				.pu = 0, \
+				.od = 0, \
+			}, \
+		}, \
+	}
+#define STXH205_PIO_MMC_OUT(_port, _pin, funct) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_custom, \
+		.function = funct, \
+		.priv = &(struct stxh205_pio_config) {	\
+			.mode = &(struct stm_pio_control_mode_config) { \
+				.oe = 1, \
+				.pu = 0, \
+				.od = 0, \
+			}, \
+		}, \
+	}
+#define STXH205_PIO_MMC_BIDIR(_port, _pin, funct) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_custom, \
+		.function = funct, \
+		.priv = &(struct stxh205_pio_config) {	\
+			.mode = &(struct stm_pio_control_mode_config) { \
+				.oe = 1, \
+				.pu = 1, \
+				.od = 0, \
+			}, \
+			.retime = &(struct stm_pio_control_retime_config) { \
+				.retime = 0, \
+				.clk1notclk0 = 0, \
+				.clknotdata = 0, \
+				.double_edge = 0, \
+				.invertclk = 0, \
+				.delay_input = 3, \
+			}, \
+		}, \
+	}
+#define STXH205_PIO_MMC_IN(_port, _pin, funct) \
+	{ \
+		.gpio = stm_gpio(_port, _pin), \
+		.direction = stm_pad_gpio_direction_in, \
+		.function = funct, \
+	}
 
+static struct stm_pad_config stxh205_mmc_pad_config  = {
+	.gpios_num = 15,
+	.gpios = (struct stm_pad_gpio []) {
+		STXH205_PIO_MMC_BIDIR(13, 0, 1),	/* MMC Data[0]*/
+		STXH205_PIO_MMC_BIDIR(13, 1, 1),	/* MMC Data[1]*/
+		STXH205_PIO_MMC_BIDIR(13, 2, 1),	/* MMC Data[2]*/
+		STXH205_PIO_MMC_BIDIR(13, 3, 1),	/* MMC Data[3]*/
+		STXH205_PIO_MMC_BIDIR(13, 4, 1),	/* MMC Data[4]*/
+		STXH205_PIO_MMC_BIDIR(13, 5, 1),	/* MMC Data[5]*/
+		STXH205_PIO_MMC_BIDIR(13, 6, 1),	/* MMC Data[6]*/
+		STXH205_PIO_MMC_BIDIR(13, 7, 1),	/* MMC Data[7]*/
+		STXH205_PIO_MMC_OUT(14, 0, 1),		/* MMC LED on */
+		STXH205_PIO_MMC_CLK_OUT(14, 1, 1),	/* MMC clk */
+		STXH205_PIO_MMC_BIDIR(14, 2, 1),	/* MMC command */
+		STXH205_PIO_MMC_IN(14, 3, 1),	/* MMC Write Protection */
+		STXH205_PIO_MMC_OUT(14, 4, 1),	/* MMC boot data error */
+		STXH205_PIO_MMC_OUT(14, 5, 1),	/* MMC Card PWR */
+		STXH205_PIO_MMC_IN(14, 6, 1),	/* MMC Card Detect */
 	},
 	.sysconfs_num = 1,
 	.sysconfs = (struct stm_pad_sysconf []) {

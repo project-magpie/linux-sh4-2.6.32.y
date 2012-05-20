@@ -64,7 +64,10 @@
 /* Background thread name pattern */
 #define UBI_BGT_NAME_PATTERN "ubi_bgt%dd"
 
-/* This marker in the EBA table means that the LEB is um-mapped */
+/*
+ * This marker in the EBA table means that the LEB is um-mapped.
+ * NOTE! It has to have the same value as %UBI_ALL.
+ */
 #define UBI_LEB_UNMAPPED -1
 
 /*
@@ -80,10 +83,7 @@
  */
 #define UBI_PROT_QUEUE_LEN 10
 
-/*
- * When a field of the attaching information has this value - its real value is
- * unknown.
- */
+/* The volume ID/LEB number/erase counter is unknown */
 #define UBI_UNKNOWN -1
 
 /*

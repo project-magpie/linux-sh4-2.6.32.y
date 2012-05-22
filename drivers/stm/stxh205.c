@@ -591,6 +591,27 @@ static struct platform_device stxh205_fdma_xbar_device = {
 };
 
 
+/* Hardware RNG resources ------------------------------------------------- */
+
+static struct platform_device stxh205_devhwrandom_device = {
+	.name		= "stm-hwrandom",
+	.id		= -1,
+	.num_resources	= 1,
+	.resource	= (struct resource []) {
+		STM_PLAT_RESOURCE_MEM(0xfdabd000, 0x1000),
+	}
+};
+
+static struct platform_device stxh205_devrandom_device = {
+	.name		= "stm-rng",
+	.id		= 0,
+	.num_resources	= 1,
+	.resource	= (struct resource []) {
+		STM_PLAT_RESOURCE_MEM(0xfdabd000, 0x1000),
+	}
+};
+
+
 /* Pre-arch initialisation ------------------------------------------------ */
 
 static int __init stxh205_postcore_setup(void)
@@ -618,6 +639,8 @@ static struct platform_device *stxh205_devices[] __initdata = {
 	&stxh205_fdma_devices[0],
 	&stxh205_fdma_devices[1],
 	&stxh205_fdma_xbar_device,
+	&stxh205_devhwrandom_device,
+	&stxh205_devrandom_device,
 };
 
 static int __init stxh205_devices_setup(void)

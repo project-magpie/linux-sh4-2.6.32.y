@@ -42,6 +42,8 @@ MODULE_LICENSE("GPL");
 #define IP1001_APS_ON			11  /* IP1001 APS Mode  bit */
 #define IP101A_APS_ON			2   /* IP101A APS Mode bit */
 #define IP101A_IRQ_CONF_STATUS		0x11	/* Conf Info IRQ & Status Reg */
+#define	IP101A_IRQ_PIN_USED		(1<<15)
+#define	IP101A_IRQ_DEFAULT		IP101A_IRQ_PIN_USED
 
 static int ip175c_config_init(struct phy_device *phydev)
 {
@@ -145,6 +147,10 @@ static int ip101a_config_init(struct phy_device *phydev)
 	int c;
 
 	c = ip1xx_reset(phydev);
+	if (c < 0)
+		return c;
+
+	c = phy_write(phydev, IP101A_IRQ_CONF_STATUS, IP101A_IRQ_DEFAULT);
 	if (c < 0)
 		return c;
 

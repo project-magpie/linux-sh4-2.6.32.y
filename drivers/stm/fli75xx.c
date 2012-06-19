@@ -183,17 +183,21 @@ static struct platform_device fli75xx_spifsm_device = {
 
 void __init fli75xx_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
+	struct sysconf_field *sc = NULL;
+
 	fli75xx_spifsm_device.dev.platform_data = data;
 
 	switch (cpu_data->type) {
 	case CPU_FLI7510:
 	case CPU_FLI7560:
 		data->pads = &fli7510_spifsm_pad_config;
+		sc = sysconf_claim(CFG_MODE_PIN_STATUS, 7, 8, "boot-device");
 		break;
 	case CPU_FLI7520:
 	case CPU_FLI7530:
 	case CPU_FLI7540:
 		data->pads = &fli7520_spifsm_pad_config;
+		sc = sysconf_claim(CFG_MODE_PIN_STATUS, 9, 10, "boot-device");
 		break;
 	default:
 		BUG();
@@ -204,6 +208,9 @@ void __init fli75xx_configure_spifsm(struct stm_plat_spifsm_data *data)
 	data->capabilities.no_read_repeat = 1;
 	data->capabilities.no_write_repeat = 1;
 	data->capabilities.read_status_bug = spifsm_no_read_status;
+	data->capabilities.boot_from_spi = (sysconf_read(sc) == 0x2) ? 1 : 0;
+
+	sysconf_release(sc);
 
 	platform_device_register(&fli75xx_spifsm_device);
 }

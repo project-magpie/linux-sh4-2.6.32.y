@@ -330,8 +330,14 @@ struct stm_spifsm_caps {
 	int dual_mode:1;		/* DUAL mode */
 	int quad_mode:1;		/* QUAD mode */
 
+	/* Board capabilities */
+	int reset_signal:1;		/* SoC reset routed to device reset */
+	int reset_por:1;		/* SoC reset forces device POR (e.g.
+					 *   on-board logic/controller) */
+	int boot_from_spi:1;		/* Boot device is SPI */
+
 	/* IP capabilities */
-	int addr_32bit:1;		/* 32bit addressing supported */
+	int addr_32bit:1;		/* native 32-bit addressing supported */
 	int no_poll_mode_change:1;	/* Polling MODE_CHANGE broken */
 	int no_clk_div_4:1;		/* Bug prevents ClK_DIV=4 */
 	int no_sw_reset:1;		/* S/W reset not possible */

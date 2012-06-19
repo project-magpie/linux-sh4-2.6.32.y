@@ -533,9 +533,13 @@ static struct platform_device stxh205_spifsm_device = {
 
 void __init stxh205_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
+	struct sysconf_field *sc;
+
 	stxh205_spifsm_device.dev.platform_data = data;
 
 	data->pads = &stxh205_spifsm_pad_config;
+
+	sc = sysconf_claim(SYSCONF(40), 2, 6, "mode-pins");
 
 	/* SoC/IP Capabilities */
 	data->capabilities.no_read_repeat = 1;
@@ -543,7 +547,9 @@ void __init stxh205_configure_spifsm(struct stm_plat_spifsm_data *data)
 	data->capabilities.no_sw_reset = 1;
 	data->capabilities.read_status_bug = spifsm_read_status_clkdiv4;
 	data->capabilities.no_poll_mode_change = 1;
+	data->capabilities.boot_from_spi = (sysconf_read(sc) == 0x1a) ? 1 : 0;
 
+	sysconf_release(sc);
 	platform_device_register(&stxh205_spifsm_device);
 }
 

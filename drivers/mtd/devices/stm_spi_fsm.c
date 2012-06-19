@@ -31,6 +31,16 @@
 #define FLASH_PAGESIZE		256
 #define FLASH_MAX_BUSY_WAIT	(10 * HZ)	/* Maximum erase time */
 
+
+/*
+ * Flags to tweak operation of default read/write/erase routines
+ */
+#define CFG_READ_TOGGLE32BITADDR		0x00000001
+#define CFG_WRITE_TOGGLE32BITADDR		0x00000002
+#define CFG_WRITE_EX32BITADDR_DELAY		0x00000004
+#define CFG_ERASESEC_TOGGLE32BITADDR		0x00000008
+
+
 /*
  * SPI FSM Controller data
  */
@@ -40,6 +50,7 @@ struct stm_spi_fsm {
 	struct resource		*region;
 	struct stm_pad_state	*pad_state;
 	struct stm_spifsm_caps	capabilities;
+	uint32_t		configuration;
 
 	void __iomem		*base;
 	struct mutex		lock;
@@ -78,6 +89,26 @@ struct stm_spi_fsm {
 #define FLASH_CMD_WRITE_1_1_4	0x32	/* QUAD INPUT PROGRAM */
 #define FLASH_CMD_WRITE_1_4_4	0x12	/* QUAD INPUT EXT PROGRAM */
 
+#define FLASH_CMD_EN4B_ADDR	0xb7	/* Enter 4-byte address mode */
+#define FLASH_CMD_EX4B_ADDR	0xe9	/* Exit 4-byte address mode */
+
+/* N25Q Commands */
+/*	- READ with 32-bit addressing */
+#define N25Q_CMD_READ4			0x13
+#define N25Q_CMD_READ4_FAST		0x0c
+#define N25Q_CMD_READ4_1_1_2		0x3c
+#define N25Q_CMD_READ4_1_2_2		0xbc
+#define N25Q_CMD_READ4_1_1_4		0x6c
+#define N25Q_CMD_READ4_1_4_4		0xec
+/*	- READ/CLEAR Flags Status register */
+#define N25Q_CMD_RFSR			0x70
+#define N25Q_CMD_CLFSR			0x50
+
+/* MX25 Commands */
+/*	- Read Security Register (home of '4BYTE' status bit!) */
+#define MX25_CMD_RDSCUR			0x2B
+
+
 /* Status register */
 #define FLASH_STATUS_BUSY	0x01
 #define FLASH_STATUS_WEL	0x02
@@ -96,6 +127,7 @@ struct stm_spi_fsm {
 #define FLASH_CAPS_SE_32K	0x00000008
 #define FLASH_CAPS_CE		0x00000010
 #define FLASH_CAPS_32BITADDR	0x00000020
+#define FLASH_CAPS_RESET	0x00000040
 
 #define FLASH_CAPS_DUAL		0x0000ff00
 #define FLASH_CAPS_READ_1_1_2	0x00000100
@@ -130,7 +162,7 @@ struct fsm_seq {
 } __attribute__((__packed__, aligned(4)));
 #define FSM_SEQ_SIZE			sizeof(struct fsm_seq)
 
-static struct fsm_seq seq_dummy = {
+static struct fsm_seq fsm_seq_dummy = {
 	.data_size = TRANSFER_SIZE(0),
 	.seq = {
 		FSM_INST_STOP,
@@ -189,7 +221,7 @@ static struct fsm_seq fsm_seq_write_status = {
 		    SEQ_CFG_STARTSEQ),
 };
 
-static struct fsm_seq seq_wrvcr = {
+static struct fsm_seq fsm_seq_wrvcr = {
 	.seq_opc[0] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
 		       SEQ_OPC_OPCODE(FLASH_CMD_WREN) | SEQ_OPC_CSDEASSERT),
 	.seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
@@ -206,10 +238,8 @@ static struct fsm_seq seq_wrvcr = {
 		    SEQ_CFG_STARTSEQ),
 };
 
-static struct fsm_seq seq_erase_sector = {
-	.addr_cfg = (ADR_CFG_PADS_1_ADD1 |
-		     ADR_CFG_CYCLES_ADD1(24) |
-		     ADR_CFG_CSDEASSERT_ADD1),
+static struct fsm_seq fsm_seq_erase_sector = {
+	/* 'addr_cfg' configured during initialisation */
 	.seq_opc = {
 		(SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
 		 SEQ_OPC_OPCODE(FLASH_CMD_WREN) | SEQ_OPC_CSDEASSERT),
@@ -221,6 +251,7 @@ static struct fsm_seq seq_erase_sector = {
 		FSM_INST_CMD1,
 		FSM_INST_CMD2,
 		FSM_INST_ADD1,
+		FSM_INST_ADD2,
 		FSM_INST_STOP,
 	},
 	.seq_cfg = (SEQ_CFG_PADS_1 |
@@ -229,7 +260,7 @@ static struct fsm_seq seq_erase_sector = {
 		    SEQ_CFG_STARTSEQ),
 };
 
-static struct fsm_seq seq_erase_chip = {
+static struct fsm_seq fsm_seq_erase_chip = {
 	.seq_opc = {
 		(SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
 		 SEQ_OPC_OPCODE(FLASH_CMD_WREN) | SEQ_OPC_CSDEASSERT),
@@ -248,11 +279,25 @@ static struct fsm_seq seq_erase_chip = {
 		    SEQ_CFG_STARTSEQ),
 };
 
-/* Read/Write templates configured according to platform/device capabilities
- * during initialisation
+/* Configure 'addr_cfg' according to addressing mode */
+static int configure_erasesec_seq(struct fsm_seq *seq, int use_32bit_addr)
+{
+	int addr1_cycles = use_32bit_addr ? 16 : 8;
+
+	seq->addr_cfg = (ADR_CFG_CYCLES_ADD1(addr1_cycles) |
+			 ADR_CFG_PADS_1_ADD1 |
+			 ADR_CFG_CYCLES_ADD2(16) |
+			 ADR_CFG_PADS_1_ADD2 |
+			 ADR_CFG_CSDEASSERT_ADD2);
+	return 0;
+}
+
+/* The following FSM sequences are configured during initialisation according to
+ * the platform and device capabilities.
  */
 static struct fsm_seq fsm_seq_read;
 static struct fsm_seq fsm_seq_write;
+static struct fsm_seq fsm_seq_en32bitaddr;
 
 /*
  * Debug code for examining FSM sequences
@@ -281,6 +326,14 @@ char *flash_cmd_strs[256] = {
 	[FLASH_CMD_WRITE_1_2_2]	= "WRITE_1_2_2",
 	[FLASH_CMD_WRITE_1_1_4]	= "WRITE_1_1_4",
 	[FLASH_CMD_WRITE_1_4_4] = "WRITE_1_4_4",
+	[FLASH_CMD_EN4B_ADDR]	= "EN4B_ADDR",
+	[FLASH_CMD_EX4B_ADDR]	= "EX4B_ADDR",
+	[N25Q_CMD_READ4]	= "READ4",
+	[N25Q_CMD_READ4_FAST]	= "READ4_FAST",
+	[N25Q_CMD_READ4_1_1_2]	= "READ4_1_1_2",
+	[N25Q_CMD_READ4_1_2_2]	= "READ4_1_2_2",
+	[N25Q_CMD_READ4_1_1_4]	= "READ4_1_1_4",
+	[N25Q_CMD_READ4_1_4_4]	= "READ4_1_4_4",
 };
 
 char *fsm_inst_strs[256] = {
@@ -471,7 +524,8 @@ static struct flash_info __devinitdata flash_types[] = {
 		   FLASH_CAPS_SE_4K		| \
 		   FLASH_CAPS_SE_32K)
 	{ "mx25l25635e", 0xc22019, 0, 64*1024, 512,
-	  (MX25_CAPS | FLASH_CAPS_32BITADDR), 70, mx25_config},
+	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
+	  70, mx25_config},
 
 #define N25Q_CAPS (FLASH_CAPS_READ_WRITE	| \
 		   FLASH_CAPS_READ_FAST		| \
@@ -514,6 +568,42 @@ static struct flash_info __devinitdata flash_types[] = {
 	{     NULL,  0x000000, 0,         0,   0,       0, },
 };
 
+/*
+ * SoC reset on 'boot-from-spi' systems
+ *
+ * Certain modes of operation cause the Flash device to enter a particular state
+ * for a period of time (e.g. 'Erase Sector', 'Quad Enable', and 'Enter 32-bit
+ * Addr' commands).  On boot-from-spi systems, it is important to consider what
+ * happens if a warm reset occurs during this period.  The SPIBoot controller
+ * assumes that Flash device is in its default reset state, 24-bit address mode,
+ * and ready to accept commands.  This can be achieved using some form of
+ * on-board logic/controller to force a device POR in response to a SoC-level
+ * reset or by making use of the device reset signal if available (limited
+ * number of devices only).
+ *
+ * Failure to take such precautions can cause problems following a warm reset.
+ * For some operations (e.g. ERASE), there is little that can be done.  For
+ * other modes of operation (e.g. 32-bit addressing), options are often
+ * available that can help minimise the window in which a reset could cause a
+ * problem.
+ *
+ */
+static int can_handle_soc_reset(struct stm_spi_fsm *fsm,
+				      struct flash_info *info)
+{
+	/* Reset signal is available on the board and supported by the device */
+	if (fsm->capabilities.reset_signal &&
+	    (fsm->capabilities.reset_signal &&
+	     (info->capabilities & FLASH_CAPS_RESET)))
+		return 1;
+
+	/* Board-level logic forces a power-on-reset */
+	if (fsm->capabilities.reset_por)
+		return 1;
+
+	/* Reset is not properly handled and may result in failure to reboot. */
+	return 0;
+}
 
 /* Parameters to configure a READ or WRITE FSM sequence */
 struct seq_rw_config {
@@ -530,7 +620,7 @@ struct seq_rw_config {
 /* Default READ configurations, in order of preference */
 static struct seq_rw_config default_read_configs[] = {
 	{FLASH_CAPS_READ_1_4_4, FLASH_CMD_READ_1_4_4,	0, 4, 4, 0x00, 2, 4},
-	{FLASH_CAPS_READ_1_1_4, FLASH_CMD_READ_1_1_4,	0, 1, 4, 0x00, 4, 0},
+	{FLASH_CAPS_READ_1_1_4, FLASH_CMD_READ_1_1_4,	0, 1, 4, 0x00, 0, 8},
 	{FLASH_CAPS_READ_1_2_2, FLASH_CMD_READ_1_2_2,	0, 2, 2, 0x00, 4, 0},
 	{FLASH_CAPS_READ_1_1_2, FLASH_CMD_READ_1_1_2,	0, 1, 2, 0x00, 0, 8},
 	{FLASH_CAPS_READ_FAST,	FLASH_CMD_READ_FAST,	0, 1, 1, 0x00, 0, 8},
@@ -567,84 +657,70 @@ static struct seq_rw_config
 }
 
 /* Configure a READ/WRITE sequence according to configuration parameters */
-static int configure_rw_seq(struct fsm_seq *seq, struct seq_rw_config *cfg)
+static int configure_rw_seq(struct fsm_seq *seq, struct seq_rw_config *cfg,
+			    int use_32bit_addr)
 {
 	int i;
+	int addr1_cycles, addr2_cycles;
 
 	memset(seq, 0x00, FSM_SEQ_SIZE);
 
 	i = 0;
-	/* Add WREN OPC if required */
-	if (cfg->write)
-		seq->seq_opc[i++] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
-				     SEQ_OPC_OPCODE(FLASH_CMD_WREN) |
-				     SEQ_OPC_CSDEASSERT);
-
 	/* Add READ/WRITE OPC  */
 	seq->seq_opc[i++] = (SEQ_OPC_PADS_1 |
 			     SEQ_OPC_CYCLES(8) |
 			     SEQ_OPC_OPCODE(cfg->cmd));
 
-	/* Address/MODE/DUMMY configuration */
-	switch (cfg->addr_pads) {
-	case (1):
-		seq->addr_cfg = (ADR_CFG_PADS_1_ADD1 | ADR_CFG_CYCLES_ADD1(24));
-		seq->mode = MODE_PADS_1;
-		seq->dummy = DUMMY_PADS_1;
-		break;
-	case (2):
-		seq->addr_cfg = (ADR_CFG_PADS_2_ADD1 | ADR_CFG_CYCLES_ADD1(12));
-		seq->mode = MODE_PADS_2;
-		seq->dummy = DUMMY_PADS_2;
-		break;
-	case (4):
-		seq->addr_cfg = (ADR_CFG_PADS_4_ADD1 | ADR_CFG_CYCLES_ADD1(6));
-		seq->mode = MODE_PADS_4;
-		seq->dummy = DUMMY_PADS_4;
-		break;
-	default:
-		return 1;
-		break;
-	}
+	/* Add WREN OPC for a WRITE sequence */
+	if (cfg->write)
+		seq->seq_opc[i++] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
+				     SEQ_OPC_OPCODE(FLASH_CMD_WREN) |
+				     SEQ_OPC_CSDEASSERT);
 
-	/* FSM instruction sequence */
+	/* Address configuration (24 or 32-bit addresses) */
+	addr1_cycles = use_32bit_addr ? 16 : 8;
+	addr1_cycles /= cfg->addr_pads;
+	addr2_cycles = 16 / cfg->addr_pads;
+	seq->addr_cfg = ((addr1_cycles & 0x3f) << 0 |	/* ADD1 cycles */
+			 (cfg->addr_pads - 1) << 6 |	/* ADD1 pads */
+			 (addr2_cycles & 0x3f) << 16 |	/* ADD2 cycles */
+			 ((cfg->addr_pads - 1) << 22));	/* ADD2 pads */
+
+	/* Data/Sequence configuration */
+	seq->seq_cfg = ((cfg->data_pads - 1) << 16 |
+			SEQ_CFG_STARTSEQ |
+			SEQ_CFG_CSDEASSERT);
+	if (!cfg->write)
+		seq->seq_cfg |= SEQ_CFG_READNOTWRITE;
+
+	/* Mode configuration (no. of pads taken from addr cfg) */
+	seq->mode = ((cfg->mode_data & 0xff) << 0 |	/* data */
+		     (cfg->mode_cycles & 0x3f) << 16 |	/* cycles */
+		     (cfg->addr_pads - 1) << 22);	/* pads */
+
+	/* Dummy configuration (no. of pads taken from addr cfg) */
+	seq->dummy = ((cfg->dummy_cycles & 0x3f) << 16 |	/* cycles */
+		      (cfg->addr_pads - 1) << 22);		/* pads */
+
+
+	/* Instruction sequence */
 	i = 0;
-	seq->seq[i++] = FSM_INST_CMD1;
 	if (cfg->write)
 		seq->seq[i++] = FSM_INST_CMD2;
+
+	seq->seq[i++] = FSM_INST_CMD1;
+
 	seq->seq[i++] = FSM_INST_ADD1;
+	seq->seq[i++] = FSM_INST_ADD2;
 
-	if (cfg->mode_cycles) {
-		seq->mode |= (MODE_DATA(cfg->mode_data) |
-			      MODE_CYCLES(cfg->mode_cycles));
+	if (cfg->mode_cycles)
 		seq->seq[i++] = FSM_INST_MODE;
-	}
 
-	if (cfg->dummy_cycles) {
-		seq->dummy |= DUMMY_CYCLES(cfg->dummy_cycles);
+	if (cfg->dummy_cycles)
 		seq->seq[i++] = FSM_INST_DUMMY;
-	}
 
 	seq->seq[i++] = cfg->write ? FSM_INST_DATA_WRITE : FSM_INST_DATA_READ;
 	seq->seq[i++] = FSM_INST_STOP;
-
-	switch (cfg->data_pads) {
-	case (1):
-		seq->seq_cfg = SEQ_CFG_PADS_1;
-		break;
-	case (2):
-		seq->seq_cfg = SEQ_CFG_PADS_2;
-		break;
-	case (4):
-		seq->seq_cfg = SEQ_CFG_PADS_4;
-		break;
-	default:
-		return 1;
-		break;
-	}
-	if (!cfg->write)
-		seq->seq_cfg |= SEQ_CFG_READNOTWRITE;
-	seq->seq_cfg |= SEQ_CFG_STARTSEQ | SEQ_CFG_CSDEASSERT;
 
 	return 0;
 }
@@ -666,7 +742,8 @@ static int fsm_search_configure_rw_seq(struct stm_spi_fsm *fsm,
 		return 1;
 	}
 
-	if (configure_rw_seq(seq, config) != 0) {
+	if (configure_rw_seq(seq, config,
+			     capabilities & FLASH_CAPS_32BITADDR) != 0) {
 		dev_err(fsm->dev, "failed to configure READ/WRITE sequence\n");
 		return 1;
 	}
@@ -679,34 +756,41 @@ static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 static int fsm_write_status(struct stm_spi_fsm *fsm, uint16_t status,
 			    int sta_bytes);
 static int fsm_wrvcr(struct stm_spi_fsm *fsm, uint8_t data);
+static int fsm_enter_32bitaddr(struct stm_spi_fsm *fsm, int enter);
 
-/* [DEFAULT] Configure READ/WRITE sequences */
-static int fsm_config_rw_seqs_default(struct stm_spi_fsm *fsm,
+/* [DEFAULT] Configure READ/WRITE/ERASE sequences */
+static int fsm_config_rwe_seqs_default(struct stm_spi_fsm *fsm,
 				      struct flash_info *info)
 {
-	/* Set of mutually supported capabilities */
 	uint32_t capabilities = info->capabilities;
 
+	/* Mask-out capabilities not supported by platform */
 	if (fsm->capabilities.quad_mode == 0)
 		capabilities &= ~FLASH_CAPS_QUAD;
 	if (fsm->capabilities.dual_mode == 0)
 		capabilities &= ~FLASH_CAPS_DUAL;
-	if (fsm->capabilities.addr_32bit == 0)
-		capabilities &= ~FLASH_CAPS_32BITADDR;
 
-	if (fsm_search_configure_rw_seq(fsm, &fsm_seq_read, default_read_configs,
+	/* Configure 'READ' sequence */
+	if (fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
+					default_read_configs,
 					capabilities) != 0) {
 		dev_err(fsm->dev, "failed to configure READ sequence "
 			"according to capabilities [0x%08x]\n", capabilities);
 		return 1;
 	}
 
-	if (fsm_search_configure_rw_seq(fsm, &fsm_seq_write, default_write_configs,
+	/* Configure 'WRITE' sequence */
+	if (fsm_search_configure_rw_seq(fsm, &fsm_seq_write,
+					default_write_configs,
 					capabilities) != 0) {
 		dev_err(fsm->dev, "failed to configure WRITE sequence "
 			"according to capabilities [0x%08x]\n", capabilities);
 		return 1;
 	}
+
+	/* Configure 'ERASE_SECTOR' sequence */
+	configure_erasesec_seq(&fsm_seq_erase_sector,
+			       capabilities & FLASH_CAPS_32BITADDR);
 
 	return 0;
 }
@@ -719,7 +803,7 @@ static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	uint8_t sta1, sta2;
 	uint16_t sta_wr;
 
-	if (fsm_config_rw_seqs_default(fsm, info) != 0)
+	if (fsm_config_rwe_seqs_default(fsm, info) != 0)
 		return 1;
 
 	/* If using QUAD mode, set QE STATUS bit */
@@ -740,6 +824,27 @@ static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 
 /* [MX25xxx] Configure READ/Write sequences */
 #define MX25_STATUS_QE			(0x1 << 6)
+
+static int mx25_configure_en32bitaddr_seq(struct fsm_seq *seq)
+{
+	seq->seq_opc[0] = (SEQ_OPC_PADS_1 |
+			   SEQ_OPC_CYCLES(8) |
+			   SEQ_OPC_OPCODE(FLASH_CMD_EN4B_ADDR) |
+			   SEQ_OPC_CSDEASSERT);
+
+	seq->seq[0] = FSM_INST_CMD1;
+	seq->seq[1] = FSM_INST_WAIT;
+	seq->seq[2] = FSM_INST_STOP;
+
+	seq->seq_cfg = (SEQ_CFG_PADS_1 |
+			SEQ_CFG_ERASE |
+			SEQ_CFG_READNOTWRITE |
+			SEQ_CFG_CSDEASSERT |
+			SEQ_CFG_STARTSEQ);
+
+	return 0;
+}
+
 static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
 	uint32_t data_pads;
@@ -751,10 +856,40 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 */
 	info->capabilities &= ~FLASH_CAPS_WRITE_1_4_4;
 
-	if (fsm_config_rw_seqs_default(fsm, info) != 0)
+	/*
+	 * Use default READ/WRITE sequences
+	 */
+	if (fsm_config_rwe_seqs_default(fsm, info) != 0)
 		return 1;
 
-	/* If using QUAD mode, set 'QE' STATUS bit */
+	/*
+	 * Configure 32-bit Address Support
+	 */
+	if (info->capabilities & FLASH_CAPS_32BITADDR) {
+		/* Configure 'enter_32bitaddr' FSM sequence */
+		mx25_configure_en32bitaddr_seq(&fsm_seq_en32bitaddr);
+
+		if (!fsm->capabilities.boot_from_spi ||
+		    can_handle_soc_reset(fsm, info)) {
+			/* If we can handle SoC resets, we enable 32-bit address
+			 * mode pervasively */
+			fsm_enter_32bitaddr(fsm, 1);
+
+		} else {
+			/* Else, enable/disable 32-bit addressing before/after
+			 * each operation */
+			fsm->configuration = (CFG_READ_TOGGLE32BITADDR |
+					      CFG_WRITE_TOGGLE32BITADDR |
+					      CFG_ERASESEC_TOGGLE32BITADDR);
+			/* It seems a small delay is required after exiting
+			 * 32-bit mode following a write operation.  The issue
+			 * is under investigation.
+			 */
+			fsm->configuration |= CFG_WRITE_EX32BITADDR_DELAY;
+		}
+	}
+
+	/* For QUAD mode, set 'QE' STATUS bit */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
 	if (data_pads == 4) {
 		fsm_read_status(fsm, FLASH_CMD_RDSR, &sta);
@@ -765,60 +900,147 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	return 0;
 }
 
-/* [N25Qxxx] Configure READ/WRITE sequences */
+/*
+ * [N25Qxxx] Configuration
+ */
 #define N25Q_VCR_DUMMY_CYCLES(x)	(((x) & 0xf) << 4)
 #define N25Q_VCR_XIP_DISABLED		((uint8_t)0x1 << 3)
 #define N25Q_VCR_WRAP_CONT		0x3
+
+/* N25Q 3-byte Address READ configurations
+ *	- 'FAST' variants configured for 8 dummy cycles.
+ *
+ * Note, the number of dummy cycles used for 'FAST' READ operations is
+ * configurable and would normally be tuned according to the READ command and
+ * operating frequency.  However, this applies universally to all 'FAST' READ
+ * commands, including those used by the SPIBoot controller, and remains in
+ * force until the device is power-cycled.  Since the SPIBoot controller is
+ * hard-wired to use 8 dummy cycles, we must configure the device to also use 8
+ * cycles.
+ */
+static struct seq_rw_config n25q_read3_configs[] = {
+	{FLASH_CAPS_READ_1_4_4, FLASH_CMD_READ_1_4_4,	0, 4, 4, 0x00, 0, 8},
+	{FLASH_CAPS_READ_1_1_4, FLASH_CMD_READ_1_1_4,	0, 1, 4, 0x00, 0, 8},
+	{FLASH_CAPS_READ_1_2_2, FLASH_CMD_READ_1_2_2,	0, 2, 2, 0x00, 0, 8},
+	{FLASH_CAPS_READ_1_1_2, FLASH_CMD_READ_1_1_2,	0, 1, 2, 0x00, 0, 8},
+	{FLASH_CAPS_READ_FAST,	FLASH_CMD_READ_FAST,	0, 1, 1, 0x00, 0, 8},
+	{FLASH_CAPS_READ_WRITE, FLASH_CMD_READ,	        0, 1, 1, 0x00, 0, 0},
+	{0x00,			 0,			0, 0, 0, 0x00, 0, 0},
+};
+
+/* N25Q 4-byte Address READ configurations
+ *	- use special 4-byte address READ commands (reduces overheads, and
+ *        reduces risk of hitting watchdog resets issues).
+ *	- 'FAST' variants configured for 8 dummy cycles (see note above.)
+ */
+static struct seq_rw_config n25q_read4_configs[] = {
+	{FLASH_CAPS_READ_1_4_4, N25Q_CMD_READ4_1_4_4,	0, 4, 4, 0x00, 0, 8},
+	{FLASH_CAPS_READ_1_1_4, N25Q_CMD_READ4_1_1_4,	0, 1, 4, 0x00, 0, 8},
+	{FLASH_CAPS_READ_1_2_2, N25Q_CMD_READ4_1_2_2,	0, 2, 2, 0x00, 0, 8},
+	{FLASH_CAPS_READ_1_1_2, N25Q_CMD_READ4_1_1_2,	0, 1, 2, 0x00, 0, 8},
+	{FLASH_CAPS_READ_FAST,	N25Q_CMD_READ4_FAST,	0, 1, 1, 0x00, 0, 8},
+	{FLASH_CAPS_READ_WRITE, N25Q_CMD_READ4,		0, 1, 1, 0x00, 0, 0},
+	{0x00,			 0,			0, 0, 0, 0x00, 0, 0},
+};
+
+static int n25q_configure_en32bitaddr_seq(struct fsm_seq *seq)
+{
+	seq->seq_opc[0] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
+			   SEQ_OPC_OPCODE(FLASH_CMD_EN4B_ADDR));
+	seq->seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
+			   SEQ_OPC_OPCODE(FLASH_CMD_WREN) |
+			   SEQ_OPC_CSDEASSERT);
+
+	seq->seq[0] = FSM_INST_CMD2;
+	seq->seq[1] = FSM_INST_CMD1;
+	seq->seq[2] = FSM_INST_WAIT;
+	seq->seq[3] = FSM_INST_STOP;
+
+	seq->seq_cfg = (SEQ_CFG_PADS_1 |
+			SEQ_CFG_ERASE |
+			SEQ_CFG_READNOTWRITE |
+			SEQ_CFG_CSDEASSERT |
+			SEQ_CFG_STARTSEQ);
+
+	return 0;
+}
+
 static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
-	uint8_t read_cmd;
 	uint8_t vcr;
 	int ret = 0;
-	uint8_t dummy_cycles;
+	uint32_t capabilities = info->capabilities;
 
-	ret = fsm_config_rw_seqs_default(fsm, info);
-	if (ret != 0)
-		return 1;
+	/* Mask out-capabilities not supported by platform */
+	if (fsm->capabilities.quad_mode == 0)
+		capabilities &= ~FLASH_CAPS_QUAD;
+	if (fsm->capabilities.dual_mode == 0)
+		capabilities &= ~FLASH_CAPS_DUAL;
 
-	/* The number of dummy cycles is configurable (tuned according to the
-	 * READ command and operating frequency), but applies universally across
-	 * all variants of READ command that make use of dummy cycles.  However,
-	 * the SPIBoot controller is hard-wired to use 8 dummy cycles for FAST
-	 * READ, and DUAL OUTPUT READ.  To ensure the SPIBoot controller can
-	 * operate in these modes (e.g. following a watchdog reset) we configure
-	 * the device to use 8 dummy cycles, and update the FSM read sequence if
-	 * necessary.
+	/*
+	 * Configure 'READ' sequence
 	 */
-	dummy_cycles = 8;
-	read_cmd = (uint8_t)(fsm_seq_read.seq_opc[0] & 0xff);
-	switch (read_cmd) {
-	case FLASH_CMD_READ_1_4_4:
-		ret = configure_rw_seq(&fsm_seq_read, &(struct seq_rw_config) {
-				.cmd = FLASH_CMD_READ_1_4_4,
-				.addr_pads = 4,
-				.data_pads = 4,
-				.dummy_cycles = dummy_cycles});
-		break;
-	case FLASH_CMD_READ_1_1_4:
-		ret = configure_rw_seq(&fsm_seq_read, &(struct seq_rw_config) {
-				.cmd = FLASH_CMD_READ_1_1_4,
-				.addr_pads = 1,
-				.data_pads = 4,
-				.dummy_cycles = dummy_cycles});
-		break;
-	case FLASH_CMD_READ_1_2_2:
-		ret = configure_rw_seq(&fsm_seq_read, &(struct seq_rw_config) {
-				.cmd = FLASH_CMD_READ_1_2_2,
-				.addr_pads = 2,
-				.data_pads = 2,
-				.dummy_cycles = dummy_cycles});
-		break;
+	if (capabilities & FLASH_CAPS_32BITADDR)
+		/* 32-bit addressing supported by N25Q 'READ4' commands */
+		ret = fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
+						  n25q_read4_configs,
+						  capabilities);
+	else
+		/* 24-bit addressing with 8 dummy cycles */
+		ret = fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
+						  n25q_read3_configs,
+						  capabilities);
+
+	if (ret != 0) {
+		dev_err(fsm->dev, "failed to configure READ sequence "
+			"according to capabilities [0x%08x]\n", capabilities);
+		return 1;
 	}
 
-	vcr = (N25Q_VCR_DUMMY_CYCLES(dummy_cycles) |
-	       N25Q_VCR_XIP_DISABLED |
-	       N25Q_VCR_WRAP_CONT);
 
+	/*
+	 * Configure 'WRITE' sequence (use default configs)
+	 */
+	ret = fsm_search_configure_rw_seq(fsm, &fsm_seq_write,
+					  default_write_configs,
+					  capabilities);
+	if (ret != 0) {
+		dev_err(fsm->dev, "failed to configure WRITE sequence "
+			"according to capabilities [0x%08x]\n", capabilities);
+		return 1;
+	}
+
+	/*
+	 * Configure 'ERASE_SECTOR' sequence
+	 */
+	configure_erasesec_seq(&fsm_seq_erase_sector,
+			       capabilities & FLASH_CAPS_32BITADDR);
+
+	/*
+	 * Configure 32-bit address support
+	 */
+	if (capabilities & FLASH_CAPS_32BITADDR) {
+		/* Configure 'enter_32bitaddr' FSM sequence */
+		n25q_configure_en32bitaddr_seq(&fsm_seq_en32bitaddr);
+
+		if (!fsm->capabilities.boot_from_spi ||
+		    can_handle_soc_reset(fsm, info)) {
+			/* If we can handle SoC resets, we enable 32-bit address
+			 * mode pervasively */
+			fsm_enter_32bitaddr(fsm, 1);
+		} else {
+			/* Else, enable/disable for WRITE and ERASE operations
+			 * (READ uses special commands) */
+			fsm->configuration = (CFG_WRITE_TOGGLE32BITADDR |
+					      CFG_ERASESEC_TOGGLE32BITADDR);
+		}
+	}
+
+	/*
+	 * Configure device to use 8 dummy cycles
+	 */
+	vcr = (N25Q_VCR_DUMMY_CYCLES(8) | N25Q_VCR_XIP_DISABLED |
+	       N25Q_VCR_WRAP_CONT);
 	fsm_wrvcr(fsm, vcr);
 
 	return ret;
@@ -1012,7 +1234,7 @@ static int fsm_write_status(struct stm_spi_fsm *fsm, uint16_t status,
 
 static int fsm_wrvcr(struct stm_spi_fsm *fsm, uint8_t data)
 {
-	struct fsm_seq *seq = &seq_wrvcr;
+	struct fsm_seq *seq = &fsm_seq_wrvcr;
 
 	dev_dbg(fsm->dev, "writing VCR 0x%02x\n", data);
 
@@ -1026,13 +1248,36 @@ static int fsm_wrvcr(struct stm_spi_fsm *fsm, uint8_t data)
 	return 0;
 }
 
+static int fsm_enter_32bitaddr(struct stm_spi_fsm *fsm, int enter)
+{
+	struct fsm_seq *seq = &fsm_seq_en32bitaddr;
+	uint32_t cmd = enter ? FLASH_CMD_EN4B_ADDR : FLASH_CMD_EX4B_ADDR;
+
+	seq->seq_opc[0] = (SEQ_OPC_PADS_1 |
+			   SEQ_OPC_CYCLES(8) |
+			   SEQ_OPC_OPCODE(cmd) |
+			   SEQ_OPC_CSDEASSERT);
+
+	fsm_load_seq(fsm, seq);
+
+	fsm_wait_seq(fsm);
+
+	return 0;
+}
+
+
 static int fsm_erase_sector(struct stm_spi_fsm *fsm, const uint32_t offset)
 {
-	struct fsm_seq *seq = &seq_erase_sector;
+	struct fsm_seq *seq = &fsm_seq_erase_sector;
 
 	dev_dbg(fsm->dev, "erasing sector at 0x%08x\n", offset);
 
-	seq->addr1 = offset;
+	/* Enter 32-bit address mode, if required */
+	if (fsm->configuration & CFG_ERASESEC_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 1);
+
+	seq->addr1 = (offset >> 16) & 0xffff;
+	seq->addr2 = offset & 0xffff;
 
 	fsm_load_seq(fsm, seq);
 
@@ -1040,12 +1285,16 @@ static int fsm_erase_sector(struct stm_spi_fsm *fsm, const uint32_t offset)
 
 	fsm_wait_busy(fsm);
 
+	/* Exit 32-bit address mode, if required */
+	if (fsm->configuration & CFG_ERASESEC_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 0);
+
 	return 0;
 }
 
 static int fsm_erase_chip(struct stm_spi_fsm *fsm)
 {
-	const struct fsm_seq *seq = &seq_erase_chip;
+	const struct fsm_seq *seq = &fsm_seq_erase_chip;
 
 	dev_dbg(fsm->dev, "erasing chip\n");
 
@@ -1073,6 +1322,10 @@ static int fsm_read(struct stm_spi_fsm *fsm, uint8_t *const buf,
 
 	dev_dbg(fsm->dev, "reading %d bytes from 0x%08x\n", size, offset);
 
+	/* Enter 32-bit address mode, if required */
+	if (fsm->configuration & CFG_READ_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 1);
+
 	/* Must read in multiples of 32 cycles (or 32*pads/8 bytes) */
 	data_pads = ((seq->seq_cfg >> 16) & 0x3) + 1;
 	read_mask = (data_pads << 2) - 1;
@@ -1086,7 +1339,8 @@ static int fsm_read(struct stm_spi_fsm *fsm, uint8_t *const buf,
 	size_mop = size & read_mask;
 
 	seq->data_size = TRANSFER_SIZE(size_ub);
-	seq->addr1 = offset;
+	seq->addr1 = (offset >> 16) & 0xffff;
+	seq->addr2 = offset & 0xffff;
 
 	fsm_load_seq(fsm, seq);
 
@@ -1106,6 +1360,10 @@ static int fsm_read(struct stm_spi_fsm *fsm, uint8_t *const buf,
 	fsm_wait_seq(fsm);
 
 	fsm_clear_fifo(fsm);
+
+	/* Exit 32-bit address mode, if required */
+	if (fsm->configuration & CFG_READ_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 0);
 
 	return 0;
 }
@@ -1127,6 +1385,10 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 
 	dev_dbg(fsm->dev, "writing %d bytes to 0x%08x\n", size, offset);
 
+	/* Enter 32-bit address mode, if required */
+	if (fsm->configuration & CFG_WRITE_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 1);
+
 	/* Must write in multiples of 32 cycles (or 32*pads/8 bytes) */
 	data_pads = ((seq->seq_cfg >> 16) & 0x3) + 1;
 	write_mask = (data_pads << 2) - 1;
@@ -1145,10 +1407,11 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 	size_mop = size & write_mask;
 
 	seq->data_size = TRANSFER_SIZE(size_ub);
-	seq->addr1 = offset;
+	seq->addr1 = (offset >> 16) & 0xffff;
+	seq->addr2 = offset & 0xffff;
 
 	if (fsm->capabilities.dummy_on_write) {
-		fsm_load_seq(fsm, &seq_dummy);
+		fsm_load_seq(fsm, &fsm_seq_dummy);
 		readl(fsm->base + SPI_FAST_SEQ_CFG);
 	}
 
@@ -1181,6 +1444,13 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 
 	/* Wait for completion */
 	fsm_wait_busy(fsm);
+
+	/* Exit 32-bit address mode, if required */
+	if (fsm->configuration & CFG_WRITE_TOGGLE32BITADDR) {
+		fsm_enter_32bitaddr(fsm, 0);
+		if (fsm->configuration & CFG_WRITE_EX32BITADDR_DELAY)
+			udelay(1);
+	}
 
 	return 0;
 }
@@ -1469,6 +1739,7 @@ static struct flash_info *__devinit fsm_jedec_probe(struct stm_spi_fsm *fsm)
 	return NULL;
 }
 
+
 /*
  * STM SPI FSM driver setup
  */
@@ -1545,7 +1816,7 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		goto out5;
 	}
 
-	/* Configure READ/WRITE sequences according to platform and device
+	/* Configure READ/WRITE/ERASE sequences according to platform and device
 	 * capabilities.
 	 */
 	if (info->config) {
@@ -1554,15 +1825,22 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 			goto out5;
 		}
 	} else {
-		if (fsm_config_rw_seqs_default(fsm, info) != 0) {
+		if (fsm_config_rwe_seqs_default(fsm, info) != 0) {
 			ret = -EINVAL;
 			goto out5;
 		}
 	}
 
+	if (fsm->capabilities.boot_from_spi &&
+	    !can_handle_soc_reset(fsm, info))
+		dev_warn(&pdev->dev, "WARNING: no provision for SPI reset"
+			 "on boot-from-spi system\n");
+
 #ifdef DEBUG_SPI_FSM_SEQS
 	fsm_dump_seq("FSM READ SEQ", &fsm_seq_read);
 	fsm_dump_seq("FSM WRITE_SEQ", &fsm_seq_write);
+	fsm_dump_seq("FSM ERASE_SECT_SEQ", &fsm_seq_erase_sector);
+	fsm_dump_seq("FSM EN32BITADDR_SEQ", &fsm_seq_en32bitaddr);
 #endif
 
 	platform_set_drvdata(pdev, fsm);
@@ -1596,12 +1874,12 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		 (long long)fsm->mtd.size, (long long)(fsm->mtd.size >> 20),
 		 fsm->mtd.erasesize, (fsm->mtd.erasesize >> 10));
 
-	/* Reduce visibility of "large" devices until we support 32-bit
-	 * addressing
-	 */
-	if (fsm->mtd.size > 16 * 1024 * 1024) {
+	/* Cap size to 16MiB if 32-bit addressing is not supported/implemented
+	 * on specific device */
+	if ((fsm->mtd.size > 16 * 1024 * 1024)  &&
+	    ((info->capabilities & FLASH_CAPS_32BITADDR) == 0)) {
 		dev_info(&pdev->dev, "reducing visibility to 16MiB "
-			 "(due to lack of support for 32-bit address mode)\n");
+			 "(32-bit address mode not supported on device)\n");
 		fsm->mtd.size = 16 * 1024 * 1024;
 	}
 

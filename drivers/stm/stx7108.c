@@ -200,10 +200,14 @@ static struct platform_device stx7108_spifsm_device = {
 
 void __init stx7108_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
+	struct sysconf_field *sc;
+
 	/* SPI FSM Controller not functional on stx7108 cut 1.0 */
 	BUG_ON(cpu_data->cut_major == 1);
 
 	stx7108_spifsm_device.dev.platform_data = data;
+
+	sc = sysconf_claim(SYS_STA_BANK1, 3, 2, 6, "mode-pins");
 
 	data->pads = &stx7108_spifsm_pad_config;
 
@@ -212,7 +216,9 @@ void __init stx7108_configure_spifsm(struct stm_plat_spifsm_data *data)
 	data->capabilities.no_write_repeat = 1;
 	data->capabilities.read_status_bug = spifsm_read_status_clkdiv4;
 	data->capabilities.no_poll_mode_change = 1;
+	data->capabilities.boot_from_spi = (sysconf_read(sc) == 0x1a) ? 1 : 0;
 
+	sysconf_release(sc);
 	platform_device_register(&stx7108_spifsm_device);
 }
 

@@ -138,6 +138,11 @@ static struct stm_plat_spifsm_data b2057_serial_flash =  {
 		/* Capabilities may be overriden by SoC configuration */
 		.dual_mode = 1,
 		.quad_mode = 1,
+		/*
+		 * Reset signal can be routed to UM7 (SO16 option) by fitting
+		 * RM52 (default is DNF)
+		 */
+		.reset_signal = 0,
 	},
 };
 

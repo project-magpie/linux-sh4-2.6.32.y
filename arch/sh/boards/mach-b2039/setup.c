@@ -95,6 +95,7 @@ static struct stm_plat_spifsm_data b2039_serial_flash =  {
 		/* Capabilities may be overriden by SoC configuration */
 		.dual_mode = 1,
 		.quad_mode = 1,
+		.reset_signal = 1, /* SoC reset routed to device reset pad */
 	},
 };
 

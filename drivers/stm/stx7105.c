@@ -147,13 +147,20 @@ static struct stm_pad_config stx7106_spifsm_pad_config = {
 
 void __init stx7106_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
+	struct sysconf_field *sc;
+
 	/* Not available on stx7105 */
 	BUG_ON(cpu_data->type == CPU_STX7105);
+
+	stx7106_spifsm_device.dev.platform_data = data;
+
+	sc = sysconf_claim(SYS_STA, 1, 5, 8, "boot-device");
 
 	/* SoC/IP Capabilities */
 	data->capabilities.quad_mode = 0;
 	data->capabilities.no_write_repeat = 1;
 	data->capabilities.read_status_bug = spifsm_no_read_status;
+	data->capabilities.boot_from_spi = (sysconf_read(sc) == 0xa) ? 1 : 0;
 
 	/* Dual mode not possible due to pad configurations issues */
 	data->capabilities.dual_mode = 0;
@@ -167,8 +174,7 @@ void __init stx7106_configure_spifsm(struct stm_plat_spifsm_data *data)
 		data->capabilities.no_poll_mode_change = 1;
 	}
 
-	stx7106_spifsm_device.dev.platform_data = data;
-
+	sysconf_release(sc);
 	platform_device_register(&stx7106_spifsm_device);
 }
 

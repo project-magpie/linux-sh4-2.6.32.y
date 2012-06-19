@@ -141,7 +141,11 @@ static struct platform_device stx5206_spifsm_device = {
 
 void __init stx5206_configure_spifsm(struct stm_plat_spifsm_data *data)
 {
+	struct sysconf_field *sc;
+
 	stx5206_spifsm_device.dev.platform_data = data;
+
+	sc = sysconf_claim(SYS_STA, 1, 16, 17, "boot-device");
 
 	/* Pads not shared with PIO (although potential conflict with PCI
 	 * alternative routing) */
@@ -153,7 +157,9 @@ void __init stx5206_configure_spifsm(struct stm_plat_spifsm_data *data)
 	data->capabilities.no_write_repeat = 1;
 	data->capabilities.no_clk_div_4 = 1;
 	data->capabilities.read_status_bug = spifsm_no_read_status;
+	data->capabilities.boot_from_spi = (sysconf_read(sc) == 0x2) ? 1 : 0;
 
+	sysconf_release(sc);
 	platform_device_register(&stx5206_spifsm_device);
 }
 

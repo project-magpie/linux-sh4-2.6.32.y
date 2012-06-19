@@ -1160,9 +1160,9 @@ static int fsm_wait_busy(struct stm_spi_fsm *fsm)
 	do {
 		cond_resched();
 
-		fsm_read_fifo(fsm, (uint32_t *)status, 4);
-
 		fsm_wait_seq(fsm);
+
+		fsm_read_fifo(fsm, (uint32_t *)status, 4);
 
 		if ((status[3] & FLASH_STATUS_BUSY) == 0)
 			return 0;

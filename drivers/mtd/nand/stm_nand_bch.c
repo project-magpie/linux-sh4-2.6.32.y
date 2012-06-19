@@ -128,6 +128,9 @@ struct nandi_controller {
 	uint8_t			*oob_buf;
 	uint32_t		*buf_list;
 
+	int			cached_page;	/* page number of page in
+						 *  'page_buf' */
+
 	struct nandi_info	info;		/* NAND device info */
 };
 
@@ -460,6 +463,7 @@ static int bch_read(struct nandi_controller *nandi,
 	struct mtd_ecc_stats stats;
 	loff_t page_mask;
 	loff_t page_offs;
+	int page_num;
 	uint32_t col_offs;
 	int ecc_errs;
 	size_t bytes;
@@ -474,6 +478,7 @@ static int bch_read(struct nandi_controller *nandi,
 	page_mask = (loff_t)page_size - 1;
 	col_offs = (uint32_t)(from & page_mask);
 	page_offs = from & ~page_mask;
+	page_num = (int)(page_offs >> nandi->page_shift);
 
 	if (retlen)
 		*retlen = 0;
@@ -488,27 +493,35 @@ static int bch_read(struct nandi_controller *nandi,
 		else
 			bounce = 0;
 
-		p = bounce ? nandi->page_buf : buf;
-
-		ecc_errs = bch_read_page(nandi, page_offs, p);
-		if (ecc_errs < 0) {
-			/* Might be better to break/return here... but we follow
-			 * approach in nand_base.c:do_nand_read_ops()
-			 */
-			dev_err(nandi->dev, "%s: uncorrectable error at "
-				"0x%012llx\n", __func__, page_offs);
-			nandi->info.mtd.ecc_stats.failed++;
+		if (page_num == nandi->cached_page) {
+			memcpy(buf, nandi->page_buf + col_offs, bytes);
 		} else {
-			if (ecc_errs) {
-				dev_info(nandi->dev, "%s: corrected %u "
-					 "error(s) at 0x%012llx\n",
-					 __func__, ecc_errs, page_offs);
-				nandi->info.mtd.ecc_stats.corrected += ecc_errs;
+			p = bounce ? nandi->page_buf : buf;
+
+			ecc_errs = bch_read_page(nandi, page_offs, p);
+			if (ecc_errs < 0) {
+				/* Might be better to break/return here... but
+				 * we follow approach in
+				 * nand_base.c:do_nand_read_ops()
+				 */
+				dev_err(nandi->dev, "%s: uncorrectable error "
+					"at 0x%012llx\n", __func__, page_offs);
+				nandi->info.mtd.ecc_stats.failed++;
+			} else {
+				if (ecc_errs) {
+					dev_info(nandi->dev, "%s: corrected %u "
+						 "error(s) at 0x%012llx\n",
+						 __func__, ecc_errs, page_offs);
+					nandi->info.mtd.ecc_stats.corrected +=
+						ecc_errs;
+				}
+			}
+
+			if (bounce) {
+				nandi->cached_page = page_num;
+				memcpy(buf, p + col_offs, bytes);
 			}
 		}
-
-		if (bounce)
-			memcpy(buf, p + col_offs, bytes);
 
 		buf += bytes;
 		len -= bytes;
@@ -518,6 +531,7 @@ static int bch_read(struct nandi_controller *nandi,
 
 		/* We are now page-aligned */
 		page_offs += page_size;
+		page_num++;
 		col_offs = 0;
 	}
 
@@ -529,6 +543,7 @@ static int bch_read(struct nandi_controller *nandi,
 
 	return 0;
 }
+
 
 /* Helper function for mtd_write, to handle multi-page and non-aligned writes */
 static int bch_write(struct nandi_controller *nandi,
@@ -560,6 +575,7 @@ static int bch_write(struct nandi_controller *nandi,
 		if (bounce) {
 			memcpy(nandi->page_buf, buf, page_size);
 			p = nandi->page_buf;
+			nandi->cached_page = -1;
 		} else {
 			p = buf;
 		}
@@ -973,6 +989,8 @@ static int nandi_scan_bad_block_markers_page(struct nandi_controller *nandi,
 	if (ret == 1) {
 		loff_t offs = (loff_t)page << nandi->page_shift;
 		uint8_t *page_buf = nandi->page_buf;
+
+		nandi->cached_page = -1;
 		if (bch_read_page(nandi, offs, page_buf) >= 0) {
 			/* All 0x00s leads to valid BCH ECC, but likely to be
 			 * bad-block marker */
@@ -1072,6 +1090,8 @@ static int bch_write_bbt_data(struct nandi_controller *nandi,
 	struct nand_ibbt_bch_header *ibbt_header =
 		(struct nand_ibbt_bch_header *)nandi->page_buf;
 	loff_t offs;
+
+	nandi->cached_page = -1;
 
 	/* Write BBT contents to first page of block*/
 	offs = (loff_t)block << nandi->block_shift;
@@ -1231,6 +1251,8 @@ static int bch_find_ibbt_sig(struct nandi_controller *nandi,
 	int match_sig;
 	unsigned int b;
 	unsigned int i;
+
+	nandi->cached_page = -1;
 
 	/* Load last page of block */
 	offs = 	(loff_t)block << nandi->block_shift;
@@ -1452,6 +1474,8 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 	uint8_t *t;
 	int s;
 
+	nandi->cached_page = -1;
+
 	pages = ops->datbuf ?
 		(ops->len >> nandi->page_shift) :
 		(ops->ooblen / mtd->oobsize);
@@ -1510,6 +1534,8 @@ static int flex_do_write_ops(struct nandi_controller *nandi,
 	uint8_t *t;
 	uint8_t status;
 	int s;
+
+	nandi->cached_page = -1;
 
 	pages = ops->datbuf ?
 		(ops->len >> nandi->page_shift) :
@@ -2467,6 +2493,7 @@ static int __devinit stm_nand_bch_probe(struct platform_device *pdev)
 				  NANDI_BCH_DMA_ALIGNMENT);
 	nandi->buf_list = (uint32_t *) PTR_ALIGN(bbt_info->bbt + bbt_buf_size,
 						 NANDI_BCH_DMA_ALIGNMENT);
+	nandi->cached_page = -1;
 
 	/* Load Flash-resident BBT */
 	err = bch_load_bbt(nandi, bbt_info);

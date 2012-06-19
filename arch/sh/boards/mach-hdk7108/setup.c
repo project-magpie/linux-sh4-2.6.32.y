@@ -627,11 +627,12 @@ static int __init device_init(void)
 	gpio_request(HDK7108_GPIO_FLASH_WP, "FLASH_WP");
 	gpio_direction_output(HDK7108_GPIO_FLASH_WP, 1);
 
-#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD) || \
-	defined(CONFIG_SH_ST_HDK7108_VER1_1_BOARD)
+#if defined(CONFIG_SH_ST_HDK7108_VER1_BOARD) ||	      \
+	defined(CONFIG_SH_ST_HDK7108_VER1_1_BOARD) || \
+	defined(CONFIG_SH_ST_HDK7108_VER2_2_BOARD)
 	/*
-	 * Rev 1.x boards only; Rev 2.x boards are populated with MLC NAND which
-	 * is not supported.
+	 * NAND only supported on Rev 1.0, 1.1, and 2.2 boards; Rev 2.0 and 2.1A
+	 * are populated with MLC NAND which is not supported.
 	 */
 	stx7108_configure_nand(&(struct stm_nand_config) {
 			.driver = stm_nand_flex,

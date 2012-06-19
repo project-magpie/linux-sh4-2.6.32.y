@@ -1816,6 +1816,14 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		goto out5;
 	}
 
+	/*
+	 * Issue warning if device found does not match that specified in the
+	 * platform data.
+	 */
+	if (data->name && strcmp(data->name, info->name) != 0)
+		dev_warn(&pdev->dev, "WARNING: expecting '%s', found '%s'\n",
+			 data->name, info->name);
+
 	/* Configure READ/WRITE/ERASE sequences according to platform and device
 	 * capabilities.
 	 */

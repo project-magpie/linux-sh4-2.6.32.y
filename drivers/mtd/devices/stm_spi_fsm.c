@@ -51,6 +51,7 @@ struct stm_spi_fsm {
 	struct stm_pad_state	*pad_state;
 	struct stm_spifsm_caps	capabilities;
 	uint32_t		configuration;
+	uint32_t		fifo_dir_delay;
 
 	void __iomem		*base;
 	struct mutex		lock;
@@ -1419,7 +1420,15 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 	 * GNBvb79594)
 	 */
 	writel(0x00040000, fsm->base + SPI_FAST_SEQ_CFG);
-	readl(fsm->base + SPI_FAST_SEQ_CFG);
+
+	/*
+	 * Before writing data to the FIFO, apply a small delay to allow a
+	 * potential change of FIFO direction to complete.
+	 */
+	if (fsm->fifo_dir_delay == 0)
+		readl(fsm->base + SPI_FAST_SEQ_CFG);
+	else
+		udelay(fsm->fifo_dir_delay);
 
 	/* Write data to FIFO, before starting sequence (see GNBvd79593) */
 	if (size_lb) {
@@ -1499,6 +1508,19 @@ static int fsm_set_freq(struct stm_spi_fsm *fsm, uint32_t freq)
 		clk_div = 6;
 	else if (clk_div > 128)
 		clk_div = 128;
+
+	/*
+	 * Determine a suitable delay for the IP to complete a change of
+	 * direction of the FIFO.  The required delay is related to the clock
+	 * divider used.  The following heuristics are based on empirical tests,
+	 * using a 100MHz EMI clock.
+	 */
+	if (clk_div <= 4)
+		fsm->fifo_dir_delay = 0;
+	else if (clk_div <= 10)
+		fsm->fifo_dir_delay = 1;
+	else
+		fsm->fifo_dir_delay = (clk_div + 9) / 10;
 
 	dev_dbg(fsm->dev, "emi_clk = %uHZ, spi_freq = %uHZ, clock_div = %u\n",
 		emi_freq, freq, clk_div);

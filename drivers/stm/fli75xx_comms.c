@@ -44,7 +44,7 @@ static struct stm_pad_config fli75xx_asc_pad_configs[] = {
 	[2] = {
 		.gpios_num = 2,
 		.gpios = (struct stm_pad_gpio []) {
-			STM_PAD_PIO_OUT(25, 7, 0),	/* TX */
+			STM_PAD_PIO_OUT(25, 7, 1),	/* TX */
 			STM_PAD_PIO_IN(25, 6, -1),	/* RX */
 		},
 	},

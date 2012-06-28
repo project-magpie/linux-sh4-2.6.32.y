@@ -406,14 +406,10 @@ static void clk_seq_show_clk(struct seq_file *s, struct clk *clk, int depth)
 	unsigned long rate = clk_get_rate(clk);
 	struct clk *child_clk;
 
-	seq_printf(s, "%*s%-*s: %4ld.%02ldMHz",
+	seq_printf(s, "%*s%-*s: %4ld.%02ldMHz users=%ld\n",
 		depth*2, "", 30-(depth*2), clk->name,
-		rate / 1000000, (rate % 1000000) / 10000);
-	if (clk_is_always_enabled(clk))
-		seq_printf(s, " always enabled");
-	else
-		seq_printf(s, " users=%ld", clk->usage_counter);
-	seq_printf(s, "\n");
+		rate / 1000000, (rate % 1000000) / 10000,
+		clk->usage_counter);
 
 	list_for_each_entry(child_clk, &clk->children, children_node)
 		clk_seq_show_clk(s, child_clk, depth+1);

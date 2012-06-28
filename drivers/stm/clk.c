@@ -317,7 +317,6 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	unsigned long flags;
 	int ret = -EINVAL;
 	struct clk *old_parent;
-	unsigned long old_rate;
 
 	if (!parent || !clk)
 		return 0;
@@ -327,24 +326,24 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 
 	spin_lock_irqsave(&clock_lock, flags);
 	old_parent = clk_get_parent(clk);
-	old_rate = clk_get_rate(clk);
 
-	if (old_rate)
+	if (clk->usage_counter)
 		/* enable the new parent if required */
 		_clk_enable(parent);
 
 	ret = __clk_set_parent(clk, parent);
 
-	/* update the parent field */
-	clk->parent = (ret ? old_parent : parent);
+	if (!ret) {
+		/* update the parent/child lists */
+		list_del(&clk->children_node);
+		clk->parent = parent;
+		list_add(&clk->children_node, &clk->parent->children);
 
-	if (old_rate)
-		/* notify to the parent the 'disable' clock */
-		_clk_disable(ret ? parent : old_parent);
-
-	/* propagate if required */
-	if (!ret)
 		clk_propagate(clk);
+	}
+	if (clk->usage_counter)
+		/* disable the right parent if required */
+		clk_disable(ret ? parent : old_parent);
 
 	spin_unlock_irqrestore(&clock_lock, flags);
 

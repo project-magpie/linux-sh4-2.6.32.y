@@ -114,8 +114,8 @@ struct ELFW(info) *ELFW(initFromMem)(uint8_t *elffile,
 	for (i = 0; i < elfinfo->numsections; i++) {
 		ElfW(Shdr) *shdr;
 		shdr = &elfinfo->secbase[i];
-		if (!ELFW(valid_offset)(elfinfo, shdr->sh_offset,
-				      shdr->sh_size))
+		if (!ELFW(valid_offset)(elfinfo, shdr->sh_offset, shdr->sh_size)
+				&& shdr->sh_type != SHT_NOBITS)
 			goto fail;
 	}
 

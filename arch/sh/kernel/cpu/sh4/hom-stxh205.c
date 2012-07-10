@@ -40,9 +40,21 @@
 #define SBC_MBX				0xfe4b4000
 #define SBC_MBX_WRITE_STATUS(x)		(SBC_MBX + 0x4 + 0x4 * (x))
 
+#define SBC_GPIO_PORT(_nr)		(0xfe610000 + (_nr) * 0x1000)
+
+#define LMI_RET_GPIO_PORT		3
+#define LMI_RET_GPIO_PIN		3
+#define LMI_RETENTION_PIN	stm_gpio(LMI_RET_GPIO_PORT, LMI_RET_GPIO_PIN)
 
 static unsigned long stxh205_hom_table[] __cacheline_aligned = {
 synopsys_ddr32_in_hom(DDR3SS_REG),
+
+/*
+ * Enable retention mode gpio
+ *
+ */
+POKE32(SBC_GPIO_PORT(LMI_RET_GPIO_PORT) + STM_GPIO_REG_CLR_POUT,
+	 1 << LMI_RET_GPIO_PIN),
 
 /*
  * Send message 'ENTER_PASSIVE' (0x5)
@@ -101,15 +113,29 @@ static int __init hom_stxh205_setup(void)
 {
 	int ret;
 
+	ret = gpio_request(LMI_RETENTION_PIN, "LMI retention mode");
+	if (ret) {
+		pr_err("[STM]: [PM]: [HoM]: GPIO for retention mode"
+			"not acquired\n");
+		return ret;
+	};
+
+	gpio_direction_output(LMI_RETENTION_PIN, 1);
+
 	ret = stm_hom_register(&stxh205_hom);
-	if (!ret) {
-		early_console_base = (void *)
+	if (ret) {
+		gpio_free(LMI_RETENTION_PIN);
+		return ret;
+	}
+
+	early_console_base = (void *)
 		ioremap(stm_asc_configured_devices[stm_asc_console_device]
 			->resource[0].start, 0x1000);
-		pr_info("[STM]: [PM]: [HoM]: Early console @ %p\n",
-			early_console_base);
-		stxh205_hom.early_console = stxh205_hom_early_console;
-	}
+
+	pr_info("[STM]: [PM]: [HoM]: Early console @ %p\n",
+		early_console_base);
+	stxh205_hom.early_console = stxh205_hom_early_console;
+
 	return ret;
 }
 

@@ -1,6 +1,5 @@
 /**
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
- * Copyright (C) 2011 STMicroelectronics R&D Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -18,7 +17,6 @@
 #include <linux/cdev.h>     /* character device definitions */
 #include <linux/mm.h> /* memory mananger definitions */
 #include <linux/device.h>
-#include <linux/io.h>
 
 /* the mali kernel subsystem types */
 #include "mali_kernel_subsystem.h"
@@ -82,9 +80,6 @@ static char mali_dev_name[] = "mali"; /* should be const, but the functions we c
 /* the mali device */
 static struct mali_dev device;
 
-/* uncached remapped memory, for an STBus uncached write barrier */
-struct page *stbus_barrier_system_page;
-volatile int *stbus_system_memory_barrier;
 
 static int mali_open(struct inode *inode, struct file *filp);
 static int mali_release(struct inode *inode, struct file *filp);
@@ -114,30 +109,12 @@ struct file_operations mali_fops =
 int mali_driver_init(void)
 {
 	int err;
-	u32 phys;
-	stbus_barrier_system_page = alloc_pages(GFP_HIGHUSER | __GFP_ZERO | __GFP_NORETRY | __GFP_NOWARN, 1 );
-	if(NULL == stbus_barrier_system_page)
-		return -ENOMEM;
-
-#if defined(__sh__)
-	SetPageReserved(stbus_barrier_system_page);
-#endif
-	phys = page_to_phys( stbus_barrier_system_page );
-	stbus_system_memory_barrier = (int *)ioremap_nocache(phys,sizeof(int));
-	if(NULL == stbus_system_memory_barrier)
-	{
-		__free_pages(stbus_barrier_system_page,1);
-		return -ENOMEM;
-	}
-	*stbus_system_memory_barrier = 0;
-
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
 #ifdef CONFIG_PM
 	err = _mali_dev_platform_register();
 	if (err)
 	{
-		__free_pages(stbus_barrier_system_page,1);
 		return err;
 	}
 #endif
@@ -167,23 +144,17 @@ void mali_driver_exit(void)
 {
 	mali_kernel_destructor();
 
-#if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
+#if USING_MALI_PMM
 #ifdef CONFIG_PM
 	_mali_dev_platform_unregister();
 #endif
 #endif
-#endif
 
-	if (NULL != stbus_system_memory_barrier)
-		iounmap((void *)stbus_system_memory_barrier);
-
-	if (NULL != stbus_barrier_system_page) {
-#if defined(__sh__)
-		ClearPageReserved(stbus_barrier_system_page);
+	flush_workqueue(mali_wq);
+	destroy_workqueue(mali_wq);
+	mali_wq = NULL;
 #endif
-		__free_pages(stbus_barrier_system_page, 1);
-	}
 }
 
 /* called from _mali_osk_init */
@@ -215,7 +186,6 @@ int initialize_kernel_device(void)
 	cdev_init(&device.cdev, &mali_fops);
 	device.cdev.owner = THIS_MODULE;
 	device.cdev.ops = &mali_fops;
-	kobject_set_name(&(device.cdev.kobj), mali_dev_name);
 
 	/* register char dev with the kernel */
 	err = cdev_add(&device.cdev, dev, 1/*count*/);

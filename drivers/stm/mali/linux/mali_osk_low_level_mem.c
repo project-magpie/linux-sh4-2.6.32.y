@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -27,10 +27,6 @@
 #include "mali_kernel_common.h"
 #include "mali_kernel_linux.h"
 
-#ifndef CONFIG_PARANOID_MEM_BARRIERS
-#define CONFIG_PARANOID_MEM_BARRIERS 1
-#endif
-
 static void mali_kernel_memory_vma_open(struct vm_area_struct * vma);
 static void mali_kernel_memory_vma_close(struct vm_area_struct * vma);
 
@@ -41,7 +37,6 @@ static int mali_kernel_memory_cpu_page_fault_handler(struct vm_area_struct *vma,
 static unsigned long mali_kernel_memory_cpu_page_fault_handler(struct vm_area_struct * vma, unsigned long address);
 #endif
 
-extern volatile int *stbus_system_memory_barrier;
 
 typedef struct mali_vma_usage_tracker
 {
@@ -68,7 +63,6 @@ typedef struct AllocationList AllocationList;
 struct MappingInfo
 {
 	struct vm_area_struct *vma;
-	mali_vma_usage_tracker *vma_usage_tracker;
 	struct AllocationList *list;
 };
 
@@ -82,7 +76,7 @@ static void _allocation_list_item_release(AllocationList * item);
 
 
 /* Variable declarations */
-spinlock_t allocation_list_spinlock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(allocation_list_spinlock);
 static AllocationList * pre_allocated_memory = (AllocationList*) NULL ;
 static int pre_allocated_memory_size_current  = 0;
 #ifdef MALI_OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB
@@ -136,10 +130,6 @@ static u32 _kernel_page_allocate(void)
 	/* Ensure page is flushed from CPU caches. */
 	linux_phys_addr = dma_map_page(NULL, new_page, 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
 
-#if defined(__sh__)
-			_mali_osk_mem_barrier();
-#endif
-	
 	return linux_phys_addr;
 }
 
@@ -282,42 +272,12 @@ static void mali_kernel_memory_vma_close(struct vm_area_struct * vma)
 
 void _mali_osk_mem_barrier( void )
 {
-	/*
-	 * Note: mb() is a NOP on ST SH4 architectures
-	 */
 	mb();
-
-#if defined(__sh__) && (CONFIG_PARANOID_MEM_BARRIERS == 1)
-	/*
-	 * This is what mb would have done but it is pretty useless on ST SoCs as
-	 * the CPU sync will return as soon as STBus says the write has happened,
-	 * but all writes are posted, so this doesn't mean the write has reached
-	 * its target.
-	 */
-	__asm__ __volatile__ ("synco": : :"memory");
-#endif
-
-	/*
-	 * This ensures that any previous uncached writes, from the CPU to the
-	 * memory interface the Linux kernel is mapped in to, have really reached
-	 * DDR and are available to be read by the GPU. It is actually the read
-	 * here which ensures the ordering, the write is just there to make sure the
-	 * compiler doesn't optimize it out.
-	 *
-	 */
-	(*stbus_system_memory_barrier)++;
 }
 
 void _mali_osk_write_mem_barrier( void )
 {
-	/*
-	 * On the SH4 the address we get here is a userspace address, for
-	 * which we have no interface that can be used to flush the L2. So
-	 * instead we flush pages during the map function when they are
-	 * allocated from the kernel. However just for paranoia we put a
-	 * bus barrier here.
-	 */
-	_mali_osk_mem_barrier();
+	wmb();
 }
 
 mali_io_address _mali_osk_mem_mapioregion( u32 phys, u32 size, const char *description )
@@ -387,21 +347,6 @@ u32 inline _mali_osk_mem_ioread32( volatile mali_io_address addr, u32 offset )
 void inline _mali_osk_mem_iowrite32( volatile mali_io_address addr, u32 offset, u32 val )
 {
 	iowrite32(val, ((u8*)addr) + offset);
-
-#if (CONFIG_PARANOID_MEM_BARRIERS == 1)
-#if defined(__sh__)
-	__asm__ __volatile__ ("synco": : :"memory");
-#endif
-        /*
-	 * This readback ensures that the previous write must have reached the
-	 * bus target it was intended for. The usual place this can catch you out
-	 * is clearing interrupts, if the write to the clear register doesn't
-	 * complete before the interrupt handler returns, the interrupt controller
-	 * may still see the interrupt as asserted and the linux interrupt
-	 * dispatcher will call the handler again spuriously.
-	 */
-	val = ioread32(((u8*)addr) + offset);
-#endif
 }
 
 void _mali_osk_cache_flushall( void )
@@ -443,7 +388,6 @@ _mali_osk_errcode_t _mali_osk_mem_mapregion_init( mali_memory_allocation * descr
 	}
 
 	mappingInfo->vma = vma;
-	mappingInfo->vma_usage_tracker = vma_usage_tracker;
 	descriptor->process_addr_mapping_info = mappingInfo;
 
 	/* Do the va range allocation - in this case, it was done earlier, so we copy in that information */
@@ -472,6 +416,7 @@ _mali_osk_errcode_t _mali_osk_mem_mapregion_init( mali_memory_allocation * descr
 
 void _mali_osk_mem_mapregion_term( mali_memory_allocation * descriptor )
 {
+	struct vm_area_struct* vma;
 	mali_vma_usage_tracker * vma_usage_tracker;
 	MappingInfo *mappingInfo;
 
@@ -485,17 +430,15 @@ void _mali_osk_mem_mapregion_term( mali_memory_allocation * descriptor )
 
 	/* Linux does the right thing as part of munmap to remove the mapping
 	 * All that remains is that we remove the vma_usage_tracker setup in init() */
+	vma = mappingInfo->vma;
 
-	/* vma_area_struct in descriptor and in vma_close can be different.
-	 * Dereferencing vma to get tracker can fault, as kernel MIGHT have
-	 * freed the vma_area_struct in the descriptor. Now vma_usage_tracker
-	 * can be obtained from mappingInfo, which will be valid at this point.
-	 */
-	vma_usage_tracker = mappingInfo->vma_usage_tracker;
-	
+	MALI_DEBUG_ASSERT_POINTER( vma );
+
 	/* ASSERT that there are no allocations on the list. Unmap should've been
 	 * called on all OS allocations. */
 	MALI_DEBUG_ASSERT( NULL == mappingInfo->list );
+
+	vma_usage_tracker = vma->vm_private_data;
 
 	/* We only get called if mem_mapregion_init succeeded */
 	_mali_osk_free(vma_usage_tracker);

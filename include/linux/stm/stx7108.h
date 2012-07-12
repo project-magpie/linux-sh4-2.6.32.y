@@ -186,8 +186,6 @@ struct stx7108_pcie_config {
 
 void stx7108_configure_pcie(struct stx7108_pcie_config *config);
 
-void stx7108_configure_mali(struct stm_mali_config *config);
-
 void stx7108_configure_spifsm(struct stm_plat_spifsm_data *data);
 
 #endif

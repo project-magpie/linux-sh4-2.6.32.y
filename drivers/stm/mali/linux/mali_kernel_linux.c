@@ -18,7 +18,6 @@
 #include <linux/cdev.h>     /* character device definitions */
 #include <linux/mm.h> /* memory mananger definitions */
 #include <linux/device.h>
-#include <linux/platform_device.h>
 #include <linux/io.h>
 
 /* the mali kernel subsystem types */
@@ -111,37 +110,6 @@ struct file_operations mali_fops =
 	.mmap = mali_mmap
 };
 
-/*
- * The STM board specific init will create the platform device. This is our reference to
- * it that will be setup when he platform driver matched to it is probed.
- */
-struct platform_device *mali_plat_device;
-
-/* If mali is doing PM then we will use the platform driver it sets up otherwise
- * we will use this trivial version */
-#if ! USING_MALI_PMM
-static int mali_platform_probe(struct platform_device *);
-static void mali_platform_shutdown(struct platform_device *);
-static int mali_platform_remove(struct platform_device *);
-#ifdef CONFIG_PM
-static int mali_platform_suspend(struct platform_device *pdev, pm_message_t state);
-static int mali_platform_resume(struct platform_device *pdev);
-#endif
-
-static struct platform_driver mali_plat_driver = {
-        .probe    = mali_platform_probe,
-#ifdef CONFIG_PM
-        .suspend  = mali_platform_suspend,
-        .resume   = mali_platform_resume,
-#endif
-        .shutdown = mali_platform_shutdown,
-        .remove   = __exit_p(mali_platform_remove),
-        .driver   = {
-                .name     = "mali",
-                .owner    = THIS_MODULE
-        }
-};
-#endif
 
 int mali_driver_init(void)
 {
@@ -172,30 +140,22 @@ int mali_driver_init(void)
 		__free_pages(stbus_barrier_system_page,1);
 		return err;
 	}
-
+#endif
+#endif
+#endif
 	err = mali_kernel_constructor();
 	if (_MALI_OSK_ERR_OK != err)
 	{
+#if USING_MALI_PMM
+#if MALI_LICENSE_IS_GPL
+#ifdef CONFIG_PM
 		_mali_dev_platform_unregister();
+#endif
+#endif
+#endif
 		MALI_PRINT(("Failed to initialize driver (error %d)\n", err));
 		return -EFAULT;
 	}
-
-#endif
-#endif
-#else
-    /* If we dont have PM configured then we need to provide our own trivial platform driver */
-	err = platform_driver_register(&mali_plat_driver);
-	if( err )
-	{
-		MALI_PRINT(("Failed to register platform driver (error %d)\n", err));
-		return err;
-	}
-
-    /* We can't call the mali constructor at this point.
-     * Instead it will be called when the system probes our trivial platform device
-     */
-#endif
 
 	/* print build options */
 	MALI_DEBUG_PRINT(2, ("%s\n", __malidrv_build_info()));
@@ -206,14 +166,13 @@ int mali_driver_init(void)
 void mali_driver_exit(void)
 {
 	mali_kernel_destructor();
+
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
 #ifdef CONFIG_PM
 	_mali_dev_platform_unregister();
 #endif
 #endif
-#else
-	platform_driver_unregister(&mali_plat_driver);
 #endif
 
 	if (NULL != stbus_system_memory_barrier)
@@ -257,7 +216,7 @@ int initialize_kernel_device(void)
 	device.cdev.owner = THIS_MODULE;
 	device.cdev.ops = &mali_fops;
 	kobject_set_name(&(device.cdev.kobj), mali_dev_name);
-	
+
 	/* register char dev with the kernel */
 	err = cdev_add(&device.cdev, dev, 1/*count*/);
 	if (err)
@@ -548,57 +507,6 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 
 	return err;
 }
-
-
-/* These are for the local trivial platform driver */
-#if ! USING_MALI_PMM
-static int mali_platform_probe(struct platform_device *pdev)
-{
-	_mali_osk_errcode_t err;
-	MALI_DEBUG_PRINT(2, ("Mali (non-PM) Platform device probe id = %d num_resources = %d resource = %p.\n",pdev->id,pdev->num_resources,pdev->resource));
-
-	if(pdev->id != 0 || pdev->num_resources == 0 || pdev->resource == NULL)
-		return -ENODEV;
-
-	/* Set global so we can get hold of the resources in the mali resource abstraction code. */
-	mali_plat_device = pdev;
-
-	/* now we can call the knl ctor that was deferred from earlier in the module init */
-	err = mali_kernel_constructor();
-	if (_MALI_OSK_ERR_OK != err)
-	{
-		MALI_PRINT(("Failed to initialize driver (error %d)\n", err));
-		return -EFAULT;
-	}
-
-	platform_set_drvdata(pdev,&device);
-	return 0;
-}
-
-static void mali_platform_shutdown(struct platform_device *pdev)
-{
-	return;
-}
-
-static int __exit mali_platform_remove(struct platform_device *pdev)
-{
-	return 0;
-}
-
-#ifdef CONFIG_PM
-int mali_platform_suspend(struct platform_device *pdev, pm_message_t state)
-{
-	/* This should never be called */
-	return 0;
-}
-
-int mali_platform_resume(struct platform_device *pdev)
-{
-	/* This should never be called */
-	return 0;
-}
-#endif
-#endif
 
 
 module_init(mali_driver_init);

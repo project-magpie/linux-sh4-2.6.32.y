@@ -77,13 +77,6 @@ config	SH_ST_HDK7108_MMC_NONE
 
 endchoice
 
-config STM_HDK7108_MALI_OS_MEMORY_SIZE
-	hex "Maximum Mali GPU OS memory size"
-	default "0x5000000"
-	help
-	  Specify the size of memory which the Mali driver is allowed to allocate
-	  from Linux kernel.
-
 endmenu
 
 endif

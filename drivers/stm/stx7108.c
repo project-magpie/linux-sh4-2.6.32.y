@@ -86,31 +86,6 @@ static struct platform_device stx7108_emi = {
 		.power = stx7108_emi_power,
 	}
 };
-/* Mali resources --------------------------------------------------------- */
-
-static struct platform_device stx7108_mali_device = {
-	.name = "mali",
-	.id = 0,
-	.num_resources = 9,
-	.resource = (struct resource []) {
-		STM_PLAT_RESOURCE_MEM_NAMED("MALI400GP", 0xfe710000, 0x1000),
-		STM_PLAT_RESOURCE_MEM_NAMED("MALI400PP-0", 0xfe718000, 0x10F0),
-		STM_PLAT_RESOURCE_MEM_NAMED("MMU-1", 0xfe713000, 0x1000),
-		STM_PLAT_RESOURCE_MEM_NAMED("MMU-2", 0xfe714000, 0x1000),
-		STM_PLAT_RESOURCE_MEM_NAMED("MALI400L2",  0xfe711000, 0x1000),
-		STM_PLAT_RESOURCE_IRQ_NAMED("MALI400GP", ILC_IRQ(115), -1),
-		STM_PLAT_RESOURCE_IRQ_NAMED("MALI400PP-0", ILC_IRQ(113), -1),
-		STM_PLAT_RESOURCE_IRQ_NAMED("MMU-1", ILC_IRQ(116), -1),
-		STM_PLAT_RESOURCE_IRQ_NAMED("MMU-2", ILC_IRQ(114), -1),
-	},
-};
-
-void stx7108_configure_mali(struct stm_mali_config *priv_data)
-{
-	stx7108_mali_device.dev.platform_data = priv_data;
-	platform_device_register(&stx7108_mali_device);
-}
-
 
 /* PATA resources --------------------------------------------------------- */
 

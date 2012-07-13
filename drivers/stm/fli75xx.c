@@ -528,7 +528,7 @@ static void fli75xx_sysconf_PRB_PU_CFG_1(char *name, int size,
 	SYSCONF_REG(CFG_PCI_ROPC_STATUS);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_PRB_PU_CFG_2(char *name, int size,
@@ -547,7 +547,7 @@ static void fli75xx_sysconf_PRB_PU_CFG_2(char *name, int size,
 	SYSCONF_REG(CFG_EMI_ROPC_STATUS);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_TRS_SPARE_REGS_0(char *name, int size,
@@ -566,7 +566,7 @@ static void fli75xx_sysconf_TRS_SPARE_REGS_0(char *name, int size,
 	SYSCONF_REG(CFG_EXTRA_ID1_LSB);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_TRS_SPARE_REGS_1(char *name, int size,
@@ -585,7 +585,7 @@ static void fli75xx_sysconf_TRS_SPARE_REGS_1(char *name, int size,
 	SYSCONF_REG(CFG_EXTRA_ID1_MSB);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_VDEC_PU_CFG_0(char *name, int size,
@@ -604,7 +604,7 @@ static void fli75xx_sysconf_VDEC_PU_CFG_0(char *name, int size,
 	SYSCONF_REG(CFG_INTERRUPT);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_VDEC_PU_CFG_1(char *name, int size,
@@ -623,7 +623,7 @@ static void fli75xx_sysconf_VDEC_PU_CFG_1(char *name, int size,
 	SYSCONF_REG(CFG_INTERRUPT_REG8);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_VOUT_SPARE_REGS(char *name, int size,
@@ -641,7 +641,7 @@ static void fli75xx_sysconf_VOUT_SPARE_REGS(char *name, int size,
 	SYSCONF_REG(CFG_REG7_UNUSED);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_CKG_DDR(char *name, int size,
@@ -654,7 +654,7 @@ static void fli75xx_sysconf_CKG_DDR(char *name, int size,
 	SYSCONF_REG(CKG_DDR_STATUS_PLL_DDR);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 static void fli75xx_sysconf_PCIE_SPARE_REGS(char *name, int size,
@@ -673,7 +673,7 @@ static void fli75xx_sysconf_PCIE_SPARE_REGS(char *name, int size,
 	SYSCONF_REG(CFG_REG8_PCIE_SYS_ERR_INTERRUPT);
 	}
 
-	strlcpy(name, size, str);
+	strlcpy(name, str, size);
 }
 
 #endif

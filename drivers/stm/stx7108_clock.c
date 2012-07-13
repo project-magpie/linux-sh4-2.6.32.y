@@ -14,6 +14,7 @@ int __init plat_clk_alias_init(void)
 {
 	/* core clocks */
 	clk_add_alias("cpu_clk", NULL, "CLKA_SH4L2_ICK", NULL);
+	clk_add_alias("gpu_clk", NULL, "CLKA_IC_GPU", NULL);
 	clk_add_alias("module_clk", NULL, "CLKA_IC_REG_LP_ON", NULL);
 	clk_add_alias("comms_clk", NULL, "CLKA_IC_REG_LP_ON", NULL);
 

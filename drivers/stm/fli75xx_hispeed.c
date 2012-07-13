@@ -558,19 +558,16 @@ static int fli7520_usb_exit(struct stm_device_state *device_state)
 	return 0;
 }
 
-static int fli7520_usb_power(struct stm_device_state *device_state,
+static void fli7520_usb_power(struct stm_device_state *device_state,
 	enum stm_device_power_state power)
 {
 	if (power == stm_device_power_on) {
 		sysconf_write(sc_fli7520_usb_power, 0);
 		atomic_inc(&fli7520_usb_power_counter);
-		return 0;
 	}
 
 	if (!atomic_dec_return(&fli7520_usb_power_counter))
 		sysconf_write(sc_fli7520_usb_power, 1);
-
-	return 0;
 }
 
 static struct stm_plat_usb_data fli7520_usb_platform_data[] = {

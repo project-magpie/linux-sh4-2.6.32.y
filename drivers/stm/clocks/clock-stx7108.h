@@ -10,7 +10,7 @@
  *****************************************************************************/
 
 /* LLA version: YYYYMMDD */
-#define LLA_VERSION 20100520
+#define LLA_VERSION 20111125
 
 enum {
 	CLK_SYSIN,

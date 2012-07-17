@@ -269,6 +269,7 @@ void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 	struct plat_stmmacenet_data *plat_data;
 	struct stm_pad_config *pad_config;
 	int interface;
+	struct clk *clk;
 
 	BUG_ON(configured++);
 
@@ -323,6 +324,12 @@ void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 	plat_data->phy_addr = config->phy_addr;
 	plat_data->mdio_bus_data = config->mdio_bus_data;
 
+	clk = clk_get(NULL, "stmmac_clk");
+	if (!IS_ERR(clk))
+		clk_enable(clk);
+	clk = clk_get(NULL, "stmmac_phy_clk");
+	if (!IS_ERR(clk))
+		clk_enable(clk);
 	platform_device_register(&stxh205_ethernet_device);
 }
 

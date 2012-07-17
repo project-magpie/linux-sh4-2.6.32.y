@@ -11,14 +11,19 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+04/jul/12 ravinder-dlh.singh@st.com
+	  Some minor updates/corrections (clkgenax_get_measure,clkgenb_set_rate)
+12/jun/12 fabrice.charpentier@st.com
+	  clkgenax_disable() revisited. Added CLK_ALWAYS_ENABLE flag check.
 02/jan/12 ravinder-dlh.singh@st.com
-      Adding support to enable/disable VCC clocks
+	  Adding support to enable/disable VCC clocks
 07/dec/11 ravinder-dlh.singh@st.com
-      Updates based on Linux delivery from Francesco Virlinzi
+	  Updates based on Linux delivery from Francesco Virlinzi
 	  clockgenB observation function updated.
 28/nov/11 ravinder-dlh.singh@st.com
-      Integrated updates from Francesco Virlinzi (linux) for clockgenA0/A1
-      Added support for clockgenB (FS0/1) and clockgeC(FS2) based on new FS660c32 algo.
+	  Integrated updates from Francesco Virlinzi (linux) for clockgenA0/A1
+	  Added support for clockgenB (FS0/1) and clockgeC(FS2)
+	  based on new FS660c32 algo.
 28/sep/11 ravinder-dlh.singh@st.com
 	  More updates for ST_H205 add and remove H205_PS1/PS2 stuff
 14/jul/11 ravinder-dlh.singh@st.com
@@ -145,9 +150,9 @@ _CLK_OPS(clkgenc,
 static clk_t clk_clocks[] = {
 /* Top level clocks */
 _CLK_FIXED(CLK_SYSIN, SYS_CLKIN * 1000000,
-	CLK_RATE_PROPAGATES | CLK_ALWAYS_ENABLED),
+	  CLK_RATE_PROPAGATES | CLK_ALWAYS_ENABLED),
 _CLK_FIXED(CLK_SYSALT, SYS_CLKALT * 1000000,
-	CLK_RATE_PROPAGATES | CLK_ALWAYS_ENABLED),
+	  CLK_RATE_PROPAGATES | CLK_ALWAYS_ENABLED),
 
 /* Clockgen A0 */
 _CLK_P(CLK_A0_REF, &clkgena0, 0,
@@ -171,7 +176,7 @@ _CLK(CLK_A0_IC_STNOC,       &clkgena0,    450000000,    0),
 _CLK(CLK_A0_GDP_PROC,       &clkgena0,    360000000,    0),
 _CLK(CLK_A0_NAND_CTRL,      &clkgena0,    200000000,    0),
 _CLK(CLK_A0_IC_REG_LP_ON,   &clkgena0,    100000000,    CLK_ALWAYS_ENABLED),
-_CLK(CLK_A0_SECURE,	    &clkgena0,    100000000,    0),
+_CLK(CLK_A0_SECURE,	        &clkgena0,    100000000,    0),
 _CLK(CLK_A0_IC_TS_DMA,      &clkgena0,    225000000,    CLK_ALWAYS_ENABLED),
 _CLK(CLK_A0_TSOUT_SRC,      &clkgena0,    137000000,    0),
 _CLK(CLK_A0_IC_REG_LP_OFF,  &clkgena0,    100000000,    0),
@@ -253,9 +258,9 @@ _CLK_P(CLK_C_PCM1, &clkgenc, 27000000, 0, &clk_clocks[CLK_C_FS_VCO]),
 
 #ifdef ST_OS21
 static sysconf_base_t sysconf_base[] = {
-	{ 100, 199, CFG_1_BASE_ADDRESS },
-	{ 200, 399, CFG_2_BASE_ADDRESS },
-	{ 400, 599, CFG_3_BASE_ADDRESS },
+	{ 100, 184, CFG_1_BASE_ADDRESS },
+	{ 200, 248, CFG_2_BASE_ADDRESS },
+	{ 400, 510, CFG_3_BASE_ADDRESS },
 	{ 0, 0, 0 }
 };
 
@@ -612,7 +617,7 @@ static int clkgenax_disable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
-       /* PLL power down */
+	/* PLL power down */
 	switch (clk_p->id) {
 	case CLK_A0_REF:
 	case CLK_A1_REF:
@@ -674,9 +679,9 @@ static int clkgenax_set_div(clk_t *clk_p, unsigned long *div_p)
 }
 
 /* ========================================================================
-   Name:	clkgenax_recalc
-   Description:	Get CKGA programmed clocks frequencies
-   Returns:	'clk_err_t' error code
+   Name:        clkgenax_recalc
+   Description: Get CKGA programmed clocks frequencies
+   Returns:     'clk_err_t' error code
    ======================================================================== */
 
 static int clkgenax_recalc(clk_t *clk_p)
@@ -802,7 +807,7 @@ static int clkgenax_observe(clk_t *clk_p, unsigned long *div_p)
 		*div_p = 1;
 		break;
 	}
-	base_addr = clkgenax_get_base_address(clk_p->id); /*check*/
+	base_addr = clkgenax_get_base_address(clk_p->id); /* check */
 	CLK_WRITE((base_addr + CKGA_CLKOBS_MUX0_CFG),
 		(divcfg << 6) | (sel & 0x3f));
 
@@ -815,12 +820,12 @@ static int clkgenax_observe(clk_t *clk_p, unsigned long *div_p)
 #ifdef ST_OS21
 	if (base_addr == CKGA0_BASE_ADDRESS) {
 		SYSCONF_WRITE(0, 108, 0, 2, 3);	/* Selecting alternate 3 */
-		SYSCONF_WRITE(0, 111, 0, 0, 1); /* Enabling IO */
+		SYSCONF_WRITE(0, 111, 0, 0, 1);/* Enabling IO */
 		SYSCONF_WRITE(0, 117, 0, 0, 0);	/* Open drain */
 		SYSCONF_WRITE(0, 114, 0, 0, 0); /* pull up */
 	} else {
 		SYSCONF_WRITE(0, 108, 4, 6, 3);	/* Selecting alternate 3 */
-		SYSCONF_WRITE(0, 111, 1, 1, 1); /* Enabling IO */
+		SYSCONF_WRITE(0, 111, 1, 1, 1);/* Enabling IO */
 		SYSCONF_WRITE(0, 117, 1, 1, 0);	/* Open drain  */
 		SYSCONF_WRITE(0, 114, 1, 1, 0); /* pull up */
 	}
@@ -842,9 +847,7 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 	unsigned long div, idf, ndiv, cp;
 	int err = 0;
 	long deviation, new_deviation;
-#if !defined(CLKLLA_NO_PLL)
-	unsigned long data;
-#endif
+
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 	if (clk_p->id < CLK_A0_PLL0HS || clk_p->id > CLK_A0_MASTER)
@@ -861,6 +864,7 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 		if (err != 0)
 			break;
 #if !defined(CLKLLA_NO_PLL)
+		unsigned long data;
 		data = CLK_READ(CKGA0_BASE_ADDRESS + CKGA_PLL0_REG0_CFG)
 				& 0xffffff00;
 		data |= ndiv;
@@ -997,21 +1001,6 @@ static unsigned long clkgenax_get_measure(clk_t *clk_p)
 {
 	unsigned long src, data, base;
 	unsigned long measure;
-	/* WARNING: the measure_table[] must strictly follows clockgen
-	 * enum order taking into account any "holes" (CLK_A_NOT_USED)
-	 * filled with 0xffffffff
-	 */
-	static const unsigned char measure_table_a0[] = {
-		0x8, 0x9, 0xa, 0xb, 0xc, 0xff, 0xe, 0xf, 0xff, 0x11,
-		0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0xff,
-		0x1a, 0x1b, 0xff, 0x1d, 0xff, 0x1f, 0xff, 0x21
-	};
-	static const unsigned char measure_table_a1[] = {
-		0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xff, 0xff, 0xff,
-		0x12, 0xff, 0x14, 0xff, 0x16, 0x17, 0xff, 0xff,
-		0xff, 0x1b, 0xff, 0x1d, 0x1e, 0xff, 0xff, 0xff,
-		0x22, 0xff, 0x24
-	};
 	int i;
 
 	if (!clk_p)
@@ -1019,28 +1008,24 @@ static unsigned long clkgenax_get_measure(clk_t *clk_p)
 
 	switch (clk_p->id) {
 	case CLK_A0_SH4_ICK ... CLK_A0_MASTER:
-		src = measure_table_a0[clk_p->id - CLK_A0_SH4_ICK];
-		base = CKGA0_BASE_ADDRESS;
+		src = clk_p->id - CLK_A0_SH4_ICK;
 		break;
 	case CLK_A1_IC_DDRCTRL ... CLK_A1_SYS_MMC:
-		src = measure_table_a1[clk_p->id - CLK_A1_IC_DDRCTRL];
-		base = CKGA1_BASE_ADDRESS;
+		src = clk_p->id - CLK_A1_IC_DDRCTRL;
 		break;
 	default:
 		return 0;
 	}
 
-	if (src == 0xff)
-		return 0;
-
 	measure = 0;
+	base = clkgenax_get_base_address(clk_p->id);
 
 	/* Loading the MAX Count 1000 in 30MHz Oscillator Counter */
 	CLK_WRITE(base + CKGA_CLKOBS_MASTER_MAXCOUNT, 0x3E8);
 	CLK_WRITE(base + CKGA_CLKOBS_CMD, 3);
 
 	/* Selecting clock to observe */
-	CLK_WRITE(base + CKGA_CLKOBS_MUX1_CFG, (1 << 7) | src);
+	CLK_WRITE(base + CKGA_CLKOBS_MUX0_CFG, (1 << 7) | src);
 
 	/* Start counting */
 	CLK_WRITE(base + CKGA_CLKOBS_CMD, 0);
@@ -1104,7 +1089,7 @@ static int clkgenb_fsyn_recalc(clk_t *clk_p)
 
 	/* Checking FSYN analog status */
 	cfg = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_CFG(bank));
-	if ((cfg  & ((1 << 14) | (1 << 0))) != ((1 << 14) | (1 << 0))) {
+	if ((cfg  & (1 << 14)) != (1 << 14)) {
 		/* Analog power down or reset */
 		clk_p->rate = 0;
 		return 0;
@@ -1254,19 +1239,21 @@ static int clkgenb_set_rate(clk_t *clk_p, unsigned long freq)
 		if (clk_fs660c32_vco_get_params(clk_p->parent->rate,
 			freq, &ndiv))
 			return CLK_ERR_BAD_PARAMETER;
+		SYSCONF_WRITE(0, 424, 14, 14, 0); /* PLL power down */
 		SYSCONF_WRITE(0, 424, 15, 17, ndiv);
 		SYSCONF_WRITE(0, 424, 14, 14, 1); /* PLL power up */
-		return 0;
+		break;
 	case CLK_B_FS1_VCO:
 		if (clk_fs660c32_vco_get_params(clk_p->parent->rate,
 			freq, &ndiv))
 			return CLK_ERR_BAD_PARAMETER;
+		SYSCONF_WRITE(0, 478, 14, 14, 0); /* PLL power down */
 		SYSCONF_WRITE(0, 478, 15, 17, ndiv);
 		SYSCONF_WRITE(0, 478, 14, 14, 1); /* PLL power up */
 		break;
 	case CLK_B_VID_HD_LOCAL ... CLK_B_CLK_27_0:
 	case CLK_B_VID_SD_REMOTE ... CLK_B_CLK_27_1:
-		if (clk_fs660liege_dig_get_params(clk_p->parent->rate,
+		if (clk_fs660c32_dig_get_params(clk_p->parent->rate,
 			freq, &nsdiv, &md, &pe, &sdiv))
 			return CLK_ERR_BAD_PARAMETER;
 
@@ -1276,11 +1263,15 @@ static int clkgenb_set_rate(clk_t *clk_p, unsigned long freq)
 		else
 			channel = clk_p->id - CLK_B_VID_SD_REMOTE;
 
-		/* Removing reset, digit standby and analog standby */
+		/* Removing reset, digit standby */
 		val = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_CFG(bank));
-		val |= (1 << 14) | (1 << (10 + channel)) | (1 << 0);
+		val |= (1 << (10 + channel)) | (1 << 0);
 		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_CFG(bank), val);
 
+		val = CLK_READ(CKGB_BASE_ADDRESS +
+			CKGB_FS_EN_PRG(bank, channel));
+		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel),
+			val & ~0x1);
 		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_PE(bank, channel), pe);
 		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_MD(bank, channel), md);
 		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_SDIV(bank, channel),
@@ -1295,12 +1286,6 @@ static int clkgenb_set_rate(clk_t *clk_p, unsigned long freq)
 		val = CLK_READ(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel));
 		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel), val | 0x1);
 		CLK_WRITE(CKGB_BASE_ADDRESS + CKGB_FS_EN_PRG(bank, channel), val & ~0x1);
-
-		/* NSB set */
-		val = SYSCONF_READ(0, 424, 10, 13);
-		val |= (1 << channel);
-		/* Release "freeze" (NSBi) */
-		SYSCONF_WRITE(0, 424, 10, 13, val);
 		break;
 	case CLK_B_PIX_HD ... CLK_B_SPARE_15:
 		/* Video Clock Controller clocks */
@@ -1615,7 +1600,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 #if !defined(CLKLLA_NO_PLL)
 	/* Checking FSYN analog status */
 	cfg = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_CFG);
-	if ((cfg & (1 << 14)) == 0) {   /* Analog power down */
+	if ((cfg  & (1 << 14)) != (1 << 14)) {   /* Analog power down */
 		clk_p->rate = 0;
 		return 0;
 	}
@@ -1628,7 +1613,7 @@ static int clkgenc_fsyn_recalc(clk_t *clk_p)
 
 	/* Checking FSYN digital part */
 	dig_bit = (clk_p->id - CLK_C_SPDIF) + 10;
-	if ((cfg & (1 << dig_bit)) == 0) {/* digital part in standbye */
+	if ((cfg & (1 << dig_bit)) == 0) {	/* digital part in standbye */
 		clk_p->rate = 0;
 		return 0;
 	}
@@ -1716,13 +1701,14 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 		if (clk_fs660c32_vco_get_params(clk_p->parent->rate,
 			freq, &ndiv))
 			return CLK_ERR_BAD_PARAMETER;
+		SYSCONF_WRITE(0, 406, 14, 14, 0); /* PLL power up */
 		SYSCONF_WRITE(0, 406, 15, 17, ndiv);
 		SYSCONF_WRITE(0, 406, 14, 14, 1); /* PLL power up */
-		return 0;
+		return clkgenc_recalc(clk_p);
 	}
 
 	/* Computing FSyn params. Should be common function with FSyn type */
-	if (clk_fs660liege_dig_get_params(clk_p->parent->rate,
+	if (clk_fs660c32_dig_get_params(clk_p->parent->rate,
 		freq, &nsdiv, &md, &pe, &sdiv))
 		return CLK_ERR_BAD_PARAMETER;
 
@@ -1731,10 +1717,12 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	/* Removing reset, digit standby and analog standby */
 	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_CFG);
 	/* Power up, release digit reset & FS reset */
-	val |= (1 << 14) | (1 << (10 + channel)) | (1 << 0);
+	val |= (1 << (10 + channel)) | (1 << 0);
 
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_CFG, val);
 
+	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel));
+	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val & ~0x1);
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_PE(channel), pe);
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_MD(channel), md);
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_SDIV(channel), sdiv);
@@ -1748,12 +1736,6 @@ static int clkgenc_set_rate(clk_t *clk_p, unsigned long freq)
 	val = CLK_READ(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel));
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val | 0x1);
 	CLK_WRITE(CKGC_BASE_ADDRESS + CKGC_FS_EN_PRG(channel), val & ~0x1);
-
-	/* NSB set */
-	val = SYSCONF_READ(0, 406, 10, 13);
-	val |= (1 << channel);
-	SYSCONF_WRITE(0, 406, 10, 13, val);	/* Release "freeze" (NSBi) */
-
 #endif
 
 	return clkgenc_recalc(clk_p);

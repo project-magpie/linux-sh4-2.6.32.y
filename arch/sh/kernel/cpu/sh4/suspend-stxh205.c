@@ -179,10 +179,10 @@ on_suspending:
 /* A1 */
 	/*
 	 * WOL is totally based on A1. To be working it needs:
-	 * - eth1.phy_clk and eth1.mac_clk enabled
-	 * - eth1.phy_clk @ 25 MHz
+	 * - eth.phy_clk and eth1.mac_clk enabled
+	 * - eth.phy_clk @ 25 MHz
 	 */
-	if (stxh205_wkd.eth1_phy_can_wakeup) {
+	if (stxh205_wkd.eth_phy_can_wakeup) {
 		int pll_id = (a1_pll1_ls_clk == clk_get_parent(a1_eth_phy_clk) ?
 			2 : 1);
 		cfg_1_0 &= ~(0x3 << (CLK_A1_ETH_PHY * 2));

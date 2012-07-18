@@ -334,12 +334,13 @@ config SH_ST_ADI7108
 	  STMicroelectronics STi7108-ADI Reference Board.
 
 config SH_ST_B2039
-	bool "B2039: STxH207-HVK processor module board"
+	bool "B2039: STxH207-HVK (Liege) processor module board"
 	depends on CPU_SUBTYPE_STXH205
 	default n
 	help
 	  Select SH_ST_B2039 if configuring for a
-	  STMicroelectronics STxH207-HVK processor module board.
+	  STMicroelectronics STxH207-HVK processor module board
+	  for a STxH207xUx (PBGA).
 
 config SH_ST_B2057
 	bool "B2057: STxH207-HDK Reference board"
@@ -364,6 +365,15 @@ config SH_ST_B2068
 	help
 	  Select B2068 if configuring for an
 	  STMicroelectronics STx7167 Reference Board.
+
+config SH_ST_B2076
+	bool "B2076: STxH207-HVK (LiegeC) processor module board"
+	depends on CPU_SUBTYPE_STXH205
+	default n
+	help
+	  Select SH_ST_B2076 if configuring for a
+	  STMicroelectronics STxH207-HVK processor module board
+	  for a STxH207xKx (FPBGA).
 
 config SH_ST_CAB5197
 	bool "CAB5197: STx5197 CAB reference board"
@@ -837,6 +847,7 @@ source "arch/sh/boards/mach-migor/Kconfig"
 source "arch/sh/boards/mach-rsk/Kconfig"
 source "arch/sh/boards/mach-b2039/Kconfig"
 source "arch/sh/boards/mach-b2057/Kconfig"
+source "arch/sh/boards/mach-b2076/Kconfig"
 source "arch/sh/boards/mach-eud7141/Kconfig"
 source "arch/sh/boards/mach-mb628/Kconfig"
 source "arch/sh/boards/mach-mb837/Kconfig"

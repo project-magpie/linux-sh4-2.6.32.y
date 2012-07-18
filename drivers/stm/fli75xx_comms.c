@@ -342,7 +342,7 @@ static struct platform_device fli75xx_ssc_devices[] = {
 
 static int __initdata fli75xx_ssc_configured[ARRAY_SIZE(fli75xx_ssc_devices)];
 
-int __init fli75xx_configure_ssc_i2c(int ssc)
+int __init fli75xx_configure_ssc_i2c(int ssc,
 		struct fli75xx_ssc_i2c_config *config)
 {
 	static int i2c_busnum;

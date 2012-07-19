@@ -300,13 +300,13 @@ static int stm_pcie_config_read(struct pci_bus *bus, unsigned int devfn,
 	/* PCI express devices will respond to all config type 0 cycles, since
 	 * they are point to point links. Thus to avoid probing for multiple
 	 * devices on the root bus we simply ignore any request for anything
-	 * other than slot 0 if it is on the root bus. The switch will reject
+	 * other than slot 1 if it is on the root bus. The switch will reject
 	 * requests for slots it knows do not exist.
 	 *
 	 * We have to check for the link being up as we will hang if we issue
 	 * a config request and the link is down.
 	 */
-	if (!priv || (is_root_bus && slot != 0) || !link_up(priv)) {
+	if (!priv || (is_root_bus && slot != 1) || !link_up(priv)) {
 		*val = ~0;
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
@@ -382,7 +382,7 @@ static int stm_pcie_config_write(struct pci_bus *bus, unsigned int devfn,
 	struct stm_pcie_dev_data *priv = stm_pci_bus_to_dev_data(bus);
 	int is_root_bus = pci_is_root_bus(bus);
 
-	if (!priv || (is_root_bus && slot != 0) || !link_up(priv))
+	if (!priv || (is_root_bus && slot != 1) || !link_up(priv))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
 	bdf = bdf_num(bus->number, devfn, is_root_bus);

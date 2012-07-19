@@ -174,4 +174,12 @@ struct stxh205_miphy_config {
 };
 void stxh205_configure_miphy(struct stxh205_miphy_config *config);
 
+struct stxh205_pcie_config {
+	unsigned reset_gpio;
+	void (*reset)(void);
+};
+
+void stxh205_configure_pcie(struct stxh205_pcie_config *config);
+
+
 #endif

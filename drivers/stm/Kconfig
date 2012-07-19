@@ -24,7 +24,7 @@ config STM_PCI_EMISS
 # PCIe controller from synopsys, wrapped for HVD parts
 config STM_PCIE
 	bool "STMicroelectronics PCI express controller"
-	depends on PCI && (CPU_SUBTYPE_STX7108 || CPU_SUBTYPE_FLI75XX)
+	depends on PCI && (CPU_SUBTYPE_STX7108 || CPU_SUBTYPE_FLI7510 || CPU_SUBTYPE_STXH205)
 	def_bool n
 	select ARCH_SUPPORTS_MSI
 	---help---

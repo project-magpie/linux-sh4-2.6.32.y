@@ -532,16 +532,23 @@ struct stm_plat_pcie_mp_data stxh205_pcie_mp_platform_data = {
 	.miphy_modes = stxh205_miphy_modes,
 	.mp_select = stxh205_pcie_mp_select,
 };
-#define PCIE_UPORT_BASE		(0xFD54A000)
-#define PCIE_UPORT_REG_SIZE	(0xFF)
+
+/* Both the SATA AHCI controller and the PCIe controller
+ * contain a microport interface to the single miphy. Which
+ * one is actually in use depends on the SATA_SEL sysconf
+ */
+#define PCIE_UPORT_BASE		0xfd904000
+#define SATA_UPORT_BASE		0xfd54a000
+#define UPORT_REG_SIZE		0xff
+
 static struct platform_device stxh205_pcie_mp_device = {
 	.name	= "pcie-mp",
 	.id	= 0,
 	.num_resources = 1,
 	.resource = (struct resource[]) {
 		[0] = {
-			.start = PCIE_UPORT_BASE,
-			.end   = PCIE_UPORT_BASE + PCIE_UPORT_REG_SIZE,
+			.start = SATA_UPORT_BASE,
+			.end   = SATA_UPORT_BASE + UPORT_REG_SIZE,
 			.flags = IORESOURCE_MEM,
 		},
 	},
@@ -554,24 +561,46 @@ static struct platform_device stxh205_pcie_mp_device = {
  * to map PCIe, instead of eSATA, on PHY Lane */
 void __init stxh205_configure_miphy(struct stxh205_miphy_config *config)
 {
-	stxh205_miphy_modes[0] = config->mode;
+	struct sysconf_field *sel_sata;
 
-	if (config->mode == SATA_MODE) {
-		struct sysconf_field *sc;
-		sc = sysconf_claim(SYSCONF(445), 1, 1, "sata");
-		sysconf_write(sc, 1);
-		if (config->iface == UPORT_IF) {
-			stxh205_pcie_mp_platform_data.rx_pol_inv =
-							config->rx_pol_inv;
-			stxh205_pcie_mp_platform_data.tx_pol_inv =
-							config->tx_pol_inv;
-		}
-	} else if (config->mode == PCIE_MODE) {
-		/* TODO */
+	if (config->iface != UPORT_IF) {
+		printk(KERN_ERR "MiPhy only supported in microport mode\n");
+		return;
 	}
-	/* Only tested on UPort I/f */
-	if (config->iface == UPORT_IF)
-		platform_device_register(&stxh205_pcie_mp_device);
+
+	sel_sata = sysconf_claim(SYSCONF(445), 1, 1, "sata/pcie");
+	if (!sel_sata) {
+		printk(KERN_ERR "Cannot claim SELECT_SATA sysconf\n");
+		return;
+	}
+
+	stxh205_miphy_modes[0] = config->mode;
+	stxh205_pcie_mp_platform_data.rx_pol_inv = config->rx_pol_inv;
+	stxh205_pcie_mp_platform_data.tx_pol_inv = config->tx_pol_inv;
+
+	/* Select either PCIE or SATA mode */
+	sysconf_write(sel_sata, config->mode == SATA_MODE);
+
+	if (config->mode == PCIE_MODE) {
+		struct sysconf_field *miphy_reset, *pcie_reset, *pcie_clk_sel;
+
+		/* Change addresses to other port */
+		stxh205_pcie_mp_device.resource[0].start = PCIE_UPORT_BASE,
+		stxh205_pcie_mp_device.resource[0].end =
+					PCIE_UPORT_BASE + UPORT_REG_SIZE;
+
+		miphy_reset = sysconf_claim(SYSCONF(460), 18, 18, "miphy");
+		pcie_reset = sysconf_claim(SYSCONF(461), 0, 0, "pcie");
+		pcie_clk_sel = sysconf_claim(SYSCONF(468), 0, 0, "pcie");
+
+		sysconf_write(miphy_reset, 0); /* Reset miphy */
+		sysconf_write(pcie_reset, 0); /* Reset PCIe */
+		sysconf_write(pcie_clk_sel, 1); /* Select 100MHz ext clock */
+		sysconf_write(miphy_reset, 1); /* Release miphy */
+		sysconf_write(pcie_reset, 1); /* Release PCIe */
+	}
+
+	platform_device_register(&stxh205_pcie_mp_device);
 }
 
 

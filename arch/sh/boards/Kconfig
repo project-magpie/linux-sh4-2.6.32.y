@@ -377,6 +377,7 @@ config SH_ST_B2068
 config SH_ST_B2076
 	bool "B2076: STxH207-HVK (LiegeC) processor module board"
 	depends on CPU_SUBTYPE_STXH205
+	select SYS_SUPPORTS_PCI
 	default n
 	help
 	  Select SH_ST_B2076 if configuring for a

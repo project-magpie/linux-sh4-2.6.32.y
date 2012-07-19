@@ -24,6 +24,7 @@
 #include <linux/stm/platform.h>
 #include <linux/stm/stxh205.h>
 #include <linux/stm/sysconf.h>
+#include <linux/stm/pci-glue.h>
 #include <asm/irq-ilc.h>
 
 #define B2076_MII1_NOTRESET		stm_gpio(3, 0)
@@ -209,6 +210,20 @@ static int __init device_init(void)
 	stxh205_configure_sata();
 #endif
 
+#ifdef CONFIG_STM_B2076_CN9_PCIE
+	stxh205_configure_miphy(&(struct stxh205_miphy_config){
+			.mode = PCIE_MODE,
+			.iface = UPORT_IF,
+			});
+
+	/* J29 has to be in position 2-3 for the #PERST signal */
+	stxh205_configure_pcie(&(struct stxh205_pcie_config) {
+			.reset_gpio = stm_gpio(4, 6),
+			});
+#endif
+
+
+
 	/* Need to set J18 1-2 and J20 1-2. */
 	stxh205_configure_usb(0);
 
@@ -292,6 +307,13 @@ static void __iomem *board_ioport_map(unsigned long port, unsigned int size)
 	BUG();
 	return NULL;
 }
+
+#ifdef CONFIG_PCI
+int pcibios_map_platform_irq(struct pci_dev *dev, u8 slot, u8 pin)
+{
+	return stm_pci_legacy_irq(dev);
+}
+#endif
 
 struct sh_machine_vector mv_b2076 __initmv = {
 	.mv_name = "b2076",

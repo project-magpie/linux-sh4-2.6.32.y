@@ -476,7 +476,16 @@ config CPU_SUBTYPE_STXH205
 	select SUPPORTS_32BIT
 	help
 	  Select STXH205 if you have an STxH205 (Lille) or STxH207 (Liege)
-	  CPU.
+	  CPU, or one of the multi-chip module variants:
+	    STxH237 (Cardiff)	integrated single DVB-S2 demod
+	    STxH238 (Newport)	integrated dual DVB-S2 demod
+	    STxH239 (Bristol)	integrated dual DVB-S2 demod
+	    STxH246 (Kourou)
+	    STxH251 (Linate)	integrated DVB-T/DVB-T2/DVB-C demodulator
+	    STxH253 (Firenze)	integrated DVB-T2 demod
+	    STxH261 (Verona)
+	    STxH263 (Venezia)	integrated ISDB-T demod
+	    STxH273 (Palma)	integrated DVB-T, DVB-C demod
 
 # SH-4A Processor Support
 

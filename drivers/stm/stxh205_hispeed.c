@@ -412,8 +412,12 @@ static void stxh205_usb_power(struct stm_device_state *device_state,
 
 static struct stm_plat_usb_data stxh205_usb_platform_data[] = {
 	[0] = {
+		/* Threshold value set in configure as dynamically
+		 * probed
+		 */
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
-				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+			 STM_PLAT_USB_FLAGS_STBUS_CONFIG_LDST64 |
+			 STM_PLAT_USB_FLAGS_STBUS_CONFIG_CHUNK2,
 		.device_config = &(struct stm_device_config){
 			.init = stxh205_usb_init,
 			.exit = stxh205_usb_exit,
@@ -438,7 +442,8 @@ static struct stm_plat_usb_data stxh205_usb_platform_data[] = {
 	},
 	[1] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
-				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+			 STM_PLAT_USB_FLAGS_STBUS_CONFIG_LDST64 |
+			 STM_PLAT_USB_FLAGS_STBUS_CONFIG_CHUNK2,
 		.device_config = &(struct stm_device_config){
 			.init = stxh205_usb_init,
 			.exit = stxh205_usb_exit,
@@ -513,10 +518,27 @@ static struct platform_device stxh205_usb_devices[] = {
 void __init stxh205_configure_usb(int port)
 {
 	static int configured[ARRAY_SIZE(stxh205_usb_devices)];
+	static void *lmi16reg;
+	static int lmi_is_16;
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stxh205_usb_devices));
 
 	BUG_ON(configured[port]++);
+
+	if (!lmi16reg) {
+		/* Have a quick peek at the relevant LMI register to see if
+		 * the LMI is configured in 16 bit mode or not
+		 */
+		lmi16reg = ioremap(0xfde50084, 4);
+		if (lmi16reg) {
+			lmi_is_16 =  readl(lmi16reg) & 0x1;
+			iounmap(lmi16reg);
+		}
+	}
+
+	stxh205_usb_platform_data[port].flags |=
+		lmi_is_16 ? STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD16
+			  : STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128;
 
 	platform_device_register(&stxh205_usb_devices[port]);
 }

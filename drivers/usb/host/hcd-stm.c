@@ -71,20 +71,21 @@ static int stm_usb_boot(struct platform_device *pdev)
 	void *wrapper_base = usb_data->ahb2stbus_wrapper_glue_base;
 	void *protocol_base = usb_data->ahb2stbus_protocol_base;
 	unsigned long reg, req_reg;
+	unsigned long flags = pl_data->flags;
 
-	if (pl_data->flags &
-		(STM_PLAT_USB_FLAGS_STRAP_8BIT |
-		 STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
+
+	if (flags & (STM_PLAT_USB_FLAGS_STRAP_8BIT |
+		     STM_PLAT_USB_FLAGS_STRAP_16BIT)) {
 		/* Set strap mode */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
-		if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_16BIT)
+		if (flags & STM_PLAT_USB_FLAGS_STRAP_16BIT)
 			reg |= AHB2STBUS_STRAP_16_BIT;
 		else
 			reg &= ~AHB2STBUS_STRAP_16_BIT;
 		writel(reg, wrapper_base + AHB2STBUS_STRAP_OFFSET);
 	}
 
-	if (pl_data->flags & STM_PLAT_USB_FLAGS_STRAP_PLL) {
+	if (flags & STM_PLAT_USB_FLAGS_STRAP_PLL) {
 		/* Start PLL */
 		reg = readl(wrapper_base + AHB2STBUS_STRAP_OFFSET);
 		writel(reg | AHB2STBUS_STRAP_PLL,
@@ -95,7 +96,7 @@ static int stm_usb_boot(struct platform_device *pdev)
 		mdelay(30);
 	}
 
-	if (pl_data->flags & STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE) {
+	if (flags & STM_PLAT_USB_FLAGS_OPC_MSGSIZE_CHUNKSIZE) {
 		/* Set the STBus Opcode Config for load/store 32 */
 		writel(AHB2STBUS_STBUS_OPC_32BIT,
 			protocol_base + AHB2STBUS_STBUS_OPC_OFFSET);
@@ -109,20 +110,24 @@ static int stm_usb_boot(struct platform_device *pdev)
 			protocol_base + AHB2STBUS_CHUNKSIZE_OFFSET);
 	}
 
-	if (pl_data->flags &
-		(STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128 |
-		STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD256)) {
+	if (flags & STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD_MASK) {
+		int thresh, chunks, opc;
 
-		req_reg = (1<<21) |  /* Turn on read-ahead */
-			  (5<<16) |  /* Opcode is store/load 32 */
-			  (0<<15) |  /* Turn off write posting */
-			  (1<<14) |  /* Enable threshold */
-			  (3<<9)  |  /* 2**3 Packets in a chunk */
-			  (0<<4)  ;  /* No messages */
-		req_reg |= ((pl_data->flags &
-			STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128) ?
-				(7<<0) :	/* 128 */
-				(8<<0));	/* 256 */
+		chunks = STM_PLAT_USB_FLAGS_STBUS_CONFIG_CHUNK(flags);
+		if (chunks == 0)
+			chunks = 3;
+		thresh = STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD(flags);
+
+		opc = flags & STM_PLAT_USB_FLAGS_STBUS_CONFIG_LDST64 ? 6 : 5;
+
+		req_reg = (1<<21)	|  /* Turn on read-ahead */
+			  (opc<<16)	|  /* Opcode  */
+			  (0<<15)	|  /* Turn off write posting */
+			  (1<<14)	|  /* Enable threshold */
+			  (chunks<<9)	|  /* Packets in a chunk */
+			  (0<<4)	|  /* No messages */
+			  (thresh);
+
 		do {
 			writel(req_reg, protocol_base +
 				AHB2STBUS_MSGSIZE_OFFSET);

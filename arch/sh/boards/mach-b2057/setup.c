@@ -281,7 +281,9 @@ static int __init device_init(void)
 			 */
 			.out10_enabled = 0 });
 
-	stxh205_configure_mmc(0);
+	stxh205_configure_mmc(&(struct stxh205_mmc_config) {
+			.emmc = 0,
+		});
 
 	stxh205_configure_nand(&(struct stm_nand_config) {
 			.driver = stm_nand_bch,

@@ -149,7 +149,11 @@ void stxh205_configure_ethernet(struct stxh205_ethernet_config *config);
 
 void stxh205_configure_usb(int port);
 
-void stxh205_configure_mmc(int emmc);
+struct stxh205_mmc_config {
+	unsigned int emmc:1;
+	unsigned int no_mmc_boot_data_error:1;
+};
+void stxh205_configure_mmc(struct stxh205_mmc_config *config);
 
 void stxh205_configure_spifsm(struct stm_plat_spifsm_data *data);
 

@@ -273,12 +273,11 @@ static int __init device_init(void)
 
 	stxh205_configure_spifsm(&b2076_serial_flash);
 
-
-#ifdef CONFIG_STM_B2048A_MMC_SLOT
-	stxh205_configure_mmc(0);
-#elif defined(CONFIG_STM_B2048A_MMC_EMMC)
-	stxh205_configure_mmc(1);
+	stxh205_configure_mmc(&(struct stxh205_mmc_config) {
+#ifdef CONFIG_STM_B2048A_MMC_EMMC
+			.emmc = 1,
 #endif
+		});
 	return platform_add_devices(platform_devices,
 			ARRAY_SIZE(platform_devices));
 }

@@ -389,11 +389,12 @@ static struct platform_device sth205_temp = {
 			}, \
 		}, \
 	}
-#define STXH205_PIO_MMC_OUT(_port, _pin, funct) \
+#define STXH205_PIO_MMC_OUT_NAME(_port, _pin, funct, _name)	\
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
 		.direction = stm_pad_gpio_direction_custom, \
 		.function = funct, \
+		.name = _name, \
 		.priv = &(struct stxh205_pio_config) {	\
 			.mode = &(struct stm_pio_control_mode_config) { \
 				.oe = 1, \
@@ -402,6 +403,8 @@ static struct platform_device sth205_temp = {
 			}, \
 		}, \
 	}
+#define STXH205_PIO_MMC_OUT(_port, _pin, funct) \
+	STXH205_PIO_MMC_OUT_NAME(_port, _pin, funct, NULL)
 #define STXH205_PIO_MMC_BIDIR(_port, _pin, funct) \
 	{ \
 		.gpio = stm_gpio(_port, _pin), \
@@ -445,7 +448,7 @@ static struct stm_pad_config stxh205_mmc_pad_config  = {
 		STXH205_PIO_MMC_CLK_OUT(14, 1, 1),	/* MMC clk */
 		STXH205_PIO_MMC_BIDIR(14, 2, 1),	/* MMC command */
 		STXH205_PIO_MMC_IN(14, 3, 1),	/* MMC Write Protection */
-		STXH205_PIO_MMC_OUT(14, 4, 1),	/* MMC boot data error */
+		STXH205_PIO_MMC_OUT_NAME(14, 4, 1, "BDE"),	/* MMC boot data error */
 		STXH205_PIO_MMC_OUT(14, 5, 1),	/* MMC Card PWR */
 		STXH205_PIO_MMC_IN(14, 6, 1),	/* MMC Card Detect */
 	},
@@ -486,14 +489,16 @@ static struct platform_device stxh205_mmc_device = {
 		}
 };
 
-void __init stxh205_configure_mmc(int emmc)
+void __init stxh205_configure_mmc(struct stxh205_mmc_config *config)
 {
 	struct sdhci_pltfm_data *plat_data;
 
 	plat_data = &stxh205_mmc_platform_data;
 
-	if (unlikely(emmc))
+	if (unlikely(config->emmc))
 		plat_data->quirks |= SDHCI_QUIRK_NONREMOVABLE_CARD;
+	if (unlikely(config->no_mmc_boot_data_error))
+		stm_pad_set_pio_ignored(&stxh205_mmc_pad_config, "BDE");
 
 	platform_device_register(&stxh205_mmc_device);
 }

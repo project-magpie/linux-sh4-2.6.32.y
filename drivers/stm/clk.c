@@ -187,17 +187,8 @@ void _clk_disable(struct clk *clk)
 {
 	int ret;
 
-	if (clk_is_always_enabled(clk)) {
-		/*
-		 * this clock can not be disabled;
-		 * This means this is:
-		 * - an external oscillator
-		 * - a system critical clock
-		 */
-		if (--clk->usage_counter == 0)
-			clk->usage_counter = 1;
+	if (WARN_ON(clk->usage_counter == 0))
 		return;
-	}
 
 	if (--clk->usage_counter == 0) {
 		ret = __clk_disable(clk);

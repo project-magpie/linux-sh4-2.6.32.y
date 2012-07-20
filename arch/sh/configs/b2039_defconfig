@@ -810,7 +810,7 @@ CONFIG_I2C_HELPER_AUTO=y
 # I2C system bus drivers (mostly embedded / system-on-chip)
 #
 # CONFIG_I2C_DESIGNWARE is not set
-# CONFIG_I2C_GPIO is not set
+CONFIG_I2C_GPIO=y
 # CONFIG_I2C_OCORES is not set
 # CONFIG_I2C_SH_MOBILE is not set
 # CONFIG_I2C_SIMTEC is not set

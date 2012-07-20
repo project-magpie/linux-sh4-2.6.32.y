@@ -155,6 +155,7 @@ machdir-$(CONFIG_SH_RSK)			+= mach-rsk
 machdir-$(CONFIG_SH_ST_ADI7108)			+= mach-adi7108
 machdir-$(CONFIG_SH_ST_B2039)			+= mach-b2039
 machdir-$(CONFIG_SH_ST_B2057)			+= mach-b2057
+machdir-$(CONFIG_SH_ST_B2064)			+= mach-b2064
 machdir-$(CONFIG_SH_ST_B2066)			+= mach-b2066
 machdir-$(CONFIG_SH_ST_B2068)			+= mach-b2068
 machdir-$(CONFIG_SH_ST_B2076)			+= mach-b2076

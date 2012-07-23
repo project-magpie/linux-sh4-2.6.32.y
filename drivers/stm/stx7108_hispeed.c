@@ -777,7 +777,8 @@ static void stx7108_usb_power(struct stm_device_state *device_state,
 static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 	[0] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
-				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_CHUNK2 |
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_LDST64,
 		.device_config = &(struct stm_device_config){
 			.init = stx7108_usb_init,
 			.power = stx7108_usb_power,
@@ -805,7 +806,8 @@ static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 	},
 	[1] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
-				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_CHUNK2 |
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_LDST64,
 		.device_config = &(struct stm_device_config){
 			.init = stx7108_usb_init,
 			.power = stx7108_usb_power,
@@ -833,7 +835,8 @@ static struct stm_plat_usb_data stx7108_usb_platform_data[] = {
 	},
 	[2] = {
 		.flags = STM_PLAT_USB_FLAGS_STRAP_8BIT |
-				STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128,
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_CHUNK2 |
+				STM_PLAT_USB_FLAGS_STBUS_CONFIG_LDST64,
 		.device_config = &(struct stm_device_config){
 			.init = stx7108_usb_init,
 			.power = stx7108_usb_power,
@@ -935,10 +938,33 @@ void __init stx7108_configure_usb(int port)
 	static int osc_initialized;
 	static int configured[ARRAY_SIZE(stx7108_usb_devices)];
 	struct sysconf_field *sc;
+	static void *lmi16reg;
+	static int lmi_is_16;
+
 
 	BUG_ON(port < 0 || port >= ARRAY_SIZE(stx7108_usb_devices));
 
 	BUG_ON(configured[port]++);
+
+	if (!lmi16reg) {
+		/* Look at PPCFG ENABLE bit */
+		lmi16reg = ioremap(0xfde50084, 4);
+		if (lmi16reg) {
+			/* Check lmi0 */
+			lmi_is_16 = readl(lmi16reg) & 0x1;
+			iounmap(lmi16reg);
+			/* And now lmi1 */
+			lmi16reg = ioremap(0xfde70084, 4);
+			if (lmi16reg) {
+				lmi_is_16 |= readl(lmi16reg) & 0x1;
+				iounmap(lmi16reg);
+			}
+		}
+	}
+
+	stx7108_usb_platform_data[port].flags |=
+			lmi_is_16 ? STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD16
+				: STM_PLAT_USB_FLAGS_STBUS_CONFIG_THRESHOLD128;
 
 	if (!osc_initialized++) {
 		/* USB2TRIPPHY_OSCIOK */

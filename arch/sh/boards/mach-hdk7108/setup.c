@@ -547,6 +547,10 @@ static int __init device_init(void)
 				SATA_MODE, PCIE_MODE },
 			});
 	stx7108_configure_sata(0, &(struct stx7108_sata_config) { });
+
+	stx7108_configure_pcie(&(struct stx7108_pcie_config) {
+					.reset_gpio = stm_gpio(24, 6)
+				});
 #endif
 
 

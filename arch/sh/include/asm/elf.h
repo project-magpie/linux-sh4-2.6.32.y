@@ -144,6 +144,14 @@ typedef struct user_fpu_struct elf_fpregset_t;
 
 #define ELF_PLATFORM	(utsname()->machine)
 
+/* ELF_BASE_PLATFORM indicates the real hardware platform, including
+   the 'variant' of the cpu family (SH4-202, ST40-300).
+   ld.so will use this value to load implementation specific libraries for
+   optimization better than the too generic ELF_PLATFORM. */
+
+extern const char *get_cpu_variant(struct sh_cpuinfo *);
+#define ELF_BASE_PLATFORM	(get_cpu_variant(&boot_cpu_data))
+
 #ifdef __SH5__
 #define ELF_PLAT_INIT(_r, load_addr) \
   do { _r->regs[0]=0; _r->regs[1]=0; _r->regs[2]=0; _r->regs[3]=0; \

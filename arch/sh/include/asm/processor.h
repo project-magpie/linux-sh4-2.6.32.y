@@ -64,6 +64,13 @@ enum cpu_family {
 	CPU_FAMILY_UNKNOWN,
 };
 
+enum cpu_family_variant {
+	CPU_VARIANT_SH4_102,
+	CPU_VARIANT_SH4_103,
+	CPU_VARIANT_SH4_202,
+	CPU_VARIANT_ST40_300,
+	CPU_VARIANT_UNKNOWN,
+};
 /*
  * TLB information structure
  *
@@ -81,7 +88,7 @@ struct tlb_info {
 };
 
 struct sh_cpuinfo {
-	unsigned int type, family;
+	unsigned int type, family, variant;
 	int cut_major, cut_minor;
 	unsigned long loops_per_jiffy;
 	unsigned long asid_cache;

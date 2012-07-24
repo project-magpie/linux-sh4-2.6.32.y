@@ -51,6 +51,7 @@ struct sh_cpuinfo cpu_data[NR_CPUS] __read_mostly = {
 	[0] = {
 		.type			= CPU_SH_NONE,
 		.family			= CPU_FAMILY_UNKNOWN,
+		.variant		= CPU_VARIANT_UNKNOWN,
 		.loops_per_jiffy	= 10000000,
 		.phys_bits		= MAX_PHYSMEM_BITS,
 	},
@@ -515,6 +516,19 @@ const char *get_cpu_subtype(struct sh_cpuinfo *c)
 	return cpu_name[c->type];
 }
 EXPORT_SYMBOL(get_cpu_subtype);
+
+static const char *cpu_variant[] = {
+	[CPU_VARIANT_SH4_102] = "SH4-102",
+	[CPU_VARIANT_SH4_103] = "SH4-103",
+	[CPU_VARIANT_SH4_202] = "SH4-202",
+	[CPU_VARIANT_ST40_300] = "ST40-300",
+	[CPU_VARIANT_UNKNOWN] = "Unknown",
+};
+
+const char *get_cpu_variant(struct sh_cpuinfo *c)
+{
+	return cpu_variant[c->variant];
+}
 
 #ifdef CONFIG_PROC_FS
 /* Symbolic CPU flags, keep in sync with asm/cpu-features.h */

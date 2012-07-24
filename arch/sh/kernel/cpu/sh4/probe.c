@@ -164,16 +164,19 @@ int __init detect_cpu_and_cache_system(void)
 		break;
 	case 0x8000:
 		boot_cpu_data.type = CPU_ST40RA;
+		boot_cpu_data.variant = CPU_VARIANT_SH4_102;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		boot_cpu_data.flags &= ~CPU_HAS_PTEA;
 		break;
 	case 0x8002:
 		boot_cpu_data.type = CPU_STM8000;
+		boot_cpu_data.variant = CPU_VARIANT_SH4_103;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		break;
 	case 0x8100:
 		/* Some bright spark used this same ID for the STi5528 */
 		boot_cpu_data.type = CPU_ST40GX1;
+		boot_cpu_data.variant = CPU_VARIANT_SH4_102;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		boot_cpu_data.flags &= ~CPU_HAS_PTEA;
 		break;
@@ -231,6 +234,7 @@ int __init detect_cpu_and_cache_system(void)
 			boot_cpu_data.type = CPU_SH_NONE;
 			break;
 		}
+		boot_cpu_data.variant = CPU_VARIANT_ST40_300;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
 		boot_cpu_data.flags |= CPU_HAS_ICBI | CPU_HAS_SYNCO | CPU_HAS_FPCHG;
 		boot_cpu_data.flags &= ~CPU_HAS_PTEA;
@@ -252,6 +256,7 @@ int __init detect_cpu_and_cache_system(void)
 		/* 0x0610 cut 1.x */
 		/* 0x0611 cut 2.x */
 		boot_cpu_data.type = CPU_STX7100;
+		boot_cpu_data.variant = CPU_VARIANT_SH4_202;
 		boot_cpu_data.icache.ways = 2;
 		boot_cpu_data.dcache.ways = 2;
 		boot_cpu_data.flags |= CPU_HAS_FPU;
@@ -260,6 +265,7 @@ int __init detect_cpu_and_cache_system(void)
 	case 0x690:
 		/* CPU_STx7200 cut 1.0 */
 		boot_cpu_data.type = CPU_STX7200;
+		boot_cpu_data.variant = CPU_VARIANT_SH4_202;
 		boot_cpu_data.icache.ways = 2;
 		boot_cpu_data.dcache.ways = 2;
 		boot_cpu_data.flags |= CPU_HAS_FPU;

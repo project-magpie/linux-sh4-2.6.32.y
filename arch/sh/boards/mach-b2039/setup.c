@@ -292,7 +292,7 @@ static int __init device_init(void)
 	stxh205_configure_spifsm(&b2039_serial_flash);
 
 	stxh205_configure_mmc(&(struct stxh205_mmc_config) {
-#ifdef CONFIG_STM_B2048A_MMC_EMMC
+#ifdef CONFIG_STM_B2039_CN38_B2048A_MMC_EMMC
 			.emmc = 1,
 #endif
 		});

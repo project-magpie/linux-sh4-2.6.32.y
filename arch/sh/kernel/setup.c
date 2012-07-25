@@ -518,10 +518,10 @@ const char *get_cpu_subtype(struct sh_cpuinfo *c)
 EXPORT_SYMBOL(get_cpu_subtype);
 
 static const char *cpu_variant[] = {
-	[CPU_VARIANT_SH4_102] = "SH4-102",
-	[CPU_VARIANT_SH4_103] = "SH4-103",
-	[CPU_VARIANT_SH4_202] = "SH4-202",
-	[CPU_VARIANT_ST40_300] = "ST40-300",
+	[CPU_VARIANT_SH4_102] = "sh4-102",
+	[CPU_VARIANT_SH4_103] = "sh4-103",
+	[CPU_VARIANT_SH4_202] = "sh4-202",
+	[CPU_VARIANT_ST40_300] = "st40-300",
 	[CPU_VARIANT_UNKNOWN] = "Unknown",
 };
 

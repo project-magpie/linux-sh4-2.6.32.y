@@ -32,9 +32,7 @@ config STM_PCIE
 	  STMicroelectronics SOCs.
 
 config STM_MIPHY
-	def_bool y
-	depends on (SATA_STM || STM_PCIE) || \
-			(CPU_SUBTYPE_STXH205 && SATA_AHCI_PLATFORM)
+	def_bool n
 
 config STM_MIPHY_TAP
 	bool

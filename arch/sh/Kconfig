@@ -397,6 +397,7 @@ config CPU_SUBTYPE_FLI75XX
 	bool "Support Freeman 510/520/530/540/560 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
+	select STM_MIPHY
 	help
 	  Select this if you have Freeman 510 (FLI7510),
 	  Freeman 520 (FLI7520), Freeman 530 (FLI7530),
@@ -427,6 +428,7 @@ config CPU_SUBTYPE_STX7100
 	bool "Support STx7100/7109 processors"
 	select CPU_SUBTYPE_ST40
 	select SUPPORTS_32BIT
+	select STM_MIPHY
 	help
 	  Select STX7100 if you have an STx7100 or STx7109 (or derivative).
 
@@ -442,6 +444,7 @@ config CPU_SUBTYPE_STX7108
 	bool "Support STx7108 processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
+	select STM_MIPHY
 	help
 	  Select STX7108 if you have an STx7108 CPU.
 
@@ -474,6 +477,7 @@ config CPU_SUBTYPE_STXH205
 	bool "Support STxH205/7 (Lille/Liege) processors"
 	select CPU_ST40_300
 	select SUPPORTS_32BIT
+	select STM_MIPHY
 	help
 	  Select STXH205 if you have an STxH205 (Lille) or STxH207 (Liege)
 	  CPU, or one of the multi-chip module variants:

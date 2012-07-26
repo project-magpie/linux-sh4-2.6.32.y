@@ -1513,6 +1513,9 @@ static int clkgenb_enable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
+	if (clk_p->id == CLK_B_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+
 	if (clk_p->id >= CLK_B_VID_HD_LOCAL && clk_p->id <= CLK_B_CLK_27_1)
 		err = clkgenb_xable_fsyn(clk_p, 1);
 	else
@@ -1533,6 +1536,9 @@ static int clkgenb_disable(clk_t *clk_p)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLK_B_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	if (clk_p->id >= CLK_B_VID_HD_LOCAL && clk_p->id <= CLK_B_CLK_27_1)
 		err = clkgenb_xable_fsyn(clk_p, 0);

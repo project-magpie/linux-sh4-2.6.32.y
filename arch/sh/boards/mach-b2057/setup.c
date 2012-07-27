@@ -258,6 +258,12 @@ static int __init device_init(void)
 	/* PHY IRQ has to be triggered LOW */
 	set_irq_type(ILC_IRQ(25), IRQ_TYPE_LEVEL_LOW);
 
+	stxh205_configure_miphy(&(struct stxh205_miphy_config){
+			.mode = SATA_MODE,
+			.iface = UPORT_IF,
+			});
+	stxh205_configure_sata();
+
 	stxh205_configure_usb(0);
 	stxh205_configure_usb(1);
 

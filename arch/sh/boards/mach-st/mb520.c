@@ -192,11 +192,11 @@ static int __init mb520_devices_init(void)
 			});
 
 	/* SSC configuration */
-	stx7200_configure_ssc_i2c(1); /* NIM0 */
-	stx7200_configure_ssc_i2c(2); /* NIM1 */
+	stx7200_configure_ssc_i2c(1, NULL); /* NIM0 */
+	stx7200_configure_ssc_i2c(2, NULL); /* NIM1 */
 
 	/* Peripherals - PIO extender and audio (inc. VoIP) devices */
-	periph_i2c_busnum = stx7200_configure_ssc_i2c(4);
+	periph_i2c_busnum = stx7200_configure_ssc_i2c(4, NULL);
 
 	/* I2C PIO extender connected do SSC4 */
 	result = i2c_register_board_info(periph_i2c_busnum,

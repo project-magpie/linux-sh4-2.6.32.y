@@ -201,6 +201,7 @@ config SATA_SIS
 config SATA_STM
 	tristate "STMicroelectronics SATA support"
 	depends on ARCH_ST200 || CPU_SUBTYPE_ST40
+	depends on STM_MIPHY
 	help
 	  This option enables support for the on-chip SATA controller on
 	  some STMicroelectronics embedded processors.

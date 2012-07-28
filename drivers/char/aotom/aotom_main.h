@@ -11,8 +11,11 @@ typedef unsigned short u16;
 typedef signed int s32;
 typedef unsigned int u32;
 
+#if 0
+/* broken and unused */
 typedef signed long s64;
 typedef unsigned long u64;
+#endif
 #endif
 
 #define VFD_MAJOR             147

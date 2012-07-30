@@ -1134,7 +1134,7 @@ int ide_cdrom_get_capabilities(ide_drive_t *drive, u8 *buf)
 		if (!stat)
 			break;
 	} while (--attempts);
-	memcpy(cap, cgc.buffer, size);
+	memcpy(buf, cgc.buffer, size);
 	return stat;
 }
 

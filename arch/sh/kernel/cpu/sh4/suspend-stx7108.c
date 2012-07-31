@@ -272,7 +272,7 @@ on_suspending:
 	}
 
 	iowrite32(cfg_a0_0, cga0 + CKGA_CLKOPSRC_SWITCH_CFG);
-	iowrite32(0xF3FFFFFF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
+	iowrite32(0xF0FFFFFF, cga1 + CKGA_CLKOPSRC_SWITCH_CFG);
 
 	if (state == PM_SUSPEND_MEM) {
 		/* all the clocks off */

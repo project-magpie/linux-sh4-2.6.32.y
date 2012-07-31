@@ -154,7 +154,7 @@ static int stxh205_suspend_core(suspend_state_t state, int suspending)
 
 on_suspending:
 
-	cfg_0_0 = 0xf00fffcc;
+	cfg_0_0 = 0xc00fffcc;
 	cfg_0_1 = 0x3ffff;
 	cfg_1_0 = 0xffffffff;
 	cfg_1_1 = 0xfffffff;

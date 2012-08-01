@@ -766,7 +766,7 @@ void __init stx7141_early_device_init(void)
 	sysconf_early_init(&stx7141_sysconf_device, 1);
 	stm_gpio_early_init(stx7141_pio_devices,
 			ARRAY_SIZE(stx7141_pio_devices),
-			ILC_FIRST_IRQ + ILC_NR_IRQS);
+			COMMS_ILC_FIRST_IRQ + COMMS_ILC_NR_IRQS);
 	stm_pad_init(ARRAY_SIZE(stx7141_pio_devices) * STM_GPIO_PINS_PER_PORT,
 		     -1, 0, stx7141_pio_config);
 

@@ -606,14 +606,17 @@ static int clkgenax_enable(clk_t *clk_p)
 		/* Unsupported. Init must be called first. */
 		return CLK_ERR_BAD_PARAMETER;
 
-	/* PLL power up */
-	if ((clk_p->id >= CLKA0_PLL0HS && clk_p->id <= CLKA0_PLL1) ||
-	    (clk_p->id >= CLKA1_PLL0HS && clk_p->id <= CLKA1_PLL1))
+	switch (clk_p->id) {
+	case CLKA1_REF:
+	case CLKA0_REF:
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	case CLKA0_PLL0HS ... CLKA0_PLL1:
+	case CLKA1_PLL0HS ... CLKA1_PLL1:
 		return clkgenax_xable_pll(clk_p, 1);
-
-	err = clkgenax_set_parent(clk_p, clk_p->parent);
-	/* clkgenax_set_parent() is performing also a recalc() */
-
+	default:
+		err = clkgenax_set_parent(clk_p, clk_p->parent);
+		/* clkgenax_set_parent() is performing also a recalc() */
+	}
 	return err;
 }
 
@@ -633,14 +636,16 @@ static int clkgenax_disable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
-	/* Can this clock be disabled ? */
-	if (clk_p->flags & CLK_ALWAYS_ENABLED)
-		return 0;
-
-	/* PLL power down */
-	if ((clk_p->id >= CLKA0_PLL0HS && clk_p->id <= CLKA0_PLL1) ||
-	    (clk_p->id >= CLKA1_PLL0HS && clk_p->id <= CLKA1_PLL1))
+	switch (clk_p->id) {
+	case CLKA1_REF:
+	case CLKA0_REF:
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	case CLKA0_PLL0HS ... CLKA0_PLL1:
+	case CLKA1_PLL0HS ... CLKA1_PLL1:
 		return clkgenax_xable_pll(clk_p, 0);
+	default:
+		break;
+	}
 
 	idx = clkgenax_get_index(clk_p->id, &srcreg, &shift);
 	if (idx == -1)
@@ -1251,6 +1256,9 @@ static int clkgenb_enable(clk_t *clk_p)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKB_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	if (clk_p->id >= CLKB_FS0_CH1 && clk_p->id <= CLKB_FS1_CH4)
 		err = clkgenb_xable_fsyn(clk_p, 1);

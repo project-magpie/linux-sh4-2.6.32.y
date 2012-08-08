@@ -10,6 +10,9 @@
  *****************************************************************************/
 
 /* ----- Modification history (most recent first)----
+08/aug/12 carmelo.amoroso@st.com
+	  clkgenf_enable/disable, do not consider an error enabling/disabling
+	  the CLKF_REF clock, as it is always enabled.
 19/may/10 francesco.virlinzi@st.com/fabrice.charpentier@st.com
 	  Added several divisor factor on 656_1, DISP_HD. PIX_SD, etc
 11/mar/10 fabrice.charpentier@st.com
@@ -2214,7 +2217,13 @@ static int clkgenf_init(clk_t *clk_p)
 
 static int clkgenf_enable(clk_t *clk_p)
 {
-	if (!clk_p || clk_p->id != CLKF_USB48)
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKF_REF)
+		/* CLKF_REF is always enabled */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	else if (clk_p->id != CLKF_USB48)
 		return CLK_ERR_BAD_PARAMETER;
 
 	if (chip_major_version() < 2)
@@ -2236,7 +2245,13 @@ static int clkgenf_enable(clk_t *clk_p)
 
 static int clkgenf_disable(clk_t *clk_p)
 {
-	if (!clk_p || clk_p->id != CLKF_USB48)
+	if (!clk_p)
+		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKF_REF)
+		/* CLKF_REF is always enabled */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	else if (clk_p->id != CLKF_USB48)
 		return CLK_ERR_BAD_PARAMETER;
 
 	if (chip_major_version() < 2)

@@ -523,7 +523,9 @@ static int clkgena_enable(clk_t *clk_p)
 	if (!clk_p->parent)
 		/* Unsupported. Init must be called first. */
 		return CLK_ERR_BAD_PARAMETER;
-
+	if (clk_p->id == CLKA_REF)
+		/* Can't enable REF clock */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 	/* PLL power up */
 	if (clk_p->id >= CLKA_PLL0HS && clk_p->id <= CLKA_PLL1)
 		return clkgena_xable_pll(clk_p, 1);
@@ -550,6 +552,10 @@ static int clkgena_disable(clk_t *clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 	if (clk_p->id < CLKA_PLL0HS || clk_p->id > CLKA_IC_IF_200)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKA_REF)
+		/* Can't disable REF clock */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	/* Can this clock be disabled ? */
 	if (clk_p->flags & CLK_ALWAYS_ENABLED)
@@ -940,6 +946,10 @@ static int clkgenb_enable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
+	if (clk_p->id == CLKB_REF)
+		/* Can't enable REF clock */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+
 	if (clk_p->id >= CLKB_FS0_CH1 && clk_p->id <= CLKB_FS1_CH4)
 		err = clkgenb_xable_fsyn(clk_p, 1);
 	else
@@ -960,6 +970,10 @@ static int clkgenb_disable(clk_t *clk_p)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKB_REF)
+		/* Can't disable REF clock */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	if (clk_p->id >= CLKB_FS0_CH1 && clk_p->id <= CLKB_FS1_CH4)
 		err = clkgenb_xable_fsyn(clk_p, 0);
@@ -1113,7 +1127,7 @@ static int clkgenb_set_div(clk_t *clk_p, unsigned long *div_p)
 {
 	unsigned long set = 0;	/* Each bit set to 1 will be SETTED */
 	unsigned long reset = 0;	/* Each bit set to 1 will be RESETTED */
-	unsigned long reg;
+	unsigned long reg = 0;
 	unsigned long val;
 	static const char shift_table[] = {0, 2, 4, 6, 8, 10, 12};
 	/* *div_p = 0, 1, 2, 3, 4, 5, 6, 7, 8 */
@@ -1695,6 +1709,11 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKC_REF)
+		/* Can't enable/disable REF clock */
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+
 	if (clk_p->id < CLKC_FS0_CH1 || clk_p->id > CLKC_FS0_CH4)
 		return CLK_ERR_BAD_PARAMETER;
 

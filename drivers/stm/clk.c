@@ -334,7 +334,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	}
 	if (clk->usage_counter)
 		/* disable the right parent if required */
-		clk_disable(ret ? parent : old_parent);
+		_clk_disable(ret ? parent : old_parent);
 
 	spin_unlock_irqrestore(&clock_lock, flags);
 

@@ -115,10 +115,8 @@ static int ndesc_get_rx_status(void *data, struct stmmac_extra_stats *x,
 		ret = discard_frame;
 	}
 #ifdef STMMAC_VLAN_TAG_USED
-	if (p->des01.rx.vlan_tag) {
+	if (p->des01.rx.vlan_tag)
 		x->vlan_tag++;
-		stats->vlan_tag++;
-	}
 #endif
 	return ret;
 }

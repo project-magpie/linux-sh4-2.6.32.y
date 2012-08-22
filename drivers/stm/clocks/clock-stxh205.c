@@ -847,6 +847,9 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 	unsigned long div, idf, ndiv, cp;
 	int err = 0;
 	long deviation, new_deviation;
+#if !defined(CLKLLA_NO_PLL)
+		unsigned long data;
+#endif
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
@@ -864,7 +867,6 @@ static int clkgena0_set_rate(clk_t *clk_p, unsigned long freq)
 		if (err != 0)
 			break;
 #if !defined(CLKLLA_NO_PLL)
-		unsigned long data;
 		data = CLK_READ(CKGA0_BASE_ADDRESS + CKGA_PLL0_REG0_CFG)
 				& 0xffffff00;
 		data |= ndiv;
@@ -1513,9 +1515,14 @@ static int clkgenb_enable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
-	if (clk_p->id == CLK_B_REF)
+	switch (clk_p->id) {
+	case CLK_B_REF:
+	case CLK_B_FS0_VCO:
+	case CLK_B_FS1_VCO:
 		return CLK_ERR_FEATURE_NOT_SUPPORTED;
-
+	default:
+		break;
+	}
 	if (clk_p->id >= CLK_B_VID_HD_LOCAL && clk_p->id <= CLK_B_CLK_27_1)
 		err = clkgenb_xable_fsyn(clk_p, 1);
 	else
@@ -1537,8 +1544,14 @@ static int clkgenb_disable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
-	if (clk_p->id == CLK_B_REF)
+	switch (clk_p->id) {
+	case CLK_B_REF:
+	case CLK_B_FS0_VCO:
+	case CLK_B_FS1_VCO:
 		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	default:
+		break;
+	}
 
 	if (clk_p->id >= CLK_B_VID_HD_LOCAL && clk_p->id <= CLK_B_CLK_27_1)
 		err = clkgenb_xable_fsyn(clk_p, 0);
@@ -1763,6 +1776,15 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	switch (clk_p->id) {
+	case CLK_C_REF:
+	case CLK_C_FS_VCO:
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	default:
+		break;
+	}
+
 	if (clk_p->id < CLK_C_SPDIF || clk_p->id > CLK_C_PCM1)
 		return CLK_ERR_BAD_PARAMETER;
 

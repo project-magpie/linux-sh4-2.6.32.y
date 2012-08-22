@@ -522,9 +522,13 @@ static int clkgena_enable(clk_t *clk_p)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
 	if (!clk_p->parent)
 		/* Unsupported. Init must be called first. */
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKA_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	/* PLL power up */
 	if (clk_p->id >= CLKA_PLL0HS && clk_p->id <= CLKA_PLL1)
@@ -551,6 +555,9 @@ static int clkgena_disable(clk_t *clk_p)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKA_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	/* Can this clock be disabled ? */
 	if (clk_p->flags & CLK_ALWAYS_ENABLED)
@@ -942,6 +949,9 @@ static int clkgenb_enable(clk_t *clk_p)
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
 
+	if (clk_p->id == CLKB_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+
 	if (clk_p->id >= CLKB_FS0_CH1 && clk_p->id <= CLKB_FS1_CH4)
 		err = clkgenb_xable_fsyn(clk_p, 1);
 	else
@@ -962,6 +972,9 @@ static int clkgenb_disable(clk_t *clk_p)
 
 	if (!clk_p)
 		return CLK_ERR_BAD_PARAMETER;
+
+	if (clk_p->id == CLKB_REF)
+		return CLK_ERR_FEATURE_NOT_SUPPORTED;
 
 	if (clk_p->id >= CLKB_FS0_CH1 && clk_p->id <= CLKB_FS1_CH4)
 		err = clkgenb_xable_fsyn(clk_p, 0);

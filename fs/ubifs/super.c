@@ -89,9 +89,8 @@ static int validate_inode(struct ubifs_info *c, const struct inode *inode)
 		return 5;
 
 	if (!ubifs_compr_present(ui->compr_type)) {
-		ubifs_warn("inode %lu uses '%s' compression, but it was not "
-			   "compiled in", inode->i_ino,
-			   ubifs_compr_name(ui->compr_type));
+		ubifs_warn("inode %lu uses '%s' compression, but it was not compiled in",
+			   inode->i_ino, ubifs_compr_name(ui->compr_type));
 	}
 
 	err = dbg_check_dir(c, inode);
@@ -1050,8 +1049,8 @@ static int ubifs_parse_options(struct ubifs_info *c, char *options,
 
 			flag = parse_standard_option(p);
 			if (!flag) {
-				ubifs_err("unrecognized mount option \"%s\" "
-					  "or missing value", p);
+				ubifs_err("unrecognized mount option \"%s\" or missing value",
+					  p);
 				return -EINVAL;
 			}
 			sb->s_flags |= flag;
@@ -1113,8 +1112,8 @@ again:
 		}
 
 		/* Just disable bulk-read */
-		ubifs_warn("Cannot allocate %d bytes of memory for bulk-read, "
-			   "disabling it", c->max_bu_buf_len);
+		ubifs_warn("cannot allocate %d bytes of memory for bulk-read, disabling it",
+			   c->max_bu_buf_len);
 		c->mount_opts.bulk_read = 1;
 		c->bulk_read = 0;
 		return;
@@ -1405,11 +1404,11 @@ static int mount_ubifs(struct ubifs_info *c)
 	if (c->ro_mount)
 		ubifs_msg("mounted read-only");
 	x = (long long)c->main_lebs * c->leb_size;
-	ubifs_msg("file system size:   %lld bytes (%lld KiB, %lld MiB, %d "
-		  "LEBs)", x, x >> 10, x >> 20, c->main_lebs);
+	ubifs_msg("file system size:   %lld bytes (%lld KiB, %lld MiB, %d LEBs)",
+		  x, x >> 10, x >> 20, c->main_lebs);
 	x = (long long)c->log_lebs * c->leb_size + c->max_bud_bytes;
-	ubifs_msg("journal size:       %lld bytes (%lld KiB, %lld MiB, %d "
-		  "LEBs)", x, x >> 10, x >> 20, c->log_lebs + c->max_bud_cnt);
+	ubifs_msg("journal size:       %lld bytes (%lld KiB, %lld MiB, %d LEBs)",
+		  x, x >> 10, x >> 20, c->log_lebs + c->max_bud_cnt);
 	ubifs_msg("media format:       w%d/r%d (latest is w%d/r%d)",
 		  c->fmt_version, c->ro_compat_version,
 		  UBIFS_FORMAT_VERSION, UBIFS_RO_COMPAT_VERSION);
@@ -1557,10 +1556,9 @@ static int ubifs_remount_rw(struct ubifs_info *c)
 
 	if (c->rw_incompat) {
 		ubifs_err("the file-system is not R/W-compatible");
-		ubifs_msg("on-flash format version is w%d/r%d, but software "
-			  "only supports up to version w%d/r%d", c->fmt_version,
-			  c->ro_compat_version, UBIFS_FORMAT_VERSION,
-			  UBIFS_RO_COMPAT_VERSION);
+		ubifs_msg("on-flash format version is w%d/r%d, but software only supports up to version w%d/r%d",
+			  c->fmt_version, c->ro_compat_version,
+			  UBIFS_FORMAT_VERSION, UBIFS_RO_COMPAT_VERSION);
 		return -EROFS;
 	}
 
@@ -1821,8 +1819,8 @@ static void ubifs_put_super(struct super_block *sb)
 				 * next mount, so we just print a message and
 				 * continue to unmount normally.
 				 */
-				ubifs_err("failed to write master node, "
-					  "error %d", err);
+				ubifs_err("failed to write master node, error %d",
+					  err);
 		} else {
 			for (i = 0; i < c->jhead_cnt; i++)
 				/* Make sure write-buffer timers are canceled */
@@ -2230,8 +2228,7 @@ static int __init ubifs_init(void)
 	 * UBIFS_BLOCK_SIZE. It is assumed that both are powers of 2.
 	 */
 	if (PAGE_CACHE_SIZE < UBIFS_BLOCK_SIZE) {
-		ubifs_err("VFS page cache size is %u bytes, but UBIFS requires"
-			  " at least 4096 bytes",
+		ubifs_err("VFS page cache size is %u bytes, but UBIFS requires at least 4096 bytes",
 			  (unsigned int)PAGE_CACHE_SIZE);
 		return -EINVAL;
 	}

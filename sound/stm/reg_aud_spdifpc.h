@@ -177,6 +177,16 @@
 	value__AUD_SPDIFPC_CFG__REQ_ACK_EN__ENABLED(ip))
 
 /* CHA_STA_BITS */
+#define shift__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip) 9
+#define mask__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip) 0x1
+
+#define set__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip, value) \
+	writel((readl(ip->base + offset__AUD_SPDIFPC_CFG(ip)) & \
+	~(mask__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip) << \
+	shift__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip))) | (((value) & \
+	mask__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip)) << \
+	shift__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(ip)), ip->base + \
+	offset__AUD_SPDIFPC_CFG(ip))
 
 #define shift__AUD_SPDIFPC_CFG__CHA_STA_BITS(ip) (ip->ver < \
 	4 ? -1 : 6)

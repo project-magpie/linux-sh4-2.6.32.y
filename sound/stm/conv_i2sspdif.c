@@ -89,6 +89,27 @@ static struct snd_aes_iec958 snd_stm_conv_i2sspdif_iec958_zeroed;
 
 #define CHA_STA_TRIES 50000
 
+static int snd_stm_conv_i2sspdif_set_cha_sta(struct snd_stm_conv_i2sspdif
+		*conv_i2sspdif, unsigned long *status)
+{
+	int j;
+
+	/* Clear the channel status update bit (only IP v4 or later) */
+	if (conv_i2sspdif->ver >= 4)
+		set__AUD_SPDIFPC_CFG__CHL_STS_UPDATE_CLR(conv_i2sspdif, 1);
+
+	/* Set the channel status */
+	for (j = 0; j < 6; j++)
+		set__AUD_SPDIFPC_CHA_STA(conv_i2sspdif, j, status[j]);
+
+	/* Verify the channel status is set */
+	for (j = 0; j < 6; j++)
+		if (get__AUD_SPDIFPC_CHA_STA(conv_i2sspdif, j) != status[j])
+			return 0;
+
+	return 1;
+}
+
 static int snd_stm_conv_i2sspdif_iec958_set(struct snd_stm_conv_i2sspdif
 		*conv_i2sspdif, struct snd_aes_iec958 *iec958)
 {
@@ -142,6 +163,26 @@ static int snd_stm_conv_i2sspdif_iec958_set(struct snd_stm_conv_i2sspdif
 
 			status[i] = word | (word << 1);
 		}
+
+		/* Set converter's channel status registers - they are realised
+		 * in such a ridiculous way that write to them is enabled only
+		 * in (about) 300us time window after CHL_STS_BUFF_EMPTY bit
+		 * is asserted... And this happens once every 2ms (only when
+		 * converter is enabled and gets data...) */
+
+		for (i = 0; i < CHA_STA_TRIES; i++) {
+
+			if (get__AUD_SPDIFPC_STA__CHL_STS_BUFF_EMPTY(
+							conv_i2sspdif)) {
+
+				ok = snd_stm_conv_i2sspdif_set_cha_sta(
+								conv_i2sspdif,
+								status);
+
+				if (ok)
+					break;
+			}
+		}
 	} else {
 		/* Fortunately in some hardware there is a "sane" mode
 		 * of channel status registers operation... :-) */
@@ -151,31 +192,12 @@ static int snd_stm_conv_i2sspdif_iec958_set(struct snd_stm_conv_i2sspdif
 					iec958->status[i * 4 + 1] << 8 |
 					iec958->status[i * 4 + 2] << 16 |
 					iec958->status[i * 4 + 3] << 24;
+
+		/* Set converter's channel status registers */
+		ok = snd_stm_conv_i2sspdif_set_cha_sta(conv_i2sspdif, status);
 	}
 
-	/* Set converter's channel status registers - they are realised
-	 * in such a ridiculous way that write to them is enabled only
-	 * in (about) 300us time window after CHL_STS_BUFF_EMPTY bit
-	 * is asserted... And this happens once every 2ms (only when
-	 * converter is enabled and gets data...) */
 
-	ok = 0;
-	for (i = 0; i < CHA_STA_TRIES; i++) {
-		if (get__AUD_SPDIFPC_STA__CHL_STS_BUFF_EMPTY(conv_i2sspdif)) {
-			for (j = 0; j < 6; j++)
-				set__AUD_SPDIFPC_CHA_STA(conv_i2sspdif, j,
-						status[j]);
-			ok = 1;
-			for (j = 0; j < 6; j++)
-				if (get__AUD_SPDIFPC_CHA_STA(conv_i2sspdif,
-						j) != status[j]) {
-					ok = 0;
-					break;
-				}
-			if (ok)
-				break;
-		}
-	}
 	if (!ok) {
 		snd_stm_printe("WARNING! Failed to set channel status registers"
 				" for converter %s! (tried %d times)\n",

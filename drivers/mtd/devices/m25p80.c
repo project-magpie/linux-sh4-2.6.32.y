@@ -671,6 +671,7 @@ static struct flash_info __devinitdata m25p_data [] = {
 
 	/* Numonyx devices */
 	{ "n25q128", 0x20ba18, 0, 64 * 1024, 256, },
+	{ "n25q64", 0x20ba17, 0, 64 * 1024, 128, },
 
 	/* Winbond -- w25x "blocks" are 64K, "sectors" are 4KiB */
 	{ "w25x10", 0xef3011, 0, 64 * 1024, 2, SECT_4K, },

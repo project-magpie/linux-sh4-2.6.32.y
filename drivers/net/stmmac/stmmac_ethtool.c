@@ -449,6 +449,7 @@ static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 		wol->supported = WAKE_MAGIC | WAKE_UCAST;
 		wol->wolopts = priv->wolopts;
 	}
+	/* FIXME: get WoL from PHY that supports Wol+ */
 	spin_unlock_irq(&priv->lock);
 }
 
@@ -456,6 +457,18 @@ static int stmmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 support = WAKE_MAGIC | WAKE_UCAST;
+
+	if (priv->phy_wol_plus & wol->wolopts) {
+		int ret;
+
+		pr_info("stmmac: use Phy WoL+\n");
+
+		spin_lock_irq(&priv->lock);
+		ret = phy_ethtool_set_wol(priv->phydev, wol);
+		spin_unlock_irq(&priv->lock);
+
+		return ret;
+	}
 
 	/* By default almost all GMAC devices support the WoL via
 	 * magic frame but we can disable it if the HW capability

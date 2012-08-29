@@ -88,6 +88,7 @@ struct stmmac_priv {
 	bool tx_path_in_lpi_mode;
 	bool eee_enabled;
 	int lpi_irq;
+	int phy_wol_plus;
 };
 
 extern int phyaddr;

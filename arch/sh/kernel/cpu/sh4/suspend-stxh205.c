@@ -191,6 +191,14 @@ on_suspending:
 		cfg_1_0 |= (pll_id << (CLK_A1_GMAC * 2));
 		pwr_1 &= ~pll_id;
 	}
+	/* WoL+ is supported so the MAC clk can be disabled */
+	if (stxh205_wkd.stm_phy_can_wakeup) {
+		int pll_id = (a1_pll1_ls_clk == clk_get_parent(a1_eth_phy_clk) ?
+			2 : 1);
+		cfg_1_0 &= ~(0x3 << (CLK_A1_ETH_PHY * 2));
+		cfg_1_0 |= (pll_id << (CLK_A1_ETH_PHY * 2));
+		pwr_1 &= ~pll_id;
+	}
 
 /*
  * The DDR subsystem uses an clock-channel coming direclty from A1.

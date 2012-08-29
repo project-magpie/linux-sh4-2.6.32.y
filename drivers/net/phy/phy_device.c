@@ -878,7 +878,6 @@ EXPORT_SYMBOL(genphy_resume);
 static inline void mmd_phy_cl45(struct mii_bus *bus, int prtad, int devad,
 				int addr)
 {
-
 	/* Write the desired MMD Devad */
 	bus->write(bus, addr, MII_MMD_CRTL, devad);
 
@@ -891,7 +890,7 @@ static inline void mmd_phy_cl45(struct mii_bus *bus, int prtad, int devad,
 }
 
 /**
- * read_phy_mmd - reads data from the MMC register (clause 22 to access to
+ * read_phy_mmd - reads data from the MMD register (clause 22 to access to
  * 		  clause 45)
  * @bus: the target MII bus
  * @prtad: MMD Address
@@ -920,7 +919,7 @@ static int read_phy_mmd(struct mii_bus *bus, int prtad, int devad, int addr)
 }
 
 /**
- * write_phy_mmd - writes data to the MMC register (clause 22 to access to
+ * write_phy_mmd - writes data to the MMD register (clause 22 to access to
  * 		   clause 45)
  * @bus: the target MII bus
  * @prtad: MMD Address
@@ -928,7 +927,7 @@ static int read_phy_mmd(struct mii_bus *bus, int prtad, int devad, int addr)
  * @addr: PHY address on the MII bus
  * @data: data to write in the MMD register
  *
- * Description: Reads data from the MMD regisetrs of the
+ * Description: write data from the MMD regisetrs of the
  * phy addr. To read these register we have:
  * 1) Write reg 13 // DEVAD
  * 2) Write reg 14 // MMD Address
@@ -1036,6 +1035,13 @@ static int phy_probe(struct device *dev)
 	/* Disable the interrupt if the PHY doesn't support it */
 	if (!(phydrv->flags & PHY_HAS_INTERRUPT))
 		phydev->irq = PHY_POLL;
+	else {
+		/* Check if the PHY is WoL capable but driver cannot work
+		 * in polling mode.
+		 */
+		if (phydrv->wol_supported)
+			device_set_wakeup_capable(dev, 1);
+	}
 
 	mutex_lock(&phydev->lock);
 

@@ -234,7 +234,7 @@ on_suspending:
 	iowrite32(0xfffff0ff, cga + CKGA_CLKOPSRC_SWITCH_CFG(0));
 	iowrite32(0x3, cga + CKGA_CLKOPSRC_SWITCH_CFG(1));
 
-	if (wkd.hdmi_can_wakeup || wkd.eth_phy_can_wakeup) {
+	if (wkd.hdmi_can_wakeup || wkd.stm_mac0_can_wakeup) {
 		unsigned long pwr = 0x3; /* Plls Off */
 		unsigned long cfg = 0xfffff0ff;
 
@@ -246,7 +246,7 @@ on_suspending:
 			cfg &= ~(0x3 << (2 * CLKA_IC_IF_100_ID));
 			cfg |= (0x2 << (2 * CLKA_IC_IF_100_ID));
 		}
-		if (wkd.eth_phy_can_wakeup) {
+		if (wkd.stm_mac0_can_wakeup) {
 			unsigned long pll_id;
 			/* identify the eth_phy_clk parent */
 			pll_id = (clk_get_parent(ca_eth_phy_clk) ==

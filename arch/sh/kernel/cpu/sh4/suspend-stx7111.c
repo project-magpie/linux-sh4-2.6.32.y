@@ -232,7 +232,7 @@ on_suspending:
 	cfg_1 = 0xf;
 	cfg_1 &= ~(0x3 << (2 * (CLKA_IC_IF_200_ID - 16)));
 
-	if (wkd.eth_phy_can_wakeup) {
+	if (wkd.stm_mac0_can_wakeup) {
 		unsigned long pll_id;
 
 		/* identify the eth_phy_clk */

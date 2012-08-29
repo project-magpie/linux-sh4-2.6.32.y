@@ -240,7 +240,7 @@ on_suspending:
 		cfg_0 &=  ~(0x3 << (2 * CLKA_IC_IF_100_ID));
 		cfg_0 |= (0x2 << (2 * CLKA_IC_IF_100_ID));
 	}
-	if (wkd.eth_phy_can_wakeup) {
+	if (wkd.stm_mac0_can_wakeup) {
 		unsigned long pll_id;
 		/* identify the eth_phy_clk parent */
 		pll_id = (clk_get_parent(ca_eth_phy_clk) == ca_pll1_clk) ?

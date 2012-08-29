@@ -228,7 +228,7 @@ on_suspending:
 	cfg_1 &= ~(0x3 << (2 * CLKA_IC_200_ID));
 
 #if 0
-	if (wkd.eth_phy_can_wakeup) {
+	if (wkd.stm_mac0_can_wakeup) {
 		/* Pll_0 on */
 		pwr &= ~1;
 		/* eth_phy_clk under pll0 */

@@ -259,7 +259,7 @@ on_suspending:
 	 * as we don't care about the actual frequency as long as it has a
 	 * clock.
 	 */
-	if (wkd.eth1_phy_can_wakeup) {
+	if (wkd.stm_mac1_can_wakeup) {
 		unsigned long pll_id;
 		/* identify the eth_phy_clk parent */
 		pll_id = (clk_get_parent(ca0_eth_phy_clk) == ca0_pll1_clk) ?

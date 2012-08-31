@@ -767,14 +767,16 @@ static int stmmac_has_work(struct stmmac_priv *priv)
 	unsigned int has_work = 0;
 	int rxret, tx_work = 0;
 
-	rxret = priv->hw->desc->get_rx_owner(priv->dma_rx +
-		(priv->cur_rx % priv->dma_rx_size));
+	if (likely(priv->dma_rx)) {
+		rxret = priv->hw->desc->get_rx_owner(priv->dma_rx +
+			(priv->cur_rx % priv->dma_rx_size));
 
-	if (priv->dirty_tx != priv->cur_tx)
-		tx_work = 1;
+		if (priv->dirty_tx != priv->cur_tx)
+			tx_work = 1;
 
-	if (likely(!rxret || tx_work))
-		has_work = 1;
+		if (likely(!rxret || tx_work))
+			has_work = 1;
+	}
 
 	return has_work;
 }

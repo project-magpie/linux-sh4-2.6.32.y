@@ -238,4 +238,47 @@ config PMS_DEBUG
 	help
 	  Enable this option to print out information about the PMS
 
+config STM_LPM
+	bool "STM Low Power Monitor"
+	depends on CPU_SUBTYPE_STXH205 || CPU_SUBTYPE_STX7108
+	select LIBELF_64
+	default n
+	help
+	 Enable this option for Standby Controller support.
+
+config STM_LPM_I2C
+	bool "External SBC"
+	depends on STM_LPM &&  CPU_SUBTYPE_STX7108
+	default n
+	help
+	 Enable this option for Standby controller which is connected to SOC
+	 with i2c interface.
+
+config STM_LPM_MB
+	bool "Internal SBC"
+	depends on STM_LPM &&  CPU_SUBTYPE_STXH205
+	default n
+	help
+	 Enable this option for Standby controller which are internal to SOC.
+
+config STM_LPM_RD_MONITOR
+	bool "STLPM Monitoring power key press on GPIO"
+	depends on STM_LPM && CPU_SUBTYPE_STX7108
+	default n
+	help
+	 This enable intercept GPIO (7108_RD signal on HDK7108 board) activity.
+	 This GPIO is connected to HDK7108 board's front panel and controlled
+	 by external SBC.
+	 When user presses standby button on FP, SBC drive this PIO to low.
+	 STLPM driver intercept this GPIO interrupt and export to user land.
+	 Application can track powerkey in sysfs to check if power key on front panel
+	 is pressed or not.
+
+config STM_LPM_DEBUG
+	bool "STM Low Power Monitor debug"
+	depends on STM_LPM
+	default n
+	help
+	 Enable this option to print debug information.
+
 endmenu

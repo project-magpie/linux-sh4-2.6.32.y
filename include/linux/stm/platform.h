@@ -198,7 +198,24 @@ struct stm_plat_usb_data {
 	struct stm_device_config *device_config;
 };
 
-
+/**
+ * struct stm_lpm_i2c_data - i2c information for SBC
+ * @number_i2c : i2c number connected with external SBC
+ * @number_gpio: gpio which is connected with external SBC for power key.
+ *               This gpio will be controlled by SBC,
+ *		 Host will read status of it
+ * @status_gpio: status of gpio which is connected with SBC for power key
+ * @i2c_adap   : i2c_adapter which is connected with number_i2c
+ *
+ * This struct hold the parameters which are specific to external SBC.
+ * This external SBC is connected with SOC via i2c interface
+ */
+struct stm_lpm_i2c_data {
+	int number_i2c;
+	int number_gpio;
+	int status_gpio;
+	struct i2c_adapter *i2c_adap;
+};
 
 /*** TAP platform data ***/
 

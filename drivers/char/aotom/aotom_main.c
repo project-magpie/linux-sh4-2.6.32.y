@@ -748,6 +748,14 @@ static int AOTOMdev_ioctl(struct inode *Inode, struct file *File, unsigned int c
 			res = put_user(State, (int *) arg);
 		break;
 	}
+	case VFDGETVERSION:
+	{
+		YWPANEL_Version_t panel_version;
+		memset(&panel_version, 0, sizeof(YWPANEL_Version_t));
+		if (YWPANEL_FP_GetVersion(&panel_version))
+			res = put_user (panel_version.DisplayInfo, (int *)arg);
+		break;
+	}
 
 	default:
 		printk("VFD/AOTOM: unknown IOCTL 0x%x\n", cmd);

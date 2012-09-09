@@ -32,6 +32,7 @@ typedef unsigned long u64;
 #define VFDDISPLAYWRITEONOFF  0xc0425a05
 #define VFDDISPLAYCHARS       0xc0425a00
 
+#define VFDGETVERSION         0xc0425af7
 #define VFDGETSTARTUPSTATE    0xc0425af8
 #define VFDGETWAKEUPMODE      0xc0425af9
 #define VFDGETTIME            0xc0425afa

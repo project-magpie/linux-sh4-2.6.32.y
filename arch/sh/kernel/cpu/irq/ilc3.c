@@ -617,6 +617,16 @@ static int ilc_restore(void)
 #define ilc_restore		NULL
 #endif
 
+static int ilc_suspend(void)
+{
+	struct irq_desc *desc;
+	int irq;
+	for_each_irq_desc(irq, desc)
+		if (desc->status & IRQ_WAKEUP && desc->chip == &ilc_chip)
+			unmask_ilc_irq(irq);
+	return 0;
+}
+
 static struct stm_system stm_ilc_system = {
 	.name = "ilc3",
 	.priority = 0x1000, /* higher enough to be restored after:
@@ -624,6 +634,7 @@ static struct stm_system stm_ilc_system = {
 			     * - sysconf
 			     * - gpio
 			     */
+	.suspend = ilc_suspend,
 	.restore = ilc_restore,
 };
 

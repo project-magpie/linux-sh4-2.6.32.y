@@ -26,6 +26,7 @@
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 
+#define B2064_GPIO_FLASH_WP		stm_gpio(6, 2)
 #ifndef CONFIG_SH_ST_B2064C_BOARD
 #define B2064_GPIO_POWER_ON_ETH		stm_gpio(2, 5)
 #else
@@ -163,17 +164,17 @@ static struct stm_plat_spifsm_data b2064_serial_flash =  {
 		/* Capabilities may be overriden by SoC configuration */
 		.dual_mode = 1,
 		.quad_mode = 1,
-		/*
-		 * Reset signal can be routed to UM7 (SO16 option) by fitting
-		 * RM52 (default is DNF)
-		 */
-		.reset_signal = 0,
+		.reset_signal = 0, /* Reset signal can be routed to UD16 if RD21
+				    * fitted (default is DNF)
+				    */
 	},
 };
 
 /* NAND Flash */
 static struct stm_nand_bank_data b2064_nand_flash = {
-	.csn		= 0,	/* Controlled by SW4 */
+	.csn		= 0,	/* Rev A/B : set SW4 2-3 (EMI_CS0 -> NAND_CS)
+				 * Rev C   : EMI_CS0 hardwired to NAND_CS
+				 */
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
 	.nr_partitions	= 2,
 	.partitions	= (struct mtd_partition []) {
@@ -295,11 +296,18 @@ static int __init device_init(void)
 			.no_mmc_boot_data_error = 1,
 		});
 
+	/*
+	 * NAND MTD has no concept of write-protect, so permanently disable WP
+	 */
+	gpio_request(B2064_GPIO_FLASH_WP, "FLASH_WP");
+	gpio_direction_output(B2064_GPIO_FLASH_WP, 1);
+
 	stxh205_configure_nand(&(struct stm_nand_config) {
-			.driver = stm_nand_flex,
+			.driver = stm_nand_bch,
 			.nr_banks = 1,
 			.banks = &b2064_nand_flash,
-			.rbn.flex_connected = 1,});
+			.rbn.flex_connected = 1,
+			.bch_ecc_cfg = BCH_ECC_CFG_AUTO});
 
 	stxh205_configure_spifsm(&b2064_serial_flash);
 

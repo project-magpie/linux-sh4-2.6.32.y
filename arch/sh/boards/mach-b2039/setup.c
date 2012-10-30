@@ -113,7 +113,11 @@ static struct stm_plat_spifsm_data b2039_serial_flash =  {
 	},
 };
 
-/* NAND Flash (via b2006a/b2007a VPMEM module) */
+/*
+ * NAND Flash
+ *	b2006a/b2007a VPMEM module
+ *	J66 should be 1-2, or open (i.e. 'VPMEM_notWP' not connected)
+ */
 static struct stm_nand_bank_data b2039_nand_flash = {
 	.csn		= 0,
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,

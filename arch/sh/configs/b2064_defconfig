@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.32.57
-# Fri Jul 20 19:10:38 2012
+# Linux kernel version: 2.6.32.59
+# Thu Aug  2 15:46:28 2012
 #
 CONFIG_SUPERH=y
 CONFIG_SUPERH32=y
@@ -255,6 +255,7 @@ CONFIG_HAVE_MLOCKED_PAGE_BIT=y
 CONFIG_DEFAULT_MMAP_MIN_ADDR=4096
 CONFIG_BPA2=y
 # CONFIG_BPA2_ALLOC_TRACE is not set
+# CONFIG_MIN_FREE_KBYTES is not set
 
 #
 # Cache configuration
@@ -294,6 +295,7 @@ CONFIG_CPU_HAS_FPU=y
 # CONFIG_SH_ST_B2039 is not set
 # CONFIG_SH_ST_B2057 is not set
 CONFIG_SH_ST_B2064=y
+# CONFIG_SH_ST_B2067 is not set
 # CONFIG_SH_ST_B2076 is not set
 
 #
@@ -555,12 +557,10 @@ CONFIG_MTD_NAND_IDS=y
 # CONFIG_MTD_NAND_NANDSIM is not set
 # CONFIG_MTD_NAND_PLATFORM is not set
 # CONFIG_MTD_ALAUDA is not set
-# CONFIG_MTD_NAND_STM_BCH is not set
+CONFIG_MTD_NAND_STM_BCH=y
+# CONFIG_STM_NAND_BCH_DEBUG is not set
 # CONFIG_MTD_NAND_STM_EMI is not set
-CONFIG_MTD_NAND_STM_FLEX=y
-# CONFIG_STM_NAND_FLEX_CACHED is not set
-# CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT is not set
-CONFIG_STM_NAND_FLEX_BOOTPARTITION="Boot firmware"
+# CONFIG_MTD_NAND_STM_FLEX is not set
 # CONFIG_MTD_NAND_STM_AFM is not set
 # CONFIG_MTD_ONENAND is not set
 

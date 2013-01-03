@@ -421,6 +421,8 @@ static void xpad_irq_in(struct urb *urb)
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
+	case -EPIPE:
+	case -EPROTO:
 		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d",
 			__func__, status);
@@ -481,6 +483,8 @@ static void xpad_irq_out(struct urb *urb)
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
+	case -EPIPE:
+	case -EPROTO:
 		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d", __func__, status);
 		return;

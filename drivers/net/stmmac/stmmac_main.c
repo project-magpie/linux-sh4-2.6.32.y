@@ -992,12 +992,6 @@ static int stmmac_open(struct net_device *dev)
 	stmmac_check_ether_addr(priv);
 
 	/* MDIO bus Registration */
-	ret = stmmac_mdio_register(dev);
-	if (ret < 0) {
-		pr_debug("%s: MDIO bus (id: %d) registration failed",
-			 __func__, priv->plat->bus_id);
-		return ret;
-	}
 
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm = kzalloc(sizeof(struct stmmac_timer *), GFP_KERNEL);
@@ -1193,8 +1187,6 @@ static int stmmac_release(struct net_device *dev)
 #ifdef CONFIG_STMMAC_DEBUG_FS
 	stmmac_exit_fs();
 #endif
-	stmmac_mdio_unregister(dev);
-
 	return 0;
 }
 
@@ -2056,15 +2048,23 @@ struct stmmac_priv *stmmac_dvr_probe(struct device *device,
 	ret = register_netdev(ndev);
 	if (ret) {
 		pr_err("%s: ERROR %i registering the device\n", __func__, ret);
-		goto error;
+		goto netdev_error;
+	}
+
+	ret = stmmac_mdio_register(ndev);
+	if (ret < 0) {
+		pr_err("%s: MDIO bus (id: %d) registration failed",
+			__func__, priv->plat->bus_id);
+		goto exit_error;
 	}
 
 	return priv;
 
-error:
+exit_error:
+	unregister_netdev(ndev);
+netdev_error:
 	netif_napi_del(&priv->napi);
 
-	unregister_netdev(ndev);
 	free_netdev(ndev);
 
 	return NULL;
@@ -2088,6 +2088,7 @@ int stmmac_dvr_remove(struct net_device *ndev)
 
 	stmmac_set_mac(priv->ioaddr, false);
 	netif_carrier_off(ndev);
+	stmmac_mdio_unregister(ndev);
 	unregister_netdev(ndev);
 	free_netdev(ndev);
 

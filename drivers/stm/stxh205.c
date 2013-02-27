@@ -177,7 +177,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 	{
 		/* SBC system configuration bank 0 registers */
 		/* SYSCFG_BANK0 (aka SYSCFG_SBC, Sapphire): 0-42 */
-		.name		= "sysconf",
+		.name		= "stm-sysconf",
 		.id		= 0,
 		.num_resources	= 1,
 		.resource	= (struct resource[]) {
@@ -196,7 +196,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 		}
 	}, {
 		/* SYSCFG_BANK1 (aka Coral): 100-176 */
-		.name		= "sysconf",
+		.name		= "stm-sysconf",
 		.id		= 1,
 		.num_resources	= 1,
 		.resource	= (struct resource[]) {
@@ -215,7 +215,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 		}
 	}, {
 		/* SYSCFG_BANK2 (aka Perl): 200-243 */
-		.name		= "sysconf",
+		.name		= "stm-sysconf",
 		.id		= 2,
 		.num_resources	= 1,
 		.resource	= (struct resource[]) {
@@ -234,7 +234,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 		}
 	}, {
 		/* SYSCFG_BANK3 (aka Opal): 400-510 */
-		.name		= "sysconf",
+		.name		= "stm-sysconf",
 		.id		= 3,
 		.num_resources	= 1,
 		.resource	= (struct resource[]) {
@@ -253,7 +253,7 @@ static struct platform_device stxh205_sysconf_devices[] = {
 		}
 	}, {
 		/* LPM Configuration registers */
-		.name		= "sysconf",
+		.name		= "stm-sysconf",
 		.id		= 4,
 		.num_resources	= 1,
 		.resource	= (struct resource[]) {

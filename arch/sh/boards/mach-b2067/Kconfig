@@ -1,0 +1,30 @@
+if SH_ST_B2067
+
+menu "B2067: STxH238-HDK board options"
+
+choice
+	prompt  "B2067: Reference Board Version selection"
+	default SH_ST_B2067B_BOARD
+	help
+	  Select the appropriate version of the board which you will be using.
+	  This controls which PIO ports will be used for PHY reset.
+
+config SH_ST_B2067A_BOARD
+	bool "B2067A Board"
+	help
+	  B2067A Board for CUT1.0
+
+config SH_ST_B2067B_BOARD
+	bool "B2067B Board"
+	help
+	  B2067B Board for CUT1.0
+
+config SH_ST_B2067C_BOARD
+	bool "B2067C Board"
+	help
+	  B2067C Board for CUT2.0
+endchoice
+
+endmenu
+
+endif

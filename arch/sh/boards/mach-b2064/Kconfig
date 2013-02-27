@@ -1,0 +1,30 @@
+if SH_ST_B2064
+
+menu "B2064: STxH239-HDK board options"
+
+choice
+	prompt  "B2064: Reference Board Version selection"
+	default SH_ST_B2064B_BOARD
+	help
+	  Select the appropriate version of the board which you will be using.
+	  This controls which PIO ports will be used for PHY reset.
+
+config SH_ST_B2064A_BOARD
+	bool "B2064A Board"
+	help
+	  B2064A Board for CUT1.0
+
+config SH_ST_B2064B_BOARD
+	bool "B2064B Board"
+	help
+	  B2064B Board for CUT1.0
+
+config SH_ST_B2064C_BOARD
+	bool "B2064C Board"
+	help
+	  B2064C Board for CUT2.0
+endchoice
+
+endmenu
+
+endif

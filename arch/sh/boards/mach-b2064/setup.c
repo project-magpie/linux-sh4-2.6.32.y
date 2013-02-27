@@ -26,7 +26,11 @@
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
 
+#ifndef CONFIG_SH_ST_B2064C_BOARD
 #define B2064_GPIO_POWER_ON_ETH		stm_gpio(2, 5)
+#else
+#define B2064_GPIO_POWER_ON_ETH		stm_gpio(3, 3)
+#endif
 #define B2064_MII1_TXER			stm_gpio(0, 4)
 
 static void __init b2064_setup(char **cmdline_p)

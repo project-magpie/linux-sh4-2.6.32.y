@@ -32,6 +32,7 @@
 #define B2064_GPIO_POWER_ON_ETH		stm_gpio(3, 3)
 #endif
 #define B2064_MII1_TXER			stm_gpio(0, 4)
+#define B2064_POWER_ON			stm_gpio(3, 7)
 
 static void __init b2064_setup(char **cmdline_p)
 {
@@ -233,6 +234,9 @@ static int __init device_init(void)
 	 * but it isn't... ;-) */
 	gpio_request(B2064_GPIO_POWER_ON_ETH, "POWER_ON_ETH");
 	gpio_direction_output(B2064_GPIO_POWER_ON_ETH, 0);
+
+	gpio_request(B2064_POWER_ON, "POWER_ON");
+	gpio_direction_output(B2064_POWER_ON, 1);
 
 	stxh205_configure_ethernet(&(struct stxh205_ethernet_config) {
 			.mode = stxh205_ethernet_mode_mii,

@@ -155,7 +155,7 @@ static struct stm_plat_spifsm_data b2067_serial_flash =  {
 
 /* NAND Flash */
 static struct stm_nand_bank_data b2067_nand_flash = {
-	.csn		= 1,	/* Controlled by JF3 */
+	.csn		= 0,	/* Controlled by JF3 */
 	.options	= NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT,
 	.nr_partitions	= 2,
 	.partitions	= (struct mtd_partition []) {

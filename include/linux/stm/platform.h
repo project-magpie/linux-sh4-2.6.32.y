@@ -167,6 +167,7 @@ struct plat_stm_temp_data {
 	int calibration_value;
 	void (*custom_set_dcorrect)(void *priv);
 	unsigned long (*custom_get_data)(void *priv);
+	int correction_factor; /* add a signed correction to data read */
 	void *custom_priv;
 };
 

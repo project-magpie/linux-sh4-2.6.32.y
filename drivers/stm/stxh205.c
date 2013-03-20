@@ -360,6 +360,7 @@ static struct platform_device sth205_temp = {
 	.name	= "stm-temp",
 	.id	= 0,
 	.dev.platform_data = &(struct plat_stm_temp_data) {
+		.correction_factor = -103,
 		.dcorrect = { SYSCONF(140), 4, 8 },
 		.overflow = { SYSCONF(148), 9, 9 },
 		.data = { SYSCONF(148), 11, 18 },

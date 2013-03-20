@@ -48,9 +48,7 @@ static int stm_thermal_get_temp(struct thermal_zone_device *th,
 
 	overflow |= sysconf_read(sensor->overflow);
 
-	data = (data + 20) * 1000;
-
-	*temperature = data;
+	*temperature = (data + sensor->plat_data->correction_factor) * 1000;
 
 	return overflow;
 }

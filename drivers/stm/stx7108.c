@@ -1090,6 +1090,7 @@ static struct platform_device stx7108_temp_device = {
 	.name		   = "stm-temp",
 	.id		     = -1,
 	.dev.platform_data      = &(struct plat_stm_temp_data) {
+		.correction_factor = 20,
 		.dcorrect = { SYS_CFG_BANK1, 8, 4, 8 },
 		.overflow = { SYS_STA_BANK1, 7, 8, 8 },
 		.data = { SYS_STA_BANK1, 7, 10, 16 },

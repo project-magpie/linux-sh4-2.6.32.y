@@ -348,6 +348,27 @@ static struct platform_device stxh205_emi = {
 /*
  * Temperature sensor
  */
+static int stxh205_temp_init(struct stm_device_state *device_state)
+{
+	struct clk *clk = clk_get(NULL, "CLK_A0_THNS");
+	struct clk *osc;
+
+	if (!IS_ERR(clk))
+		return -ENODEV;
+
+	osc = clk_get(NULL, "CLK_A0_REF");
+	if (!IS_ERR(osc)) {
+		clk_put(clk);
+		return -ENODEV;
+	}
+
+	clk_enable(clk);
+	clk_set_parent(clk, osc);
+	clk_set_rate(clk, clk_get_rate(osc) / 30);
+
+	return 0;
+}
+
 static void stxh205_temp_power(struct stm_device_state *device_state,
 		enum stm_device_power_state power)
 {
@@ -366,6 +387,7 @@ static struct platform_device sth205_temp = {
 		.data = { SYSCONF(148), 11, 18 },
 		.device_config = &(struct stm_device_config) {
 			.sysconfs_num = 1,
+			.init = stxh205_temp_init,
 			.power = stxh205_temp_power,
 			.sysconfs = (struct stm_device_sysconf []){
 				STM_DEVICE_SYSCONF(SYSCONF(140),

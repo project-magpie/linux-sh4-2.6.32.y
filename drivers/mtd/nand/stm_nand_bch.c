@@ -1637,17 +1637,20 @@ static int mtd_read_oob(struct mtd_info *mtd, loff_t from,
 		(ops->oobbuf ? ops->ooblen : 0),
 		mtd_oob_mode_strs[ops->mode]);
 
+	if (!ops->oobbuf && ops->mode != MTD_OOB_RAW)
+		return mtd_read(mtd, from, ops->len, &ops->retlen, ops->datbuf);
+
 	ops->oobretlen = 0;
 	ops->retlen = 0;
 
 	/* We report OOB as unavailable (i.e. oobavail = 0), therefore nothing
 	 * should call this */
-	if (ops->mode == MTD_OOB_AUTO)
+	if (ops->oobbuf && ops->mode == MTD_OOB_AUTO)
 		return -ENOTSUPP;
 
 	/* Not currently supported by MTD.  Note, will have to fake support if
 	 * backporting 'in-band' nand_bbt.c... */
-	if (ops->datbuf && ops->mode == MTD_OOB_PLACE)
+	if (ops->datbuf && ops->oobbuf && ops->mode == MTD_OOB_PLACE)
 		return -ENOTSUPP;
 
 	/* Do not allow oob reads with ooboffs */
@@ -1707,17 +1710,20 @@ static int mtd_write_oob(struct mtd_info *mtd, loff_t to,
 		(ops->oobbuf ? ops->ooblen : 0),
 		mtd_oob_mode_strs[ops->mode]);
 
+	if (!ops->oobbuf && ops->mode != MTD_OOB_RAW)
+		return mtd_write(mtd, to, ops->len, &ops->retlen, ops->datbuf);
+
 	ops->oobretlen = 0;
 	ops->retlen = 0;
 
 	/* We report OOB as unavailable (i.e. oobavail = 0), therefore nothing
 	 * should call this */
-	if (ops->mode == MTD_OOB_AUTO)
+	if (ops->oobbuf && ops->mode == MTD_OOB_AUTO)
 		return -ENOTSUPP;
 
 	/* Not currently supported by MTD.  Note, will have to fake support if
 	 * backporting wavefront nand_bbt.c... */
-	if (ops->datbuf && ops->mode == MTD_OOB_PLACE)
+	if (ops->datbuf && ops->oobbuf && ops->mode == MTD_OOB_PLACE)
 		return -ENOTSUPP;
 
 	/* Do not allow oob writes with ooboffs */

@@ -2245,7 +2245,8 @@ static int nandi_examine_bbts(struct nandi_controller *nandi,
 	return stmnand_examine_bbts(mtd, bch_remap);
 }
 
-static void nandi_init_hamming(struct nandi_controller *nandi, int emi_bank)
+static void __devinit nandi_init_hamming(struct nandi_controller *nandi,
+					 int emi_bank)
 {
 	dev_dbg(nandi->dev, "%s\n", __func__);
 
@@ -2280,7 +2281,8 @@ static void nandi_init_hamming(struct nandi_controller *nandi, int emi_bank)
 	nandi_enable_interrupts(nandi, NAND_INT_ENABLE);
 }
 
-static void nandi_init_bch(struct nandi_controller *nandi, int emi_bank)
+static void __devinit nandi_init_bch(struct nandi_controller *nandi,
+				     int emi_bank)
 {
 	dev_dbg(nandi->dev, "%s\n", __func__);
 
@@ -2360,7 +2362,7 @@ static int __devinit remap_named_resource(struct platform_device *pdev,
 	return 0;
 }
 
-static struct nandi_controller * __init
+static struct nandi_controller * __devinit
 nandi_init_resources(struct platform_device *pdev)
 {
 	struct nandi_controller *nandi;

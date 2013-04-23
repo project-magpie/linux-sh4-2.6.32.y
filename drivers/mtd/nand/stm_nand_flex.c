@@ -887,7 +887,7 @@ static void flex_print_regs(struct stm_nand_flex_controller *flex)
 }
 #endif /* CONFIG_MTD_DEBUG */
 
-static struct stm_nand_flex_controller * __init
+static struct stm_nand_flex_controller * __devinit
 flex_init_controller(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
@@ -992,6 +992,8 @@ flex_init_controller(struct platform_device *pdev)
  out2:
 	release_resource(flex->mem_region);
  out1:
+	kfree(flex);
+
 	return ERR_PTR(res);
 }
 
@@ -1005,9 +1007,11 @@ static void __devexit flex_exit_controller(struct platform_device *pdev)
 	iounmap(flex->data_cached);
 #endif
 	release_resource(flex->mem_region);
+
+	kfree(flex);
 }
 
-static struct stm_nand_flex_device * __init
+static struct stm_nand_flex_device * __devinit
 flex_init_bank(struct stm_nand_flex_controller *flex,
 	       struct stm_nand_bank_data *bank,
 	       int rbn_connected, const char *name)
@@ -1186,7 +1190,7 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	return ERR_PTR(res);
 }
 
-static int __init stm_nand_flex_probe(struct platform_device *pdev)
+static int __devinit stm_nand_flex_probe(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
 	int res;

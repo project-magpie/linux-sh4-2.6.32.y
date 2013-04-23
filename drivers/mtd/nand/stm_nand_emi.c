@@ -563,7 +563,7 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 /*
  * Probe for the NAND device.
  */
-static struct stm_nand_emi * __init nand_probe_bank(
+static struct stm_nand_emi * __devinit nand_probe_bank(
 	struct stm_nand_bank_data *bank, int rbn_gpio,
 	const char* name)
 {
@@ -747,7 +747,7 @@ static struct stm_nand_emi * __init nand_probe_bank(
 	return ERR_PTR(res);
 }
 
-static int __init stm_nand_emi_probe(struct platform_device *pdev)
+static int __devinit stm_nand_emi_probe(struct platform_device *pdev)
 {
 	struct stm_plat_nand_emi_data *pdata = pdev->dev.platform_data;
 	int res;

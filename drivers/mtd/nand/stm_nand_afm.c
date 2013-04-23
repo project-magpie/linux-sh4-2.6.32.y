@@ -601,7 +601,7 @@ static void afm_set_timings(struct stm_nand_afm_controller *afm,
 }
 
 /* Initialise the AFM NAND controller */
-static struct stm_nand_afm_controller * __init
+static struct stm_nand_afm_controller * __devinit
 afm_init_controller(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
@@ -3003,7 +3003,7 @@ static int pbl_boot_boundary(struct mtd_info *mtd, uint32_t *boundary)
 #endif
 
 
-static struct stm_nand_afm_device * __init
+static struct stm_nand_afm_device * __devinit
 afm_init_bank(struct stm_nand_afm_controller *afm,
 	      struct stm_nand_bank_data *bank,
 	      const char *name)
@@ -3151,7 +3151,7 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 /*
  * stm-nand-afm device probe
  */
-static int __init stm_afm_probe(struct platform_device *pdev)
+static int __devinit stm_afm_probe(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
 	struct stm_nand_bank_data *bank;

@@ -1030,7 +1030,8 @@ static int afm_do_read_ops(struct mtd_info *mtd, loff_t from,
 
 			/* Transfer not aligned data */
 			if (!aligned) {
-				chip->pagebuf = realpage;
+				chip->pagebuf = (ops->mode == MTD_OOB_RAW) ?
+					-1 : realpage;
 				memcpy(buf, chip->buffers->databuf + col,
 				       bytes);
 			}
@@ -2859,6 +2860,8 @@ static int find_block_zero(struct mtd_info *mtd)
 	pages_per_block = 1 << (chip->phys_erase_shift - chip->page_shift);
 
 	block_end = min(512UL, (data->boot_end >> chip->phys_erase_shift));
+
+	chip->pagebuf = -1;
 
 	for (block = 0; block < block_end; block++) {
 		offs = block << chip->phys_erase_shift;

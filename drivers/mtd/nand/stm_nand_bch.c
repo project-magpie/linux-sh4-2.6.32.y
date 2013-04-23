@@ -1472,6 +1472,7 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 	uint8_t *o = ops->oobbuf;
 	uint8_t *p = ops->datbuf;
 	uint8_t *t;
+	int unified_buf;
 	int s;
 
 	nandi->cached_page = -1;
@@ -1480,11 +1481,17 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 		(ops->len >> nandi->page_shift) :
 		(ops->ooblen / mtd->oobsize);
 
+	/* Allow page:oob:page:oob... convention */
+	unified_buf = (p == o) ? 1 : 0;
+
 	while (pages) {
 		t = nandi->page_buf;
 
 		flex_read_raw(nandi, page_addr, 0, t,
 			      mtd->writesize + mtd->oobsize);
+
+		if (unified_buf)
+			o = p + mtd->writesize;
 
 		for (s = 0; s < nandi->sectors_per_page; s++) {
 			if (p) {
@@ -1509,6 +1516,9 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 			memset(o, 0xff, oob_pad_per_page);
 			o += oob_pad_per_page;
 		}
+
+		if (unified_buf)
+			p += mtd->oobsize;
 
 		page_addr++;
 		pages--;

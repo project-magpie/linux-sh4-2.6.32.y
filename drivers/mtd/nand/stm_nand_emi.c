@@ -485,12 +485,16 @@ static int nand_device_ready(struct mtd_info *mtd)
 }
 
 #define GET_CLK_CYCLES(X, T)	(((X) + (T) - 1) / (T))
-/* Configure EMI Bank for NAND access */
-static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
+
+/* Configure EMI Bank according to 'stm_nand_timing_data'
+ *
+ * [DEPRECATED in favour of nand_config_emi() based on 'struct nand_timing_spec'
+ * data.]
+ */
+static void nand_config_emi_legacy(int bank, struct stm_nand_timing_data *td)
 {
 	struct clk *emi_clk;
 	uint32_t emi_t_ns;
-	uint32_t emi_p_ns;
 
 	unsigned long config[4];
 
@@ -507,7 +511,7 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 	if (!td) {
 		printk(KERN_ERR NAME "No timing data specified in platform "
 		       "data\n");
-		return 1;
+		return;
 	}
 
 	/* Timings set in terms of EMI clock... */
@@ -520,7 +524,6 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 	} else {
 		emi_t_ns = 1000000000UL / clk_get_rate(emi_clk);
 	}
-	emi_p_ns = emi_t_ns / 2;
 
 	/* Convert nand timings to EMI compatible values */
 	rd_cycle = GET_CLK_CYCLES(td->rd_on + td->rd_off, emi_t_ns) + 3;
@@ -551,13 +554,107 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
 
 	config[3] = 0x00;
 
+	pr_debug("EMI Configuration Data: {0x%08x, 0x%08x, 0x%08x, 0x%08x}\n",
+		 (unsigned int)config[0], (unsigned int)config[1],
+		 (unsigned int)config[2], (unsigned int)config[3]);
+
 	/* Configure Bank */
 	emi_bank_configure(bank, config);
 
 	/* Disable PC mode */
 	emi_config_pcmode(bank, 0);
+}
 
-	return 0;
+/* Configure EMI Bank according to 'nand_timing_spec' */
+static void nand_config_emi(int bank, struct nand_timing_spec *spec, int relax)
+{
+	struct clk *emi_clk;
+	int tCLK;
+
+	unsigned long config[4];
+
+	uint32_t rd_cycle, rd_oee1, rd_oee2, rd_latch;
+	uint32_t wr_cycle, wr_wee1, wr_wee2;
+	uint32_t bus_release;
+	uint32_t tMAX_SETUP, tMAX_HOLD;
+
+	printk(KERN_INFO NAME ": Configuring EMI Bank %d for NAND access\n",
+	       bank);
+
+	/* Get EMI clock (default 100MHz) */
+	emi_clk = clk_get(NULL, "emi_clk");
+	if (!emi_clk || IS_ERR(emi_clk)) {
+		printk(KERN_WARNING NAME
+		       ": Failed to get EMI clock, assuming default 100MHz\n");
+		tCLK = 10;
+	} else {
+		tCLK = 1000000000 / clk_get_rate(emi_clk);
+	}
+
+	rd_cycle = (spec->tRC + tCLK - 1)/tCLK + 1 + relax;
+	rd_oee1 = 0;
+	rd_oee2 = (spec->tREH + tCLK - 1)/tCLK + relax;
+	rd_latch = (spec->tREH + tCLK - 1)/tCLK + relax;
+
+	bus_release = (spec->tCHZ + tCLK - 1)/tCLK + relax;
+
+	tMAX_SETUP = spec->tCLS;
+	if (spec->tCS > tMAX_SETUP)
+		tMAX_SETUP = spec->tCS;
+	if (spec->tALS > tMAX_SETUP)
+		tMAX_SETUP = spec->tALS;
+	if (spec->tDS > tMAX_SETUP)
+		tMAX_SETUP = spec->tDS;
+	if (spec->tWP > tMAX_SETUP)
+		tMAX_SETUP = spec->tWP;
+
+	tMAX_HOLD = spec->tCLH;
+	if (spec->tCH > tMAX_HOLD)
+		tMAX_HOLD = spec->tCH;
+	if (spec->tALH > tMAX_HOLD)
+		tMAX_HOLD = spec->tALH;
+	if (spec->tDH > tMAX_HOLD)
+		tMAX_HOLD = spec->tDH;
+	if (spec->tWH > tMAX_HOLD)
+		tMAX_HOLD = spec->tWH;
+
+	if (spec->tWC > (tMAX_SETUP + tMAX_HOLD))
+		wr_cycle = (spec->tWC + tCLK - 1)/tCLK + 1 + relax;
+	else
+		wr_cycle = (tMAX_SETUP + tMAX_HOLD + tCLK - 1)/tCLK + 1 + relax;
+	wr_wee1 = 0;
+	wr_wee2 = (tMAX_HOLD + tCLK - 1)/tCLK + relax;
+
+	config[0] = (EMI_CFG0_WE_USE_OE_CFG |
+		     EMI_CFG0_LATCH_POINT(rd_latch) |
+		     EMI_CFG0_BUS_RELEASE(bus_release) |
+		     EMI_CFG0_CS_ACTIVE(ACTIVE_CODE_RDWR) |
+		     EMI_CFG0_OE_ACTIVE(ACTIVE_CODE_RD) |
+		     EMI_CFG0_BE_ACTIVE(ACTIVE_CODE_OFF) |
+		     EMI_CFG0_PORTSIZE_8BIT |
+		     EMI_CFG0_DEVICE_NORMAL);
+
+	config[1] = (EMI_CFG1_READ_CYCLESNOTPHASE |
+		     EMI_CFG1_READ_CYCLES(rd_cycle) |
+		     EMI_CFG1_READ_OEE1(rd_oee1) |
+		     EMI_CFG1_READ_OEE2(rd_oee2));
+
+	config[2] = (EMI_CFG2_WRITE_CYCLESNOTPHASE |
+		     EMI_CFG2_WRITE_CYCLES(wr_cycle) |
+		     EMI_CFG2_WRITE_OEE1(wr_wee1) |
+		     EMI_CFG2_WRITE_OEE2(wr_wee2));
+
+	config[3] = 0;
+
+	pr_debug("EMI Configuration Data: {0x%08x, 0x%08x, 0x%08x, 0x%08x}\n",
+		 (unsigned int)config[0], (unsigned int)config[1],
+		 (unsigned int)config[2], (unsigned int)config[3]);
+
+	/* Configure Bank */
+	emi_bank_configure(bank, config);
+
+	/* Disable PC mode */
+	emi_config_pcmode(bank, 0);
 }
 
 /*
@@ -568,8 +665,13 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 	struct platform_device *pdev)
 {
 	struct stm_nand_emi *data;
-	struct stm_nand_timing_data *tm;
 
+	/* Default EMI config data, for device probing */
+	unsigned long emi_cfg_probe[] = {
+		0x04402e99,
+		0x0a000400,
+		0x0a000400,
+		0x00000000};
 	int res = 0;
 
 	/* Allocate memory for the driver structure (and zero it) */
@@ -586,12 +688,9 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 		bank->emi_withinbankoffset;
 	data->emi_size = (1 << 18) + 1;
 
-	/* Configure EMI Bank */
-	if (nand_config_emi(data->emi_bank, bank->timing_data) != 0) {
-		printk(KERN_ERR NAME ": Failed to configure EMI bank "
-		       "for NAND device\n");
-		goto out1;
-	}
+	/* Configure EMI Bank for device probe */
+	emi_bank_configure(data->emi_bank, emi_cfg_probe);
+	emi_config_pcmode(data->emi_bank, 0);
 
 	/* Request IO Memory */
 	if (!request_mem_region(data->emi_base, data->emi_size, NAME)) {
@@ -647,21 +746,16 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 	/* Assign more sensible name (default is string from nand_ids.c!) */
 	data->mtd.name = dev_name(&pdev->dev);
 
-	tm = bank->timing_data;
-
 	data->chip.IO_ADDR_R = data->io_base;
 	data->chip.IO_ADDR_W = data->io_base;
-	data->chip.chip_delay = tm->chip_delay;
+	data->rbn_gpio = -1;
+	data->chip.chip_delay = 50;
 	data->chip.cmd_ctrl = nand_cmd_ctrl_emi;
 
 	/* Do we have access to NAND_RBn? */
 	if (gpio_is_valid(rbn_gpio)) {
 		data->rbn_gpio = rbn_gpio;
 		data->chip.dev_ready = nand_device_ready;
-	} else {
-		data->rbn_gpio = -1;
-		if (data->chip.chip_delay == 0)
-			data->chip.chip_delay = 30;
 	}
 
 	/* Set IO routines for acessing NAND pages */
@@ -694,9 +788,44 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 
 	data->chip.scan_bbt = stmnand_scan_bbt;
 
-	/* Scan to find existance of the device */
-	if (nand_scan(&data->mtd, 1)) {
+	/* Scan to find existence of device */
+	if (nand_scan_ident(&data->mtd, 1) != 0) {
 		printk(KERN_ERR NAME ": nand_scan failed\n");
+		res = -ENODEV;
+		goto out6;
+	}
+
+	/*
+	 * Configure timing registers
+	 */
+	if (bank->timing_spec) {
+		printk(KERN_INFO NAME ": Using platform timing data\n");
+		nand_config_emi(data->emi_bank, bank->timing_spec,
+				bank->timing_relax);
+		data->chip.chip_delay = bank->timing_spec->tR;
+	} else if (bank->timing_data) {
+		printk(KERN_INFO NAME ": Using legacy platform timing data\n");
+		nand_config_emi_legacy(data->emi_bank, bank->timing_data);
+		data->chip.chip_delay = bank->timing_data->chip_delay;
+	} else if (data->chip.onfi_version) {
+		struct nand_onfi_params *onfi = &data->chip.onfi_params;
+		int mode;
+
+		mode = fls(le16_to_cpu(onfi->async_timing_mode)) - 1;
+		/* Modes 4 and 5 (EDO) are not supported on our H/W */
+		if (mode > 3)
+			mode = 3;
+
+		printk(KERN_INFO NAME ": Using ONFI Timing Mode %d\n", mode);
+		nand_config_emi(data->emi_bank, &nand_onfi_timing_specs[mode],
+				bank->timing_relax);
+		data->chip.chip_delay = le16_to_cpu(data->chip.onfi_params.t_r);
+	} else {
+		printk(KERN_WARNING NAME ": No timing data available\n");
+	}
+
+	/* Complete scan */
+	if (nand_scan_tail(&data->mtd) != 0) {
 		res = -ENXIO;
 		goto out6;
 	}

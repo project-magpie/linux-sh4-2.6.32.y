@@ -1762,8 +1762,7 @@ static int afm_read_page_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 
 	/* Check for empty page before attempting ECC fixes */
 	if (stmnand_test_empty_page(ecc_code, ecc_calc, eccsteps, eccbytes,
-				    buf, chip->oob_poi,
-				    mtd->writesize, mtd->oobsize, 1))
+				    buf, NULL, mtd->writesize, 0, 1))
 		return 0;
 
 	/* Detect/Correct ECC errors */
@@ -2381,8 +2380,7 @@ static int afm_read_page_boot(struct mtd_info *mtd, struct nand_chip *chip,
 
 	/* Check for empty page before attempting ECC fixes */
 	if (stmnand_test_empty_page(ecc_code, ecc_calc, eccsteps, eccbytes,
-				    buf, chip->oob_poi,
-				    mtd->writesize, mtd->oobsize, 1))
+				    buf, NULL, mtd->writesize, 0, 1))
 		return 0;
 
 	for (i = 0 ; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {

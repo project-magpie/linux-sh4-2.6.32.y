@@ -38,6 +38,8 @@
 #include <linux/stm/nand.h>
 #include <asm/dma.h>
 
+#include "stm_nand_bbt.h"
+
 #ifdef CONFIG_MTD_PARTITIONS
 #include <linux/mtd/partitions.h>
 #endif
@@ -689,11 +691,24 @@ static struct stm_nand_emi * __init nand_probe_bank(
 	/* Copy chip options from platform data */
 	data->chip.options = bank->options;
 
+	data->chip.scan_bbt = stmnand_scan_bbt;
+
 	/* Scan to find existance of the device */
 	if (nand_scan(&data->mtd, 1)) {
 		printk(KERN_ERR NAME ": nand_scan failed\n");
 		res = -ENXIO;
 		goto out6;
+	}
+
+	/* If all blocks are marked bad, mount as "recovery" partition */
+	if (stmnand_blocks_all_bad(&data->mtd)) {
+		printk(KERN_ERR NAME ": initiating NAND Recovery Mode\n");
+		data->mtd.name = "NAND RECOVERY MODE";
+		res = add_mtd_device(&data->mtd);
+		if (res)
+			goto out6;
+
+		return data;
 	}
 
 #ifdef CONFIG_MTD_PARTITIONS

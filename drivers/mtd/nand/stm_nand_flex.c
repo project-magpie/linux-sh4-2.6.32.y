@@ -62,6 +62,7 @@
 #include <linux/delay.h>
 
 #include "stm_nand_regs.h"
+#include "stm_nand_bbt.h"
 
 #ifdef CONFIG_MTD_PARTITIONS
 #include <linux/mtd/partitions.h>
@@ -438,32 +439,6 @@ static struct nand_ecclayout boot_oob_64 = {
 	.oobfree = {{0, 0} },	/* No free OOB bytes */
 };
 
-static uint8_t scan_ff_pattern[] = { 0xff, 0xff };
-static struct nand_bbt_descr bbt_scan_sp = {
-	.options = NAND_BBT_SCAN2NDPAGE | NAND_BBT_SCANSTMBOOTECC,
-	.offs = 5,
-	.len = 1,
-	.pattern = scan_ff_pattern
-};
-
-static struct nand_bbt_descr bbt_scan_lp = {
-	.options = NAND_BBT_SCAN2NDPAGE | NAND_BBT_SCANSTMBOOTECC,
-	.offs = 0,
-	.len = 2,
-	.pattern = scan_ff_pattern
-};
-
-/* Update 'badblock_pattern' to handle STM boot-mode ECC prior to bad-block
- * scanning */
-static int scan_bbt_stmecc(struct mtd_info *mtd)
-{
-	struct nand_chip *chip = mtd->priv;
-
-	chip->badblock_pattern = (mtd->writesize > 512) ?
-		&bbt_scan_lp : &bbt_scan_sp;
-
-	return nand_default_bbt(mtd);
-}
 
 
 /* Replicated from ../mtdpart.c: required here to get slave MTD offsets and
@@ -1076,11 +1051,8 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	data->chip.options = bank->options;
 	data->chip.options |= NAND_NO_AUTOINCR;      /* Not tested, disable */
 
-#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-	/* Handle STM H/W ECC layouts when performing initial scan for
-	 * bad-blocks */
-	data->chip.scan_bbt = scan_bbt_stmecc;
-#endif
+	data->chip.scan_bbt = stmnand_scan_bbt;
+
 	/* Callbacks for FLEX mode operation */
 	data->chip.cmd_ctrl = flex_cmd_ctrl;
 	data->chip.select_chip = flex_select_chip;
@@ -1114,6 +1086,17 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 		printk(KERN_ERR NAME ":nand_scan failed\n");
 		res = -ENXIO;
 		goto out2;
+	}
+
+	/* If all blocks are marked bad, mount as "recovery" partition */
+	if (stmnand_blocks_all_bad(&data->mtd)) {
+		printk(KERN_ERR NAME ": initiating NAND Recovery Mode\n");
+		data->mtd.name = "NAND RECOVERY MODE";
+		res = add_mtd_device(&data->mtd);
+		if (res)
+			goto out2;
+
+		return data;
 	}
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT

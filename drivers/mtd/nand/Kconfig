@@ -598,4 +598,16 @@ config STM_NAND_AFM_PBLBOOTBOUNDARY
 	  Update the boot-mode ECC boundary from the PBL and apply to the
 	  specified NAND boot partition.
 
+config STM_NAND_SAFE_MOUNT
+	bool "STM NAND: Check for 'alien' BBTs when mounting NAND device"
+	depends on (MTD_NAND_STM_EMI || \
+		    MTD_NAND_STM_FLEX || \
+		    MTD_NAND_STM_AFM || \
+		    MTD_NAND_STM_BCH)
+	default y
+	help
+	  This option helps prevent corruption that might otherwise result from
+	  the presence of 'alien' BBTs (i.e. BBTs written by a driver different
+	  to that currently employed).
+
 endif # MTD_NAND

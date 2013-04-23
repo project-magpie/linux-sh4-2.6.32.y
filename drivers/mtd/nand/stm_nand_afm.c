@@ -33,6 +33,7 @@
 
 #include "stm_nand_ecc.h"
 #include "stm_nand_regs.h"
+#include "stm_nand_bbt.h"
 
 #define NAME	"stm-nand-afm"
 
@@ -457,24 +458,6 @@ static struct nand_ecclayout boot_oob_64 = {
 	.oobfree = {{0, 0} },	/* No free OOB bytes */
 };
 #endif
-
-/* Pattern descriptors for scanning bad-block scanning - add support for AFM ECC
- * scheme */
-static uint8_t scan_ff_pattern[] = { 0xff, 0xff };
-static struct nand_bbt_descr bbt_scan_sp = {
-
-	.options = (NAND_BBT_SCAN2NDPAGE | NAND_BBT_SCANSTMAFMECC),
-	.offs = 5,
-	.len = 1,
-	.pattern = scan_ff_pattern
-};
-static struct nand_bbt_descr bbt_scan_lp = {
-	.options = (NAND_BBT_SCAN2NDPAGE | NAND_BBT_SCANSTMAFMECC),
-	.offs = 0,
-	.len = 2,
-	.pattern = scan_ff_pattern
-};
-
 
 /*
  * AFM Interrupts
@@ -2551,7 +2534,7 @@ static void afm_set_defaults(struct nand_chip *chip, int busw)
 	chip->block_markbad = NULL;
 	chip->write_buf = afm_write_buf;
 	chip->verify_buf = afm_verify_buf;
-	chip->scan_bbt = nand_default_bbt;
+	chip->scan_bbt = stmnand_scan_bbt;
 #ifdef CONFIG_STM_NAND_AFM_CACHED
 	chip->read_buf = afm_read_buf_cached;
 #else
@@ -2735,21 +2718,14 @@ static int afm_scan_tail(struct mtd_info *mtd)
 
 	if (mtd->writesize == 512 && mtd->oobsize == 16) {
 		chip->ecc.layout = &afm_oob_16;
-		chip->badblock_pattern = &bbt_scan_sp;
 	} else if (mtd->writesize == 2048 && mtd->oobsize == 64) {
 		chip->ecc.layout = &afm_oob_64;
-		chip->badblock_pattern = &bbt_scan_lp;
 	} else {
 		dev_err(afm->dev, "Unsupported chip type "
 			"[pagesize = %d, oobsize = %d]\n",
 			mtd->writesize, mtd->oobsize);
 		return 1;
 	}
-
-#ifdef CONFIG_STM_NAND_AFM_BOOTMODESUPPORT
-	/* Handle boot-mode ECC when scanning for bad blocks */
-	chip->badblock_pattern->options |= NAND_BBT_SCANSTMBOOTECC;
-#endif
 
 	/* Set ECC parameters and call-backs */
 	chip->ecc.mode = NAND_ECC_HW;
@@ -3072,6 +3048,17 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 		dev_err(afm->dev, "device scan failed\n");
 		err = -ENXIO;
 		goto err2;
+	}
+
+	/* If all blocks are marked bad, mount as "recovery" partition */
+	if (stmnand_blocks_all_bad(&data->mtd)) {
+		dev_err(afm->dev, "initiating NAND Recovery Mode\n");
+		data->mtd.name = "NAND RECOVERY MODE";
+		err = add_mtd_device(&data->mtd);
+		if (err)
+			goto err2;
+
+		return data;
 	}
 
 #ifdef CONFIG_MTD_PARTITIONS

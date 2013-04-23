@@ -1037,10 +1037,15 @@ static int nand_read_page_swecc(struct mtd_info *mtd, struct nand_chip *chip,
 		int stat;
 
 		stat = chip->ecc.correct(mtd, p, &ecc_code[i], &ecc_calc[i]);
-		if (stat < 0)
-			mtd->ecc_stats.failed++;
-		else
-			mtd->ecc_stats.corrected += stat;
+		if (stat) {
+			printk(KERN_CONT "sector %d, page %d (0x%012llx)]\n",
+			       chip->ecc.steps - eccsteps, page,
+			       (uint64_t)page << chip->page_shift);
+			if (stat < 0)
+				mtd->ecc_stats.failed++;
+			else
+				mtd->ecc_stats.corrected += stat;
+		}
 	}
 	return 0;
 }

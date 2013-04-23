@@ -1711,26 +1711,6 @@ static void afm_erase_cmd(struct mtd_info *mtd, int page)
 	afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
 }
 
-static int afm_correct_ecc(struct mtd_info *mtd, unsigned char *buf,
-			   unsigned char *read_ecc, unsigned char *calc_ecc)
-{
-	/* No error */
-	if ((read_ecc[0] ^ calc_ecc[0]) == 0 &&
-	    (read_ecc[1] ^ calc_ecc[1]) == 0 &&
-	    (read_ecc[2] ^ calc_ecc[2]) == 0)
-		return 0;
-
-	/* Special test for freshly erased page */
-	if (read_ecc[0] == 0xff && calc_ecc[0] == 0x00 &&
-	    read_ecc[1] == 0xff && calc_ecc[1] == 0x00 &&
-	    read_ecc[2] == 0xff && calc_ecc[2] == 0x00)
-		return 0;
-
-	/* Use nand_ecc.c:nand_correct_data() function */
-	return nand_correct_data(mtd, buf, read_ecc, calc_ecc);
-
-}
-
 /* AFM: Read Page and OOB Data with ECC */
 static int afm_read_page_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 			     uint8_t *buf, int page)
@@ -1792,12 +1772,18 @@ static int afm_read_page_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 		p += eccsize;
 	}
 
+	/* Check for empty page before attempting ECC fixes */
+	if (stmnand_test_empty_page(ecc_code, ecc_calc, eccsteps, eccbytes,
+				    buf, chip->oob_poi,
+				    mtd->writesize, mtd->oobsize, 1))
+		return 0;
+
 	/* Detect/Correct ECC errors */
 	p = buf;
 	for (i = 0 ; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {
 		int stat;
 
-		stat = afm_correct_ecc(mtd, p, &ecc_code[i], &ecc_calc[i]);
+		stat = nand_correct_data(mtd, p, &ecc_code[i], &ecc_calc[i]);
 
 		if (stat == -1) {
 			mtd->ecc_stats.failed++;
@@ -2404,6 +2390,12 @@ static int afm_read_page_boot(struct mtd_info *mtd, struct nand_chip *chip,
 
 	eccsteps = chip->ecc.steps;
 	p = buf;
+
+	/* Check for empty page before attempting ECC fixes */
+	if (stmnand_test_empty_page(ecc_code, ecc_calc, eccsteps, eccbytes,
+				    buf, chip->oob_poi,
+				    mtd->writesize, mtd->oobsize, 1))
+		return 0;
 
 	for (i = 0 ; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {
 		int stat;

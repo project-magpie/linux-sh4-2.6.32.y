@@ -147,5 +147,10 @@ enum ecc_check stm_ecc_correct(uint8_t *p_data,
 
 unsigned char stm_afm_lp1617(const unsigned char *buf);
 
+int stmnand_test_empty_page(uint8_t *ecc_stored, uint8_t *ecc_calc,
+			    int eccsteps, int eccbytes,
+			    uint8_t *buf, uint8_t *oob,
+			    int pagesize, int oobsize, int max_bit_errors);
+
 #endif /* ifndef STM_NAND_ECC_H */
 

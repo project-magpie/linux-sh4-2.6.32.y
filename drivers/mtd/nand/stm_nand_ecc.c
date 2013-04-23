@@ -564,6 +564,46 @@ unsigned char stm_afm_lp1617(const unsigned char *buf)
 }
 EXPORT_SYMBOL_GPL(stm_afm_lp1617);
 
+/* Test for empty/erased page (ST Hamming Controller ECC schemes) */
+int stmnand_test_empty_page(uint8_t *ecc_stored, uint8_t *ecc_calc,
+			    int eccsteps, int eccbytes,
+			    uint8_t *buf, uint8_t *oob,
+			    int pagesize, int oobsize, int max_bit_errors)
+{
+	int i, j;
+	int e = 0;
+	uint8_t *e1, *e2;
+
+	/* Is ECC data consistent with empty page */
+	e1 = ecc_stored;
+	e2 = ecc_calc;
+	for (i = 0; i < eccsteps; i++) {
+		for (j = 0; j < 3; j++)
+			if (e1[j] != 0xff || e2[j] != 0x00)
+				return 0;
+		e1 += eccbytes;
+		e2 += eccbytes;
+	}
+
+	/* Check page area is emtpy */
+	while (pagesize--) {
+		e += hweight8(~*buf++);
+		if (e > max_bit_errors)
+			return 0;
+	}
+
+	/* Check OOB area is emtpy */
+	while (oobsize--) {
+		e += hweight8(~*oob++);
+		if (e > max_bit_errors)
+			return 0;
+	}
+
+	return 1;
+}
+EXPORT_SYMBOL_GPL(stmnand_test_empty_page);
+
+
 /*****************************************************************************/
 
 

@@ -551,6 +551,9 @@ static struct flash_info __devinitdata flash_types[] = {
 	{ "mx25l25635e", 0xc22019, 0, 64*1024, 512,
 	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
 	  70, mx25_config},
+	{ "mx25l25655e", 0xc22619, 0, 64*1024, 512,
+	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
+	  70, mx25_config},
 
 #define N25Q_CAPS (FLASH_CAPS_READ_WRITE	| \
 		   FLASH_CAPS_READ_FAST		| \

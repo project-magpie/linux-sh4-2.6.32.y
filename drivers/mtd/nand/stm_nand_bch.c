@@ -552,6 +552,7 @@ static int bch_write(struct nandi_controller *nandi,
 		     size_t *retlen, const uint8_t *buf)
 {
 	uint32_t page_size = nandi->info.mtd.writesize;
+	int page_num;
 	int bounce;
 	const uint8_t *p = NULL;
 
@@ -569,8 +570,10 @@ static int bch_write(struct nandi_controller *nandi,
 	}
 
 	if (retlen)
-		*retlen = 0
-			;
+		*retlen = 0;
+
+	page_num = (int)(to >> nandi->page_shift);
+
 	while (len > 0) {
 
 		if (bounce) {
@@ -581,10 +584,14 @@ static int bch_write(struct nandi_controller *nandi,
 			p = buf;
 		}
 
+		if (nandi->cached_page == page_num)
+			nandi->cached_page = -1;
+
 		if (bch_write_page(nandi, to, p) & NAND_STATUS_FAIL)
 			return -EIO;
 
 		to += page_size;
+		page_num++;
 		buf += page_size;
 		len -= page_size;
 
@@ -1787,9 +1794,10 @@ static int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 	struct nand_chip *chip = mtd->priv;
 	struct nandi_controller *nandi = chip->priv;
 
-	uint32_t block_mask = mtd->erasesize - 1;
+	uint64_t block_mask = mtd->erasesize - 1;
 	loff_t offs = instr->addr;
 	size_t len = instr->len;
+	uint64_t offs_cached;
 	uint8_t status;
 	int ret;
 
@@ -1822,6 +1830,10 @@ static int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 		goto erase_exit;
 	}
 
+	/* Offset of block containing cached page */
+	offs_cached = ((uint64_t)nandi->cached_page << nandi->page_shift) &
+		~block_mask;
+
 	instr->state = MTD_ERASING;
 	while (len) {
 		if (!nand_erasebb && mtd_block_isbad(mtd, offs)) {
@@ -1831,6 +1843,9 @@ static int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 			instr->fail_addr = offs;
 			goto erase_exit;
 		}
+
+		if (offs == offs_cached)
+			nandi->cached_page = -1;
 
 		status = bch_erase_block(nandi, offs);
 

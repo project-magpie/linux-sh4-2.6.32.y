@@ -109,6 +109,26 @@ static int part_read_oob(struct mtd_info *mtd, loff_t from,
 		return -EINVAL;
 	res = part->master->read_oob(part->master, from + part->offset, ops);
 
+	/*
+	 * If OOB is also requested, make sure that we do not read past the end
+	 * of this partition.
+	 */
+	if (ops->oobbuf) {
+		size_t len, pages;
+		unsigned int page_shift = ffs(mtd->writesize) - 1;
+
+		if (ops->mode == MTD_OOB_AUTO)
+			len = mtd->oobavail;
+		else
+			len = mtd->oobsize;
+
+		pages = mtd->size >> page_shift;
+		pages -= from >> page_shift;
+
+		if (ops->ooboffs + ops->ooblen > pages * len)
+			return -EINVAL;
+	}
+
 	if (unlikely(res)) {
 		if (res == -EUCLEAN)
 			mtd->ecc_stats.corrected++;

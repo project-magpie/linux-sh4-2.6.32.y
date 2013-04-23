@@ -42,6 +42,8 @@ struct mtd_oob_buf64 {
 #define MTD_BIT_WRITEABLE	0x800	/* Single bits can be flipped */
 #define MTD_NO_ERASE		0x1000	/* No erase necessary */
 #define MTD_POWERUP_LOCK	0x2000	/* Always locked after reset */
+#define MTD_SLAVE_PARTITION	0x00010000	/* MTD Slave Partition */
+#define MTD_SPANS_MASTER	0x00020000	/* MTD spans entire master */
 
 // Some common devices / combinations of capabilities
 #define MTD_CAP_ROM		0

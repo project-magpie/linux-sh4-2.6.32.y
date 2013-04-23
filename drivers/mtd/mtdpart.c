@@ -356,6 +356,9 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 	slave->mtd.owner = master->owner;
 	slave->mtd.backing_dev_info = master->backing_dev_info;
 
+	/* Flag MTD device as a slave partition */
+	slave->mtd.flags |= MTD_SLAVE_PARTITION;
+
 	/* NOTE:  we don't arrange MTDs as a tree; it'd be error-prone
 	 * to have the same data be in two different partitions.
 	 */
@@ -495,6 +498,10 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 			offs += slave->mtd.erasesize;
 		}
 	}
+
+	/* Set MTD_SPANS_MASTER if slave MTD spans entire master MTD */
+	if (slave->offset == 0 && slave->mtd.size == master->size)
+		slave->mtd.flags |= MTD_SPANS_MASTER;
 
 out_register:
 	/* register our partition */

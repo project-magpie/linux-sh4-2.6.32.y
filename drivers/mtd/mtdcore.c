@@ -291,6 +291,10 @@ int add_mtd_device(struct mtd_info *mtd)
 					       mtd->name);
 			}
 
+			/* Set MTD_SPANS_MASTER for non-slave MTD devices */
+			if (!(mtd->flags & MTD_SLAVE_PARTITION))
+				mtd->flags |= MTD_SPANS_MASTER;
+
 			/* Caller should have set dev.parent to match the
 			 * physical device.
 			 */

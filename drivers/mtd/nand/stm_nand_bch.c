@@ -118,6 +118,7 @@ struct nandi_controller {
 	struct device		*dev;
 
 	int			bch_ecc_mode;	/* ECC mode */
+	int			extra_addr;	/* 'Extra' address cycle */
 
 	uint32_t		page_shift;	/* Some working variables */
 	uint32_t		block_shift;
@@ -230,6 +231,29 @@ static void bch_configure_progs(struct nandi_controller *nandi)
 	bch_prog_read_page.gen_cfg |= gen_cfg_ecc;
 	bch_prog_write_page.gen_cfg |= gen_cfg_ecc;
 	bch_prog_erase_block.gen_cfg |= gen_cfg_ecc;
+
+	/* The template sequences above are defined for devices that require an
+	 * "extra" address cycle: that is, 5 address cycles for page Read/Write
+	 * operations, and 3 address cycles for Erase operations.  Here, we
+	 * update the sequences for devices that do not require an extra address
+	 * cycle.
+	 */
+	if (!nandi->extra_addr) {
+		/* Clear 'GEN_CFG_EXTRA_ADD_CYCLE' flag */
+		bch_prog_read_page.gen_cfg &= ~GEN_CFG_EXTRA_ADD_CYCLE;
+		bch_prog_write_page.gen_cfg &= ~GEN_CFG_EXTRA_ADD_CYCLE;
+		bch_prog_erase_block.gen_cfg &= ~GEN_CFG_EXTRA_ADD_CYCLE;
+
+		/* Configure Erase sequence for 2 address cycles (page
+		 * address) */
+		bch_prog_erase_block.seq[0] = BCH_CL_CMD_1;
+		bch_prog_erase_block.seq[1] = BCH_AL_EX_0;
+		bch_prog_erase_block.seq[2] = BCH_AL_EX_1;
+		bch_prog_erase_block.seq[3] = BCH_CL_CMD_2;
+		bch_prog_erase_block.seq[4] = BCH_CL_CMD_3;
+		bch_prog_erase_block.seq[5] = BCH_OP_ERR;
+		bch_prog_erase_block.seq[6] = BCH_STOP;
+	}
 }
 
 /*
@@ -690,7 +714,7 @@ static void flex_command_lp(struct mtd_info *mtd, unsigned int command,
 		flex_addr(nandi, column,
 			  (command == NAND_CMD_READID) ? 1 : 2);
 	if (page != -1)
-		flex_addr(nandi, page, (chip->chipsize > (128 << 20)) ? 3 : 2);
+		flex_addr(nandi, page, nandi->extra_addr ? 3 : 2);
 
 	/* Complete 'READ0' command */
 	if (command == NAND_CMD_READ0)
@@ -880,7 +904,7 @@ static int flex_read_raw(struct nandi_controller *nandi,
 
 	flex_cmd(nandi, NAND_CMD_READ0);
 	flex_addr(nandi, col_addr, 2);
-	flex_addr(nandi, page_addr, 3);
+	flex_addr(nandi, page_addr, nandi->extra_addr ? 3 : 2);
 	flex_cmd(nandi, NAND_CMD_READSTART);
 
 	flex_wait_rbn(nandi);
@@ -917,7 +941,7 @@ static int flex_write_raw(struct nandi_controller *nandi,
 
 	flex_cmd(nandi, NAND_CMD_SEQIN);
 	flex_addr(nandi, col_addr, 2);
-	flex_addr(nandi, page_addr, 3);
+	flex_addr(nandi, page_addr, nandi->extra_addr ? 3 : 2);
 
 	writesl(nandi->base + NANDHAM_FLEX_DATA, buf, len/4);
 
@@ -2479,6 +2503,8 @@ static int __devinit stm_nand_bch_probe(struct platform_device *pdev)
 	nandi->blocks_per_device = mtd->size >> chip->phys_erase_shift;
 	nandi->page_shift = chip->page_shift;
 	nandi->block_shift = chip->phys_erase_shift;
+	nandi->extra_addr = ((chip->chipsize >> nandi->page_shift) >
+			     0x10000) ? 1 : 0;
 
 	/* Set ECC mode */
 	switch (pdata->bch_ecc_cfg) {

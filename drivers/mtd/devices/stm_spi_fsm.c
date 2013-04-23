@@ -1203,12 +1203,27 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 					      CFG_ERASESEC_TOGGLE32BITADDR);
 	}
 
-	/* For QUAD mode, set 'QE' STATUS bit */
+	/* Check status of 'QE' bit */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
+	fsm_read_status(fsm, FLASH_CMD_RDSR, &sta);
 	if (data_pads == 4) {
-		fsm_read_status(fsm, FLASH_CMD_RDSR, &sta);
-		sta |= MX25_STATUS_QE;
-		fsm_write_status(fsm, sta, 1);
+		if (!(sta & MX25_STATUS_QE)) {
+			/* Set 'QE' */
+			sta |= MX25_STATUS_QE;
+
+			fsm_write_status(fsm, sta, 1);
+
+			fsm_wait_busy(fsm);
+		}
+	} else {
+		if (sta & MX25_STATUS_QE) {
+			/* Clear 'QE' */
+			sta &= ~MX25_STATUS_QE;
+
+			fsm_write_status(fsm, sta, 1);
+
+			fsm_wait_busy(fsm);
+		}
 	}
 
 	return 0;

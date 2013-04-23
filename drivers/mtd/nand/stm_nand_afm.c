@@ -708,6 +708,12 @@ afm_init_controller(struct platform_device *pdev)
 	afm_writereg(NAND_EDGE_CFG_RBN_RISING, NANDHAM_INT_EDGE_CFG);
 	afm_writereg(NAND_INT_ENABLE, NANDHAM_INT_EN);
 
+	/* Configure FLEX Data register for 1-byte Read/Write operation */
+	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		     NANDHAM_FLEX_DATAREAD_CONFIG);
+	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		     NANDHAM_FLEX_DATAWRITE_CONFIG);
+
 	platform_set_drvdata(pdev, afm);
 
 	/* Success :-) */
@@ -2466,52 +2472,189 @@ static void afm_select_chip(struct mtd_info *mtd, int chipnr)
 	return;
 }
 
-/* The low-level AFM chip operations wait internally, and set the status field.
- * All that is left to do here is return the status */
+/*
+ * Partial implementation of 'chip->cmdfunc' interface, based on Hamming-FLEX
+ * operation.
+ *
+ * Allows us to make use of nand_base.c functions where possible
+ * (e.g. nand_scan_ident() and friends).
+ */
+static int flex_wait_rbn(struct stm_nand_afm_controller *afm)
+{
+	int ret;
+
+	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
+	if (!ret)
+		dev_err(afm->dev, "FLEX RBn timeout\n");
+
+	return ret;
+}
+
+static void flex_cmd(struct stm_nand_afm_controller *afm, uint8_t cmd)
+{
+	uint32_t val;
+
+	val = (FLEX_CMD_CSN | FLEX_CMD_BEATS_1 | cmd);
+
+	afm_writereg(val, NANDHAM_FLEX_CMD);
+}
+
+static void flex_addr(struct stm_nand_afm_controller *afm,
+		      uint32_t addr, int cycles)
+{
+	addr &= 0x00ffffff;
+
+	BUG_ON(cycles < 1);
+	BUG_ON(cycles > 3);
+
+	addr |= (FLEX_ADDR_CSN | FLEX_ADDR_ADD8_VALID);
+	addr |= (cycles & 0x3) << 28;
+
+	afm_writereg(addr, NANDHAM_FLEX_ADD);
+}
+
+static uint8_t flex_read_byte(struct mtd_info *mtd)
+{
+	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
+
+	return (uint8_t)(afm_readreg(NANDHAM_FLEX_DATA) & 0xff);
+}
+
+static void flex_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
+{
+	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
+	int aligned;
+
+	/* Read bytes until buf is 4-byte aligned */
+	while (len && ((unsigned int)buf & 0x3)) {
+		*buf++ = (uint8_t)(readl(afm->base + NANDHAM_FLEX_DATA)
+				   & 0xff);
+		len--;
+	};
+
+	/* Use 'BEATS_4'/readsl */
+	if (len > 8) {
+		aligned = len & ~0x3;
+		writel(FLEX_DATA_CFG_BEATS_4 | FLEX_DATA_CFG_CSN,
+		       afm->base + NANDHAM_FLEX_DATAREAD_CONFIG);
+
+		readsl(afm->base + NANDHAM_FLEX_DATA, buf, aligned >> 2);
+
+		buf += aligned;
+		len -= aligned;
+
+		writel(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		       afm->base + NANDHAM_FLEX_DATAREAD_CONFIG);
+	}
+
+	/* Mop up remaining bytes */
+	while (len > 0) {
+		*buf++ = (uint8_t)(readl(afm->base + NANDHAM_FLEX_DATA)
+				   & 0xff);
+		len--;
+	}
+}
+
+static void flex_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
+{
+	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
+	int aligned;
+
+	/* Write bytes until buf is 4-byte aligned */
+	while (len && ((unsigned int)buf & 0x3)) {
+		writel(*buf++, afm->base + NANDHAM_FLEX_DATA);
+		len--;
+	};
+
+	/* USE 'BEATS_4/writesl */
+	if (len > 8) {
+		aligned = len & ~0x3;
+		writel(FLEX_DATA_CFG_BEATS_4 | FLEX_DATA_CFG_CSN,
+		       afm->base + NANDHAM_FLEX_DATAWRITE_CONFIG);
+		writesl(afm->base + NANDHAM_FLEX_DATA, buf, aligned >> 2);
+		buf += aligned;
+		len -= aligned;
+		writel(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		       afm->base + NANDHAM_FLEX_DATAWRITE_CONFIG);
+	}
+
+	/* Mop up remaining bytes */
+	while (len > 0) {
+		writel(*buf++, afm->base + NANDHAM_FLEX_DATA);
+		len--;
+	}
+}
+
+/* Wait for device to become ready, and return the status register */
 static int afm_wait(struct mtd_info *mtd, struct nand_chip *chip)
 {
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
+	int status;
 
-	return afm->status;
+	if (afm_readreg(NANDHAM_FLEXMODE_CFG) & CFG_ENABLE_AFM) {
+		/* All AFM-based routines employ their own wait function,
+		 * so all that remains is to return the saved status */
+		status = afm->status;
+	} else {
+		/* If we were executing a FLEX-based routine, wait for RBn and
+		 * read the status register. */
+		flex_wait_rbn(afm);
+		flex_cmd(afm, NAND_CMD_STATUS);
+		status = (int)(afm_readreg(NANDHAM_FLEX_DATA) & 0xff);
+	}
+
+	return status;
 }
 
-/*
- * afm_command() and afm_read_byte() are treated as special cases here.  We need
- * to support nand_base.c:nand_erase_nand() because this is called directly by
- * nand_bbt.c (why is it not a callback?).  However, nand_erase_nand() calls
- * nand_check_wp() which in turn calls chip->cmdfunc() and chip->read_byte() in
- * order to check the status register.  Since nand_check_wp() is the only
- * function that uses these callbacks, we can implement specialised versions
- * such that afm_command() is empty, and afm_read_byte() queries and returns the
- * status register.
- *
- * Need to track updates to nand_base.c to ensure these assumptions remain valid
- * in the future!
- */
-static void afm_command(struct mtd_info *mtd, unsigned int command,
-			 int column, int page_addr)
+static void flex_command(struct mtd_info *mtd, unsigned int command,
+			 int column, int page)
 {
-
-}
-
-static uint8_t afm_read_byte(struct mtd_info *mtd)
-{
+	struct nand_chip *chip = mtd->priv;
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
-	uint32_t reg;
 
 	/* Enable FLEX Mode */
 	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
 
-	/* Write STATUS command (do not set FLEX_CMD_RBN!) */
-	reg = (NAND_CMD_STATUS | FLEX_CMD_BEATS_1 | FLEX_CMD_CSN);
-	afm_writereg(reg, NANDHAM_FLEX_CMD);
+	switch (command) {
+	case NAND_CMD_RESET:
+	case NAND_CMD_PARAM:
+		/* Prime RBn wait */
+		INIT_COMPLETION(afm->rbn_completed);
+		afm_enable_interrupts(afm, NAND_INT_RBN);
+		break;
+	case NAND_CMD_READID:
+	case NAND_CMD_STATUS:
+		break;
+	default:
+		/* Catch unexpected commands */
+		BUG();
+	}
 
-	reg = afm_readreg(NANDHAM_FLEX_DATA);
+	/*
+	 * Command Cycle
+	 */
+	flex_cmd(afm, command);
 
-	return reg & 0xff;
+	/*
+	 * Address Cycles
+	 */
+	if (column != -1)
+		flex_addr(afm, column,
+			  (command == NAND_CMD_READID) ? 1 : 2);
+	if (page != -1)
+		flex_addr(afm, page, (chip->chipsize > (128 << 20)) ? 3 : 2);
+
+	/*
+	 * Wait for RBn, if required.
+	 */
+	if (command == NAND_CMD_RESET ||
+	    command == NAND_CMD_PARAM) {
+		flex_wait_rbn(afm);
+		afm_disable_interrupts(afm, NAND_INT_RBN);
+	}
 }
 
-static int afm_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
+static int afm_verify_buf_BUG(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	printk(KERN_ERR NAME ": %s Unsupported callback", __func__);
 	BUG();
@@ -2519,12 +2662,28 @@ static int afm_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	return 0;
 }
 
-static u16 afm_read_word(struct mtd_info *mtd)
+static u16 afm_read_word_BUG(struct mtd_info *mtd)
 {
 	printk(KERN_ERR NAME ": %s Unsupported callback", __func__);
 	BUG();
 
 	return 0xff;
+}
+
+static int afm_block_bad_BUG(struct mtd_info *mtd, loff_t ofs, int getchip)
+{
+	printk(KERN_ERR NAME ": %s Unsupported callback", __func__);
+	BUG();
+
+	return 1;
+}
+
+static int afm_default_block_markbad_BUG(struct mtd_info *mtd, loff_t ofs)
+{
+	printk(KERN_ERR NAME ": %s Unsupported callback", __func__);
+	BUG();
+
+	return 1;
 }
 
 /*
@@ -2535,16 +2694,19 @@ static u16 afm_read_word(struct mtd_info *mtd)
 static void afm_set_defaults(struct nand_chip *chip, int busw)
 {
 	chip->chip_delay = 0;
-	chip->cmdfunc = afm_command;
+	chip->cmdfunc = flex_command;
 	chip->waitfunc = afm_wait;
 	chip->select_chip = afm_select_chip;
-	chip->read_byte = afm_read_byte;
-	chip->read_word = afm_read_word;
-	chip->block_bad = NULL;
-	chip->block_markbad = NULL;
-	chip->read_buf = NULL;
-	chip->write_buf = NULL;
-	chip->verify_buf = afm_verify_buf;
+	chip->read_byte = flex_read_byte;
+	chip->write_buf = flex_write_buf;
+	chip->read_buf = flex_read_buf;
+
+	/* Unsupported callbacks */
+	chip->read_word = afm_read_word_BUG;
+	chip->block_bad = afm_block_bad_BUG;
+	chip->block_markbad = afm_default_block_markbad_BUG;
+	chip->verify_buf = afm_verify_buf_BUG;
+
 	chip->scan_bbt = stmnand_scan_bbt;
 }
 

@@ -2286,10 +2286,16 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 			}
 			fsm->partitioned = 1;
 
-			if (add_mtd_partitions(&fsm->mtd, parts, nr_parts)) {
-				ret = -ENODEV;
+			ret = add_mtd_partitions(&fsm->mtd, parts, nr_parts);
+
+			/* Free 'parts', if allocated by
+			 * parse_mtd_partitions()
+			 */
+			if (!data || (parts != data->parts))
+				kfree(parts);
+
+			if (ret != 0)
 				goto out5;
-			}
 
 			/* Success :-) */
 			return 0;
@@ -2338,6 +2344,8 @@ static int __devexit stm_spi_fsm_remove(struct platform_device *pdev)
 	iounmap(fsm->base);
 	release_resource(fsm->region);
 	platform_set_drvdata(pdev, NULL);
+
+	kfree(fsm);
 
 	return 0;
 }

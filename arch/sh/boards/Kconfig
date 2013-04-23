@@ -389,6 +389,14 @@ config SH_ST_B2069
 	  Select B2069 if configuring for an
 	  STMicroelectronics STx7111 KC Reference Board
 
+config SH_ST_B2075
+	bool "B2075: STxH205-HDK Reference board"
+	depends on CPU_SUBTYPE_STXH205
+	default n
+	help
+	  Select SH_ST_B2075 if configuring for a
+	  STMicroelectronics STxH205-HDK Reference Board.
+
 config SH_ST_B2076
 	bool "B2076: STxH207-HVK (LiegeC) processor module board"
 	depends on CPU_SUBTYPE_STXH205

@@ -985,8 +985,33 @@ static void flex_print_regs(struct stm_nand_flex_controller *flex)
 }
 #endif /* CONFIG_MTD_DEBUG */
 
+void flex_init_controller(struct stm_nand_flex_controller *flex)
+{
+	/* Disable boot_not_flex */
+	flex_writereg(0x00000000, NANDHAM_BOOTBANK_CFG);
+
+	/* Reset FLEX Controller */
+	flex_writereg((0x1 << 3), NANDHAM_FLEXMODE_CFG);
+	udelay(1);
+	flex_writereg(0x00, NANDHAM_FLEXMODE_CFG);
+
+	/* Set Controller to FLEX mode */
+	flex_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
+
+	/* Not using interrupts in FLEX mode */
+	flex_writereg(0x00, NANDHAM_INT_EN);
+
+	/* To fit with MTD framework, configure FLEX_DATA reg for 1-byte
+	 * read/writes, and deassert CSn
+	 */
+	flex_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		      NANDHAM_FLEX_DATAWRITE_CONFIG);
+	flex_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		      NANDHAM_FLEX_DATAREAD_CONFIG);
+}
+
 static struct stm_nand_flex_controller * __devinit
-flex_init_controller(struct platform_device *pdev)
+flex_init_resources(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
 	struct resource *resource;
@@ -1048,33 +1073,13 @@ flex_init_controller(struct platform_device *pdev)
 		goto out4;
 	}
 
-	flex->current_csn = -1;
-
 	/* Initialise 'controller' structure */
 	spin_lock_init(&flex->hwcontrol.lock);
 	init_waitqueue_head(&flex->hwcontrol.wq);
 
-	/* Disable boot_not_flex */
-	flex_writereg(0x00000000, NANDHAM_BOOTBANK_CFG);
+	flex->current_csn = -1;
 
-	/* Reset FLEX Controller */
-	flex_writereg((0x1 << 3), NANDHAM_FLEXMODE_CFG);
-	udelay(1);
-	flex_writereg(0x00, NANDHAM_FLEXMODE_CFG);
-
-	/* Set Controller to FLEX mode */
-	flex_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
-
-	/* Not using interrupts in FLEX mode */
-	flex_writereg(0x00, NANDHAM_INT_EN);
-
-	/* To fit with MTD framework, configure FLEX_DATA reg for 1-byte
-	 * read/writes, and deassert CSn
-	 */
-	flex_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
-		      NANDHAM_FLEX_DATAWRITE_CONFIG);
-	flex_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
-		      NANDHAM_FLEX_DATAREAD_CONFIG);
+	flex_init_controller(flex);
 
 #ifdef CONFIG_MTD_DEBUG
 	flex_print_regs(flex);
@@ -1348,7 +1353,7 @@ static int __devinit stm_nand_flex_probe(struct platform_device *pdev)
 	int err;
 	int n;
 
-	flex = flex_init_controller(pdev);
+	flex = flex_init_resources(pdev);
 	if (IS_ERR(flex)) {
 		dev_err(&pdev->dev, "Failed to initialise NAND Controller.\n");
 		err = PTR_ERR(flex);
@@ -1406,12 +1411,31 @@ static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_HIBERNATION
+static int stm_nand_flex_restore(struct device *dev)
+{
+	struct stm_nand_flex_controller *flex = dev_get_drvdata(dev);
+
+	flex->current_csn = -1;
+	flex_init_controller(flex);
+
+	return 0;
+}
+
+static struct dev_pm_ops stm_nand_flex_pm = {
+	.restore = stm_nand_flex_restore,
+};
+#else
+static struct dev_pm_ops stm_nand_flex_pm;
+#endif
+
 static struct platform_driver stm_nand_flex_driver = {
 	.probe		= stm_nand_flex_probe,
 	.remove		= stm_nand_flex_remove,
 	.driver		= {
 		.name	= NAME,
 		.owner	= THIS_MODULE,
+		.pm	= &stm_nand_flex_pm,
 	},
 };
 

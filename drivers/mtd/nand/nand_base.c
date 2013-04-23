@@ -2867,9 +2867,9 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	 * not match, ignore the device completely.
 	 */
 
+	/* Read entire ID string */
 	chip->cmdfunc(mtd, NAND_CMD_READID, 0x00, -1);
-
-	for (i = 0; i < 2; i++)
+	for (i = 0; i < 8; i++)
 		id_data[i] = chip->read_byte(mtd);
 
 	if (id_data[0] != *maf_id || id_data[1] != dev_id) {
@@ -2897,11 +2897,6 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 
 	if (!mtd->name)
 		mtd->name = type->name;
-
-	/* Read entire ID string */
-	chip->cmdfunc(mtd, NAND_CMD_READID, 0x00, -1);
-	for (i = 0; i < 8; i++)
-		id_data[i] = chip->read_byte(mtd);
 
 	/* Decode ID string */
 	if (nand_decode_id(mtd, chip, type, id_data, 8) != 0) {
@@ -2957,6 +2952,11 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 		chip->erase_cmd = multi_erase_cmd;
 	else
 		chip->erase_cmd = single_erase_cmd;
+
+	/* Check for Micron '4-bit on-die ECC; device (ID4[1:0]) */
+	if (id_data[0] == NAND_MFR_MICRON && id_data[4] != NAND_MFR_MICRON &&
+	    (id_data[4] & 0x03) == 0x02)
+		chip->options |= NAND_MICRON_4BITONDIEECC;
 
 	/* Do not replace user supplied command function ! */
 	if (mtd->writesize > 512 && chip->cmdfunc == nand_command)
@@ -3051,10 +3051,7 @@ int nand_scan_tail(struct mtd_info *mtd)
 			chip->ecc.layout = &nand_oob_16;
 			break;
 		case 64:
-			if (chip->ecc.mode == NAND_ECC_4BITONDIE)
-				chip->ecc.layout = &nand_oob_64_4bitondie;
-			else
-				chip->ecc.layout = &nand_oob_64;
+			chip->ecc.layout = &nand_oob_64;
 			break;
 		case 128:
 			chip->ecc.layout = &nand_oob_128;
@@ -3069,6 +3066,13 @@ int nand_scan_tail(struct mtd_info *mtd)
 	if (!chip->write_page)
 		chip->write_page = nand_write_page;
 
+	/*
+	 * For Micron '4-bit on-die ECC' devices, use on-die ECC scheme instead
+	 * of default NAND_ECC_SOFT.
+	 */
+	if (chip->options & NAND_MICRON_4BITONDIEECC &&
+	    chip->ecc.mode == NAND_ECC_SOFT)
+		chip->ecc.mode = NAND_ECC_4BITONDIE;
 	/*
 	 * check ECC mode, default to software if 3byte/512byte hardware ECC is
 	 * selected and we have 256 byte pagesize fallback to software ECC
@@ -3162,12 +3166,23 @@ int nand_scan_tail(struct mtd_info *mtd)
 		break;
 
 	case NAND_ECC_4BITONDIE:
+		if (mtd->oobsize != 64) {
+			printk(KERN_WARNING "No 'Micron on-die ECC' layout for "
+			       "OOB size %d\n", mtd->oobsize);
+			BUG();
+		}
+		if (!(chip->options & NAND_USE_FLASH_BBT)) {
+			printk(KERN_WARNING "'Micron on-die ECC' device "
+			       "requires 'NAND_USE_FLASH_BBT' option");
+			BUG();
+		}
 		chip->ecc.read_page = nand_read_page_raw;
 		chip->ecc.write_page = nand_write_page_raw;
 		chip->ecc.read_page_raw = nand_read_page_raw;
 		chip->ecc.write_page_raw = nand_write_page_raw;
 		chip->ecc.read_oob = nand_read_oob_std;
 		chip->ecc.write_oob = nand_write_oob_std;
+		chip->ecc.layout = &nand_oob_64_4bitondie;
 		chip->ecc.size = 512;
 		chip->ecc.bytes = 8;
 

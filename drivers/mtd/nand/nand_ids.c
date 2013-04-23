@@ -185,6 +185,171 @@ EXPORT_SYMBOL(nand_manuf_ids);
 EXPORT_SYMBOL(nand_flash_ids);
 
 /*
+ * ONFI NAND Timing Mode Specifications
+ *
+ * Note, 'tR' field (maximum page read time) is extracted from the ONFI
+ * parameter page during device probe.
+ */
+struct nand_timing_spec nand_onfi_timing_specs[] = {
+	/*
+	 * ONFI Timing Mode '0' (supported on all ONFI compliant devices)
+	 */
+	[0] = {
+		.tCLS	= 50,
+		.tCS	= 70,
+		.tALS	= 50,
+		.tDS	= 40,
+		.tWP	= 50,
+		.tCLH	= 20,
+		.tCH	= 20,
+		.tALH	= 20,
+		.tDH	= 20,
+		.tWB	= 200,
+		.tWH	= 30,
+		.tWC	= 100,
+		.tRP	= 50,
+		.tREH	= 30,
+		.tRC	= 100,
+		.tREA	= 40,
+		.tRHOH	= 0,
+		.tCEA	= 100,
+		.tCOH	= 0,
+		.tCHZ	= 100,
+	},
+
+	/*
+	 * ONFI Timing Mode '1'
+	 */
+	[1] = {
+		.tCLS	= 25,
+		.tCS	= 35,
+		.tALS	= 25,
+		.tDS	= 20,
+		.tWP	= 25,
+		.tCLH	= 10,
+		.tCH	= 10,
+		.tALH	= 10,
+		.tDH	= 10,
+		.tWB	= 100,
+		.tWH	= 15,
+		.tWC	= 45,
+		.tRP	= 25,
+		.tREH	= 15,
+		.tRC	= 50,
+		.tREA	= 30,
+		.tRHOH	= 15,
+		.tCEA	= 45,
+		.tCOH	= 15,
+		.tCHZ	= 50,
+	},
+
+	/*
+	 * ONFI Timing Mode '2'
+	 */
+	[2] = {
+		.tCLS	= 15,
+		.tCS	= 25,
+		.tALS	= 15,
+		.tDS	= 15,
+		.tWP	= 17,
+		.tCLH	= 10,
+		.tCH	= 10,
+		.tALH	= 10,
+		.tDH	= 5,
+		.tWB	= 100,
+		.tWH	= 15,
+		.tWC	= 35,
+		.tRP	= 17,
+		.tREH	= 16,
+		.tRC	= 35,
+		.tREA	= 25,
+		.tRHOH	= 15,
+		.tCEA	= 30,
+		.tCOH	= 15,
+		.tCHZ	= 50,
+	},
+
+	/*
+	 * ONFI Timing Mode '3'
+	 */
+	[3] = {
+		.tCLS	= 10,
+		.tCS	= 25,
+		.tALS	= 10,
+		.tDS	= 10,
+		.tWP	= 15,
+		.tCLH	= 5,
+		.tCH	= 5,
+		.tALH	= 5,
+		.tDH	= 5,
+		.tWB	= 100,
+		.tWH	= 10,
+		.tWC	= 30,
+		.tRP	= 15,
+		.tREH	= 10,
+		.tRC	= 30,
+		.tREA	= 20,
+		.tRHOH	= 15,
+		.tCEA	= 25,
+		.tCOH	= 15,
+		.tCHZ	= 50,
+	},
+
+	/*
+	 * ONFI Timing Mode '4' (EDO only)
+	 */
+	[4] = {
+		.tCLS	= 10,
+		.tCS	= 20,
+		.tALS	= 10,
+		.tDS	= 10,
+		.tWP	= 12,
+		.tCLH	= 5,
+		.tCH	= 5,
+		.tALH	= 5,
+		.tDH	= 5,
+		.tWB	= 100,
+		.tWH	= 10,
+		.tWC	= 25,
+		.tRP	= 12,
+		.tREH	= 10,
+		.tRC	= 25,
+		.tREA	= 20,
+		.tRHOH	= 15,
+		.tCEA	= 25,
+		.tCOH	= 15,
+		.tCHZ	= 30,
+	},
+
+	/*
+	 * ONFI Timing Mode '5' (EDO only)
+	 */
+	[5] = {
+		.tCLS	= 10,
+		.tCS	= 15,
+		.tALS	= 10,
+		.tDS	= 7,
+		.tWP	= 10,
+		.tCLH	= 5,
+		.tCH	= 5,
+		.tALH	= 5,
+		.tDH	= 5,
+		.tWB	= 100,
+		.tWH	= 7,
+		.tWC	= 20,
+		.tRP	= 10,
+		.tREH	= 7,
+		.tRC	= 20,
+		.tREA	= 16,
+		.tRHOH	= 15,
+		.tCEA	= 25,
+		.tCOH	= 15,
+		.tCHZ	= 30,
+	}
+};
+EXPORT_SYMBOL(nand_onfi_timing_specs);
+
+/*
  *	Decode READID data
  */
 

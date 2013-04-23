@@ -37,7 +37,6 @@
  */
 #define CFG_READ_TOGGLE32BITADDR		0x00000001
 #define CFG_WRITE_TOGGLE32BITADDR		0x00000002
-#define CFG_WRITE_EX32BITADDR_DELAY		0x00000004
 #define CFG_ERASESEC_TOGGLE32BITADDR		0x00000008
 #define CFG_S25FL_CHECK_ERROR_FLAGS		0x00000010
 
@@ -1192,23 +1191,16 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 		mx25_configure_en32bitaddr_seq(&fsm_seq_en32bitaddr);
 
 		if (!fsm->capabilities.boot_from_spi ||
-		    can_handle_soc_reset(fsm, info)) {
+		    can_handle_soc_reset(fsm, info))
 			/* If we can handle SoC resets, we enable 32-bit address
 			 * mode pervasively */
 			fsm_enter_32bitaddr(fsm, 1);
-
-		} else {
+		else
 			/* Else, enable/disable 32-bit addressing before/after
 			 * each operation */
 			fsm->configuration = (CFG_READ_TOGGLE32BITADDR |
 					      CFG_WRITE_TOGGLE32BITADDR |
 					      CFG_ERASESEC_TOGGLE32BITADDR);
-			/* It seems a small delay is required after exiting
-			 * 32-bit mode following a write operation.  The issue
-			 * is under investigation.
-			 */
-			fsm->configuration |= CFG_WRITE_EX32BITADDR_DELAY;
-		}
 	}
 
 	/* For QUAD mode, set 'QE' STATUS bit */
@@ -1795,11 +1787,8 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 	}
 
 	/* Exit 32-bit address mode, if required */
-	if (fsm->configuration & CFG_WRITE_TOGGLE32BITADDR) {
+	if (fsm->configuration & CFG_WRITE_TOGGLE32BITADDR)
 		fsm_enter_32bitaddr(fsm, 0);
-		if (fsm->configuration & CFG_WRITE_EX32BITADDR_DELAY)
-			udelay(1);
-	}
 
 	return ret;
 }
@@ -1894,6 +1883,13 @@ static int fsm_init(struct stm_spi_fsm *fsm)
 	       SPI_CFG_CS_SETUPHOLD(0xa0) |
 	       SPI_CFG_DATA_HOLD(0x00), fsm->base + SPI_CONFIGDATA);
 	writel(0x0016e360, fsm->base + SPI_STATUS_WR_TIME_REG);
+
+	/*
+	 * Set the FSM 'WAIT' delay to the minimum workable value.  Note, for
+	 * our purposes, the WAIT instruction is used purely to achieve
+	 * "sequence validity" rather than actually implement a delay.
+	 */
+	writel(0x000001, fsm->base + SPI_PROGRAM_ERASE_TIME);
 
 	/* Clear FIFO, just in case */
 	fsm_clear_fifo(fsm);

@@ -1495,9 +1495,8 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 	struct mtd_info *mtd = &nandi->info.mtd;
 	uint32_t page_addr = from >> nandi->page_shift;
 	int pages;
-	uint32_t oob_bytes_per_sector = mtd->oobsize / nandi->sectors_per_page;
-	uint32_t oob_pad_per_page = mtd->oobsize % nandi->sectors_per_page;
 	int ecc_size = bch_ecc_sizes[nandi->bch_ecc_mode];
+	uint32_t oob_remainder;
 	uint8_t *o = ops->oobbuf;
 	uint8_t *p = ops->datbuf;
 	uint8_t *t;
@@ -1512,6 +1511,8 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 
 	/* Allow page:oob:page:oob... convention */
 	unified_buf = (p == o) ? 1 : 0;
+
+	oob_remainder = mtd->oobsize - (nandi->sectors_per_page * ecc_size);
 
 	while (pages) {
 		t = nandi->page_buf;
@@ -1532,18 +1533,16 @@ static int flex_do_read_ops(struct nandi_controller *nandi,
 
 			if (o) {
 				memcpy(o, t, ecc_size);
-				memset(o + ecc_size, 0xff,
-				       oob_bytes_per_sector - ecc_size);
-
-				ops->oobretlen += oob_bytes_per_sector;
-				o += oob_bytes_per_sector;
+				ops->oobretlen += ecc_size;
+				o += ecc_size;
 			}
 			t += ecc_size;
 		}
 
-		if (oob_pad_per_page && o) {
-			memset(o, 0xff, oob_pad_per_page);
-			o += oob_pad_per_page;
+		if (oob_remainder && o) {
+			memcpy(o, t, oob_remainder);
+			o += oob_remainder;
+			ops->oobretlen += oob_remainder;
 		}
 
 		if (unified_buf)
@@ -1565,9 +1564,8 @@ static int flex_do_write_ops(struct nandi_controller *nandi,
 	struct mtd_info *mtd = &nandi->info.mtd;
 	uint32_t page_addr = to >> nandi->page_shift;
 	int pages;
-	uint32_t oob_bytes_per_sector = mtd->oobsize / nandi->sectors_per_page;
-	uint32_t oob_pad_per_page = mtd->oobsize % nandi->sectors_per_page;
 	int ecc_size = bch_ecc_sizes[nandi->bch_ecc_mode];
+	uint32_t oob_remainder;
 	uint8_t *o = ops->oobbuf;
 	uint8_t *p = ops->datbuf;
 	uint8_t *t;
@@ -1579,6 +1577,8 @@ static int flex_do_write_ops(struct nandi_controller *nandi,
 	pages = ops->datbuf ?
 		(ops->len >> nandi->page_shift) :
 		(ops->ooblen / mtd->oobsize);
+
+	oob_remainder = mtd->oobsize - (nandi->sectors_per_page * ecc_size);
 
 	while (pages) {
 		t = nandi->page_buf;
@@ -1595,18 +1595,22 @@ static int flex_do_write_ops(struct nandi_controller *nandi,
 
 			if (o) {
 				memcpy(t, o, ecc_size);
-				ops->oobretlen += oob_bytes_per_sector;
-				o += oob_bytes_per_sector;
+				o += ecc_size;
+				ops->oobretlen += ecc_size;
 			} else {
 				memset(t, 0xff, ecc_size);
 			}
 			t += ecc_size;
 		}
 
-		if (oob_pad_per_page) {
-			memset(t, 0xff, oob_pad_per_page);
-			if (o)
-				o += oob_pad_per_page;
+		if (oob_remainder) {
+			if (o) {
+				memcpy(t, o, oob_remainder);
+				o += oob_remainder;
+				ops->oobretlen += oob_remainder;
+			} else {
+				memset(t, 0xff, oob_remainder);
+			}
 		}
 
 		status = flex_write_raw(nandi, page_addr, 0, nandi->page_buf,

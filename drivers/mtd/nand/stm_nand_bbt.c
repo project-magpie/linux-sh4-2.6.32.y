@@ -40,7 +40,7 @@ static void __attribute__((unused)) stmnand_bch_unmap(uint8_t *page,
 {
 	int n_sectors, s;
 	int ecc_bytes_per_sector;
-	int oob_bytes_per_sector;
+	int oob_bytes_remainder;
 	uint8_t *data;
 	uint8_t *dst_p, *dst_o, *src;
 
@@ -48,9 +48,12 @@ static void __attribute__((unused)) stmnand_bch_unmap(uint8_t *page,
 		return;
 
 	n_sectors = page_size / BCH_SECTOR_BYTES;
+	if (!n_sectors)
+		return;
+
 	ecc_bytes_per_sector = (bch_remap == BCH_REMAP_18BIT) ?
 		BCH18_ECC_BYTES : BCH30_ECC_BYTES;
-	oob_bytes_per_sector = oob_size / n_sectors;
+	oob_bytes_remainder = oob_size - (n_sectors * ecc_bytes_per_sector);
 
 	data = kmalloc(page_size * oob_size, GFP_KERNEL);
 	memcpy(data, page, page_size);
@@ -68,8 +71,11 @@ static void __attribute__((unused)) stmnand_bch_unmap(uint8_t *page,
 
 		memcpy(dst_o, src, ecc_bytes_per_sector);
 		src += ecc_bytes_per_sector;
-		dst_o += oob_bytes_per_sector;
+		dst_o += ecc_bytes_per_sector;
 	}
+
+	if (oob_bytes_remainder)
+		memcpy(dst_o, src, oob_bytes_remainder);
 
 	kfree(data);
 }
@@ -80,7 +86,7 @@ void stmnand_bch_remap(uint8_t *page, uint8_t *oob,
 {
 	int n_sectors, s;
 	int ecc_bytes_per_sector;
-	int oob_bytes_per_sector;
+	int oob_bytes_remainder;
 	uint8_t *data;
 	uint8_t *dst, *src_p, *src_o;
 
@@ -88,9 +94,12 @@ void stmnand_bch_remap(uint8_t *page, uint8_t *oob,
 		return;
 
 	n_sectors = page_size / BCH_SECTOR_BYTES;
+	if (!n_sectors)
+		return;
+
 	ecc_bytes_per_sector =  (bch_remap == BCH_REMAP_18BIT) ?
 		BCH18_ECC_BYTES : BCH30_ECC_BYTES;
-	oob_bytes_per_sector = oob_size / n_sectors;
+	oob_bytes_remainder = oob_size - (n_sectors * ecc_bytes_per_sector);
 
 	data = kmalloc(page_size * oob_size, GFP_KERNEL);
 	memset(data, 0xff, page_size + oob_size);
@@ -106,8 +115,11 @@ void stmnand_bch_remap(uint8_t *page, uint8_t *oob,
 
 		memcpy(dst, src_o, ecc_bytes_per_sector);
 		dst += ecc_bytes_per_sector;
-		src_o += oob_bytes_per_sector;
+		src_o += ecc_bytes_per_sector;
 	}
+
+	if (oob_bytes_remainder)
+		memcpy(dst, src_o, oob_bytes_remainder);
 
 	memcpy(page, data, page_size);
 	memcpy(oob, data + page_size, oob_size);

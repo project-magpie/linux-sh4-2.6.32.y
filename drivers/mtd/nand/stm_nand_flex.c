@@ -440,20 +440,6 @@ static struct nand_ecclayout boot_oob_64 = {
 	.oobfree = {{0, 0} },	/* No free OOB bytes */
 };
 
-
-
-/* Replicated from ../mtdpart.c: required here to get slave MTD offsets and
- * determine which ECC mode to use.
- */
-struct mtd_part {
-	struct mtd_info mtd;
-	struct mtd_info *master;
-	u_int32_t offset;
-	struct list_head list;
-};
-
-#define PART(x)  ((struct mtd_part *)(x))
-
 /* Boot mode ECC calc/correct function */
 int boot_calc_ecc(struct mtd_info *mtd, const unsigned char *buf,
 		  unsigned char *ecc)
@@ -1025,7 +1011,7 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 	struct mtd_info *slave;
-	struct mtd_part *part;
+	uint64_t slave_offset;
 	char *boot_part_name;
 #endif
 
@@ -1152,15 +1138,15 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 
 #ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
 		/* Update boot-mode slave partition */
-		slave = get_mtd_partition_slave(&data->mtd, boot_part_name);
+		slave = get_mtd_partition_slave(&data->mtd, boot_part_name,
+						&slave_offset);
 		if (slave) {
 			printk(KERN_INFO NAME ": Found BOOT parition"
 			       "[%s], updating ECC paramters\n",
 			       slave->name);
 
-			part = PART(slave);
-			data->boot_start = part->offset;
-			data->boot_end = part->offset + slave->size;
+			data->boot_start = slave_offset;
+			data->boot_end = slave_offset + slave->size;
 
 			slave->oobavail =
 				data->ecc_boot.ecc_ctrl.layout->oobavail;

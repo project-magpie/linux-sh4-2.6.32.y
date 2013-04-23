@@ -540,15 +540,22 @@ int add_mtd_partitions(struct mtd_info *master,
 }
 EXPORT_SYMBOL(add_mtd_partitions);
 
-/* Retieve a master's MTD slave object for the partition named @name */
-struct mtd_info *get_mtd_partition_slave(struct mtd_info *master, char *name)
+/*
+ * Retrieve a master's MTD slave object for the partition named @name.  If
+ * found, returns a pointer the Slave's mtd_info structure, and sets the @offset
+ * parameter.  Else, returns NULL.
+ */
+struct mtd_info *get_mtd_partition_slave(struct mtd_info *master, char *name,
+					 uint64_t *offset)
 {
 	struct mtd_part *slave, *next;
 
 	list_for_each_entry_safe(slave, next, &mtd_partitions, list)
 		if (slave->master == master &&
-		    strcmp(slave->mtd.name, name) == 0)
+		    strcmp(slave->mtd.name, name) == 0) {
+			*offset = slave->offset;
 			return &slave->mtd;
+		}
 	return NULL;
 }
 EXPORT_SYMBOL(get_mtd_partition_slave);

@@ -815,23 +815,7 @@ static void afm_select_eccparams(struct mtd_info *mtd, loff_t offs)
 		}
 	}
 }
-
-/* Replicated from ../mtdpart.c: required here to get slave MTD offsets and
- * determine which ECC mode to use.
- */
-struct mtd_part {
-	struct mtd_info mtd;
-	struct mtd_info *master;
-	u_int32_t offset;
-	int index;
-	struct list_head list;
-	int registered;
-};
-
-#define PART(x)  ((struct mtd_part *)(x))
 #endif
-
-
 
 /*
  * Internal helper-functions for MTD Interface callbacks
@@ -3015,7 +2999,7 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 
 #ifdef CONFIG_STM_NAND_AFM_BOOTMODESUPPORT
 	struct mtd_info *slave;
-	struct mtd_part *part;
+	uint64_t slave_offset;
 	char *boot_part_name;
 #ifdef CONFIG_STM_NAND_AFM_PBLBOOTBOUNDARY
 	uint32_t boundary;
@@ -3092,11 +3076,11 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 			CONFIG_STM_NAND_AFM_BOOTPARTITION;
 
 		/* Update boot-mode slave partition */
-		slave = get_mtd_partition_slave(&data->mtd, boot_part_name);
+		slave = get_mtd_partition_slave(&data->mtd, boot_part_name,
+						&slave_offset);
 		if (slave) {
-			part = PART(slave);
-			data->boot_start = part->offset;
-			data->boot_end = part->offset + slave->size;
+			data->boot_start = slave_offset;
+			data->boot_end = slave_offset + slave->size;
 
 #ifdef CONFIG_STM_NAND_AFM_PBLBOOTBOUNDARY
 			/* Update 'boot_end' with value in PBL image */

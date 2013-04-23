@@ -332,7 +332,7 @@ static struct platform_device stxh205_emi = {
 	.num_resources = 3,
 	.resource = (struct resource[]) {
 		STM_PLAT_RESOURCE_MEM_NAMED("emi memory", 0, 256 * 1024 * 1024),
-		STM_PLAT_RESOURCE_MEM_NAMED("emi4 config", 0xfe90000, 0x874),
+		STM_PLAT_RESOURCE_MEM_NAMED("emi4 config", 0xfe900000, 0x874),
 		STM_PLAT_RESOURCE_MEM_NAMED("emiss config", 0xfdaa9000 , 0x80),
 	},
 	.dev.platform_data = &(struct stm_device_config){

@@ -747,14 +747,36 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 	return ERR_PTR(res);
 }
 
+static void nand_remove_bank(struct stm_nand_emi *emi,
+			     struct stm_nand_bank_data *data)
+{
+	nand_release(&emi->mtd);
+
+#ifdef CONFIG_MTD_PARTITIONS
+	if (emi->parts && emi->parts != data->partitions)
+		kfree(emi->parts);
+#endif
+	iounmap(emi->io_addr);
+	iounmap(emi->io_cmd);
+#ifdef CONFIG_STM_NAND_EMI_CACHED
+	iounmap(emi->io_data);
+#endif
+	iounmap(emi->io_base);
+	release_mem_region(emi->emi_base, emi->emi_size);
+#ifdef CONFIG_STM_NAND_EMI_FDMA
+	exit_fdma_nand(emi);
+#endif
+	kfree(emi);
+}
+
 static int __devinit stm_nand_emi_probe(struct platform_device *pdev)
 {
 	struct stm_plat_nand_emi_data *pdata = pdev->dev.platform_data;
-	int res;
+	struct stm_nand_emi_group *group;
+	struct stm_nand_emi *emi;
+	int err;
 	int n;
 	int rbn_gpio;
-	struct stm_nand_emi_group *group;
-	struct stm_nand_bank_data *bank;
 
 	group = kzalloc(sizeof(struct stm_nand_emi_group) +
 			(sizeof(struct stm_nand_emi *) * pdata->nr_banks),
@@ -764,8 +786,8 @@ static int __devinit stm_nand_emi_probe(struct platform_device *pdev)
 
 	rbn_gpio = pdata->emi_rbn_gpio;
 	if (gpio_is_valid(rbn_gpio)) {
-		res = gpio_request(rbn_gpio, "nand_RBn");
-		if (res == 0) {
+		err = gpio_request(rbn_gpio, "nand_RBn");
+		if (err == 0) {
 			gpio_direction_input(rbn_gpio);
 		} else {
 			dev_err(&pdev->dev, "nand_rbn unavailable. "
@@ -777,16 +799,33 @@ static int __devinit stm_nand_emi_probe(struct platform_device *pdev)
 	group->rbn_gpio = rbn_gpio;
 	group->nr_banks = pdata->nr_banks;
 
-	bank = pdata->banks;
-	for (n=0; n<pdata->nr_banks; n++) {
-		group->banks[n] = nand_probe_bank(bank, rbn_gpio,
-						  dev_name(&pdev->dev));
-		bank++;
+	for (n = 0; n < pdata->nr_banks; n++) {
+		emi = nand_probe_bank(&pdata->banks[n], rbn_gpio,
+				      dev_name(&pdev->dev));
+
+		if (IS_ERR(emi)) {
+			err = PTR_ERR(emi);
+			goto err1;
+		}
+
+		group->banks[n] = emi;
 	}
 
 	platform_set_drvdata(pdev, group);
 
 	return 0;
+
+ err1:
+	while (--n > 0)
+		nand_remove_bank(group->banks[n], &pdata->banks[n]);
+
+	if (gpio_is_valid(group->rbn_gpio))
+		gpio_free(group->rbn_gpio);
+
+	platform_set_drvdata(pdev, NULL);
+	kfree(group);
+
+	return err;
 }
 
 /*
@@ -795,33 +834,11 @@ static int __devinit stm_nand_emi_probe(struct platform_device *pdev)
 static int __devexit stm_nand_emi_remove(struct platform_device *pdev)
 {
 	struct stm_nand_emi_group *group = platform_get_drvdata(pdev);
-#ifdef CONFIG_MTD_PARTITIONS
 	struct stm_plat_nand_emi_data *pdata = pdev->dev.platform_data;
-#endif
 	int n;
 
-	for (n=0; n<group->nr_banks; n++) {
-		struct stm_nand_emi *data = group->banks[n];
-
-		nand_release(&data->mtd);
-
-#ifdef CONFIG_MTD_PARTITIONS
-		if (data->parts && data->parts != pdata->banks[n].partitions)
-			kfree(data->parts);
-#endif
-
-		iounmap(data->io_addr);
-		iounmap(data->io_cmd);
-#ifdef CONFIG_STM_NAND_EMI_CACHED
-		iounmap(data->io_data);
-#endif
-		iounmap(data->io_base);
-		release_mem_region(data->emi_base, data->emi_size);
-#ifdef CONFIG_STM_NAND_EMI_FDMA
-		exit_fdma_nand(data);
-#endif
-		kfree(data);
-	}
+	for (n = 0; n < group->nr_banks; n++)
+		nand_remove_bank(group->banks[n], &pdata->banks[n]);
 
 	if (gpio_is_valid(group->rbn_gpio))
 		gpio_free(group->rbn_gpio);

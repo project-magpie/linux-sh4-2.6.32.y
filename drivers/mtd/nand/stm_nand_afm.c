@@ -708,6 +708,8 @@ afm_init_controller(struct platform_device *pdev)
 	afm_writereg(NAND_EDGE_CFG_RBN_RISING, NANDHAM_INT_EDGE_CFG);
 	afm_writereg(NAND_INT_ENABLE, NANDHAM_INT_EN);
 
+	platform_set_drvdata(pdev, afm);
+
 	/* Success :-) */
 	return afm;
 
@@ -728,9 +730,11 @@ afm_init_controller(struct platform_device *pdev)
 
 }
 
-static void __devexit afm_exit_controller(struct platform_device *pdev)
+static void afm_exit_controller(struct platform_device *pdev)
 {
 	struct stm_nand_afm_controller *afm = platform_get_drvdata(pdev);
+
+	platform_set_drvdata(pdev, NULL);
 
 	free_irq(afm->irq, afm);
 #ifdef CONFIG_STM_NAND_AFM_CACHED
@@ -3156,26 +3160,42 @@ static int __devinit stm_afm_probe(struct platform_device *pdev)
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
 	struct stm_nand_bank_data *bank;
 	struct stm_nand_afm_controller *afm;
+	struct stm_nand_afm_device *data;
 	int n;
-	int res;
+	int err = 0;
 
 	afm = afm_init_controller(pdev);
 	if (IS_ERR(afm)) {
 		dev_err(&pdev->dev, "failed to initialise NAND Controller.\n");
-		res = PTR_ERR(afm);
-		return res;
+		err = PTR_ERR(afm);
+		return err;
 	}
 
 	bank = pdata->banks;
 	for (n = 0; n < pdata->nr_banks; n++) {
-		afm->devices[n] = afm_init_bank(afm, bank,
-						dev_name(&pdev->dev));
+		data = afm_init_bank(afm, bank, dev_name(&pdev->dev));
+
+		if (IS_ERR(data)) {
+			err = PTR_ERR(data);
+			goto err1;
+		}
+
+		afm->devices[n] = data;
 		bank++;
 	}
 
-	platform_set_drvdata(pdev, afm);
-
 	return 0;
+
+ err1:
+	while (--n > 0) {
+		data = afm->devices[n];
+		nand_release(&data->mtd);
+		kfree(data);
+	}
+
+	afm_exit_controller(pdev);
+
+	return err;
 }
 
 
@@ -3197,8 +3217,6 @@ static int __devexit stm_afm_remove(struct platform_device *pdev)
 	}
 
 	afm_exit_controller(pdev);
-
-	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }

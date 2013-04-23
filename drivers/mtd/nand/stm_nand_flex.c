@@ -85,6 +85,11 @@ struct ecc_params {
 	/* mtd_info params */
 	u_int32_t		subpage_sft;
 };
+
+/* Module parameter for specifying name of boot partition */
+static char *nbootpart;
+module_param(nbootpart, charp, 0000);
+MODULE_PARM_DESC(nbootpart, "MTD name of NAND boot-mode ECC partition");
 #endif /* CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT */
 
 /* NAND device connected to STM NAND Controller operatring in FLEX mode.  (There
@@ -136,10 +141,6 @@ struct stm_nand_flex_controller {
 	struct stm_nand_flex_device *devices[0];
 };
 
-#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-/* The command line passed to nboot_setup() */
-__initdata static char *cmdline;
-#endif
 
 static struct stm_nand_flex_controller* mtd_to_flex(struct mtd_info *mtd)
 {
@@ -981,6 +982,7 @@ flex_init_controller(struct platform_device *pdev)
 #ifdef CONFIG_MTD_DEBUG
 	flex_print_regs(flex);
 #endif
+	platform_set_drvdata(pdev, flex);
 
 	return flex;
  out4:
@@ -997,9 +999,11 @@ flex_init_controller(struct platform_device *pdev)
 	return ERR_PTR(res);
 }
 
-static void __devexit flex_exit_controller(struct platform_device *pdev)
+static void flex_exit_controller(struct platform_device *pdev)
 {
 	struct stm_nand_flex_controller *flex = platform_get_drvdata(pdev);
+
+	platform_set_drvdata(pdev, NULL);
 
 	kfree(flex->buf);
 	iounmap(flex->base_addr);
@@ -1120,9 +1124,10 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 	data->mtd.write_oob = nand_write_oob;
 
 	/* Set name of boot partition */
-	boot_part_name = cmdline ? cmdline : CONFIG_STM_NAND_FLEX_BOOTPARTITION;
+	boot_part_name = nbootpart ? nbootpart :
+		CONFIG_STM_NAND_FLEX_BOOTPARTITION;
 	printk(KERN_INFO NAME ": Using boot partition name [%s] (from %s)\n",
-	       boot_part_name, cmdline ? "command line" : "kernel config");
+	       boot_part_name, nbootpart ? "command line" : "kernel config");
 
 #endif
 
@@ -1193,29 +1198,45 @@ flex_init_bank(struct stm_nand_flex_controller *flex,
 static int __devinit stm_nand_flex_probe(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
-	int res;
-	int n;
 	struct stm_nand_bank_data *bank;
 	struct stm_nand_flex_controller *flex;
+	struct stm_nand_flex_device *data;
+	int err;
+	int n;
 
 	flex = flex_init_controller(pdev);
 	if (IS_ERR(flex)) {
 		dev_err(&pdev->dev, "Failed to initialise NAND Controller.\n");
-		res = PTR_ERR(flex);
-		return res;
+		err = PTR_ERR(flex);
+		return err;
 	}
 
 	bank = pdata->banks;
 	for (n=0; n<pdata->nr_banks; n++) {
-		flex->devices[n] = flex_init_bank(flex, bank,
-						  pdata->flex_rbn_connected,
-						  dev_name(&pdev->dev));
+		data = flex_init_bank(flex, bank, pdata->flex_rbn_connected,
+				      dev_name(&pdev->dev));
+
+		if (IS_ERR(data)) {
+			err = PTR_ERR(data);
+			goto err1;
+		}
+
+		flex->devices[n] = data;
 		bank++;
 	}
 
-	platform_set_drvdata(pdev, flex);
-
 	return 0;
+
+ err1:
+	while (--n > 0) {
+		data = flex->devices[n];
+		nand_release(&data->mtd);
+		kfree(data);
+	}
+
+	flex_exit_controller(pdev);
+
+	return err;
 }
 
 static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
@@ -1224,7 +1245,7 @@ static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 	struct stm_nand_flex_controller *flex = platform_get_drvdata(pdev);
 	int n;
 
-	for (n=0; n<pdata->nr_banks; n++) {
+	for (n = 0; n < pdata->nr_banks; n++) {
 		struct stm_nand_flex_device *data = flex->devices[n];
 		nand_release(&data->mtd);
 
@@ -1238,8 +1259,6 @@ static int __devexit stm_nand_flex_remove(struct platform_device *pdev)
 
 	flex_exit_controller(pdev);
 
-	platform_set_drvdata(pdev, NULL);
-
 	return 0;
 }
 
@@ -1251,16 +1270,6 @@ static struct platform_driver stm_nand_flex_driver = {
 		.owner	= THIS_MODULE,
 	},
 };
-
-#ifdef CONFIG_STM_NAND_FLEX_BOOTMODESUPPORT
-static int __init bootpart_setup(char *s)
-{
-	cmdline = s;
-	return 1;
-}
-
-__setup("nbootpart=", bootpart_setup);
-#endif
 
 static int __init stm_nand_flex_init(void)
 {

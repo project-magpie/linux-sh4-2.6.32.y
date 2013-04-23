@@ -1094,14 +1094,11 @@ static int afm_check_wp(struct mtd_info *mtd)
 	uint32_t status;
 
 	/* Switch to Flex Mode */
-	afm_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
+	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
 
 	/* Read status register */
 	afm_writereg(FLEX_CMD(NAND_CMD_STATUS), NANDHAM_FLEX_CMD);
 	status = afm_readreg(NANDHAM_FLEX_DATA);
-
-	/* Switch back to AFM */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
 
 	return (status & NAND_STATUS_WP) ? 0 : 1;
 }
@@ -1647,6 +1644,9 @@ static void afm_erase_cmd(struct mtd_info *mtd, int page)
 
 	afm->status = 0;
 
+	/* Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
+
 	/* Initialise Seq interrupts */
 	INIT_COMPLETION(afm->seq_completed);
 	afm_enable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -1780,6 +1780,9 @@ static int afm_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
 	uint32_t reg;
 	int ret;
 
+	/* Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
+
 	/* Select AFM program */
 	prog = (mtd->writesize == 512) ?
 		&afm_prog_read_raw_sp :
@@ -1828,6 +1831,9 @@ static int afm_read_oob_chip(struct mtd_info *mtd, struct nand_chip *chip,
 	struct afm_prog	*prog;
 	uint32_t reg;
 	int ret;
+
+	/* Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
 
 	/* Select AFM program */
 	prog = (mtd->writesize == 512) ?
@@ -1884,7 +1890,10 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 
 	afm->status = 0;
 
-	/* 1. Write page data to chip's page buffer */
+	/* 1. Use AFM to write page data to chip's page buffer */
+
+	/*    Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
 
 	/*    Initialise Seq interrupt */
 	INIT_COMPLETION(afm->seq_completed);
@@ -1917,8 +1926,9 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 	/*    Disable Seq interrupt */
 	afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
 
-	/* 2. Write OOB data */
-	/*    Populate OOB with ECC data  */
+	/* 2. Use FLEX Mode to write OOB data */
+
+	/*    Collect AFM ECC from Controller and populate OOB  */
 	ecc_afm = afm_readreg(NANDHAM_AFM_ECC_REG_3);
 	chip->oob_poi[0] = ecc_afm & 0xff; ecc_afm >>= 8;
 	chip->oob_poi[1] = ecc_afm & 0xff; ecc_afm >>= 8;
@@ -1928,10 +1938,12 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 	chip->oob_poi[5] = 'M';
 	chip->oob_poi[6] = stm_afm_lp1617(buf);
 
-	/*    Switch to FLEX mode for writing OOB */
+	/*    Enable FLEX mode */
+	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
+
+	/*    Initialise RBn interrupt */
 	INIT_COMPLETION(afm->rbn_completed);
 	afm_enable_interrupts(afm, NAND_INT_RBN);
-	afm_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
 
 	/*    Write OOB data */
 	afm_writereg(FLEX_DATA_CFG_BEATS_4 | FLEX_DATA_CFG_CSN,
@@ -1948,14 +1960,12 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 	if (!ret)
 		dev_err(afm->dev, "RBn timeout, force exit\n");
 
-	/*     Get status */
+	/*    Get status */
 	afm_writereg(FLEX_CMD(NAND_CMD_STATUS), NANDHAM_FLEX_CMD);
 	afm->status = afm_readreg(NANDHAM_FLEX_DATA);
 
+	/*    Disable RBn Interrupt */
 	afm_disable_interrupts(afm, NAND_INT_RBN);
-
-	/* 3. Switch back to AFM */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
 }
 
 
@@ -1978,6 +1988,9 @@ static void afm_write_page_ecc_lp(struct mtd_info *mtd,
 	int i;
 
 	afm->status = 0;
+
+	/* Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
 
 	/* Calc S/W ECC LP1617, insert into OOB area with 'AFM' signature */
 	p = buf;
@@ -2037,6 +2050,9 @@ static void afm_write_page_raw_lp(struct mtd_info *mtd, struct nand_chip *chip,
 
 	afm->status = 0;
 
+	/* Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
+
 	/* Initialise Seq Interrupts */
 	INIT_COMPLETION(afm->seq_completed);
 	afm_enable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -2080,16 +2096,24 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 
 	afm->status = 0;
 
-	/* Enable sequence interrupts */
+	/* 1. Use AFM to write page data to chip's page buffer */
+
+	/*    Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
+
+	/*    Initialise Seq interrupt */
 	INIT_COMPLETION(afm->seq_completed);
 	afm_enable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
 
-	/* 1. Write page data to chip's page buffer */
+	/*    Set page address */
 	prog->addr_reg	= afm->page << 8;
+
+	/*    Copy program to controller, and start sequence */
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
 
 	chip->write_buf(mtd, buf, mtd->writesize);
 
+	/*    Wait for the sequence to terminate */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
 	if (!ret) {
 		dev_err(afm->dev, "seq timeout, force exit\n");
@@ -2098,6 +2122,8 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
 		return;
 	}
+
+	/*    Disable Seq interrupt */
 	afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
 
 	reg = afm_readreg(NANDHAM_AFM_SEQ_STA);
@@ -2107,10 +2133,14 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 		return;
 	}
 
-	/* 2. Switch to FLEX mode and write OOB data */
+	/* 2. Use FLEX Mode to write OOB data */
+
+	/*    Enable FLEX Mode */
+	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
+
+	/*    Initialise RBn interrupt */
 	INIT_COMPLETION(afm->rbn_completed);
 	afm_enable_interrupts(afm, NAND_INT_RBN);
-	afm_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
 
 	/*    Send OOB pointer operation */
 	afm_writereg(FLEX_CMD(NAND_CMD_READOOB),  NANDHAM_FLEX_CMD);
@@ -2148,8 +2178,6 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 
 	afm_disable_interrupts(afm, NAND_INT_RBN);
 
-	/* 3. Switch back to AFM */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
 }
 
 /* AFM: Write OOB Data [LargePage] */
@@ -2162,6 +2190,9 @@ static int afm_write_oob_chip_lp(struct mtd_info *mtd, struct nand_chip *chip,
 	int ret;
 
 	afm->status = 0;
+
+	/* Enable AFM */
+	afm_writereg(CFG_ENABLE_AFM, NANDHAM_FLEXMODE_CFG);
 
 	/* Enable sequence interrupts */
 	INIT_COMPLETION(afm->seq_completed);
@@ -2205,12 +2236,12 @@ static int afm_write_oob_chip_sp(struct mtd_info *mtd, struct nand_chip *chip,
 
 	afm->status = 0;
 
+	/* Enable FLEX Mode */
+	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
+
 	/* Initialise interrupts */
 	INIT_COMPLETION(afm->rbn_completed);
 	afm_enable_interrupts(afm, NAND_INT_RBN);
-
-	/* Switch to Flex Mode */
-	afm_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
 
 	/* Pointer Operation */
 	afm_writereg(FLEX_CMD(NAND_CMD_READOOB), NANDHAM_FLEX_CMD);
@@ -2252,9 +2283,6 @@ static int afm_write_oob_chip_sp(struct mtd_info *mtd, struct nand_chip *chip,
 
 	afm->status = 0xff & status;
 
-	/* Switch back to AFM */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
-
 	/* Disable RBn interrupts */
 	afm_disable_interrupts(afm, NAND_INT_RBN);
 
@@ -2273,8 +2301,8 @@ static int afm_read_sig(struct mtd_info *mtd,
 	INIT_COMPLETION(afm->rbn_completed);
 	afm_enable_interrupts(afm, NAND_INT_RBN);
 
-	/* Switch to Flex Mode */
-	afm_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
+	/* Enable FLEX Mode */
+	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
 
 	/* Issue NAND reset */
 	afm_writereg(FLEX_CMD(NAND_CMD_RESET), NANDHAM_FLEX_CMD);
@@ -2303,9 +2331,6 @@ static int afm_read_sig(struct mtd_info *mtd,
 	/* Newer devices have all the information in additional id bytes */
 	*cellinfo = (reg >> 16) & 0xff;
 	*extid = (reg >> 24) & 0xff;
-
-	/* Switch back to AFM Mode */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
 
 	/* Disable RBn interrupts */
 	afm_disable_interrupts(afm, NAND_INT_RBN);
@@ -2473,17 +2498,14 @@ static uint8_t afm_read_byte(struct mtd_info *mtd)
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
 	uint32_t reg;
 
-	/* Switch to Flex Mode */
-	afm_writereg(0x00000001, NANDHAM_FLEXMODE_CFG);
+	/* Enable FLEX Mode */
+	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
 
 	/* Write STATUS command (do not set FLEX_CMD_RBN!) */
 	reg = (NAND_CMD_STATUS | FLEX_CMD_BEATS_1 | FLEX_CMD_CSN);
 	afm_writereg(reg, NANDHAM_FLEX_CMD);
 
 	reg = afm_readreg(NANDHAM_FLEX_DATA);
-
-	/* Switch back to AFM */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
 
 	return reg & 0xff;
 }

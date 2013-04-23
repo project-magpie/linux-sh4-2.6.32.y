@@ -480,8 +480,8 @@ static int nand_block_checkbad(struct mtd_info *mtd, loff_t ofs, int getchip,
  * Send an entire "SET FEATURES" command to NAND device. This includes
  * the feature address (FA), and the set of 4 parameters to use (P1,P2,P3,P4).
  */
-static int nand_get_features(struct mtd_info *mtd, int feature,
-			     uint8_t *parameters)
+static __maybe_unused int nand_get_features(struct mtd_info *mtd, int feature,
+					    uint8_t *parameters)
 {
 	struct nand_chip *chip = mtd->priv;
 

@@ -2590,8 +2590,7 @@ static void nandi_configure_timing_registers(struct nandi_controller *nandi,
 	flex_configure_timing_registers(nandi, spec, relax);
 }
 
-static void __devinit nandi_init_hamming(struct nandi_controller *nandi,
-					 int emi_bank)
+static void nandi_init_hamming(struct nandi_controller *nandi, int emi_bank)
 {
 	dev_dbg(nandi->dev, "%s\n", __func__);
 
@@ -2626,8 +2625,7 @@ static void __devinit nandi_init_hamming(struct nandi_controller *nandi,
 	nandi_enable_interrupts(nandi, NAND_INT_ENABLE);
 }
 
-static void __devinit nandi_init_bch(struct nandi_controller *nandi,
-				     int emi_bank)
+static void nandi_init_bch(struct nandi_controller *nandi, int emi_bank)
 {
 	dev_dbg(nandi->dev, "%s\n", __func__);
 
@@ -2742,13 +2740,13 @@ nandi_init_resources(struct platform_device *pdev)
 	return nandi;
 }
 
-static void __devexit nandi_exit_controller(struct nandi_controller *nandi)
+static void nandi_exit_controller(struct nandi_controller *nandi)
 {
 
 }
 
-static void __devinit nandi_init_controller(struct nandi_controller *nandi,
-					    int emi_bank)
+static void nandi_init_controller(struct nandi_controller *nandi,
+				  int emi_bank)
 {
 	nandi_init_bch(nandi, emi_bank);
 	nandi_init_hamming(nandi, emi_bank);
@@ -2984,12 +2982,32 @@ static int __devexit stm_nand_bch_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_HIBERNATION
+static int stm_nand_bch_restore(struct device *dev)
+{
+	struct nandi_controller *nandi = dev_get_drvdata(dev);
+	struct stm_plat_nand_bch_data *pdata = dev->platform_data;
+	struct stm_nand_bank_data *bank = pdata->bank;;
+
+	nandi_init_controller(nandi, bank->csn);
+
+	return 0;
+}
+
+static struct dev_pm_ops stm_nand_bch_pm_ops = {
+	.restore = stm_nand_bch_restore,
+};
+#else
+static struct dev_pm_ops stm_nand_bch_pm_ops;
+#endif
+
 static struct platform_driver stm_nand_bch_driver = {
 	.probe		= stm_nand_bch_probe,
 	.remove		= stm_nand_bch_remove,
 	.driver		= {
 		.name	= NAME,
 		.owner	= THIS_MODULE,
+		.pm	= &stm_nand_bch_pm_ops,
 	},
 };
 

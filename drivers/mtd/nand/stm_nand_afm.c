@@ -1591,7 +1591,7 @@ static void afm_erase_cmd(struct mtd_info *mtd, int page)
 	/* Wait for sequence to finish */
 	ret = wait_for_completion_timeout(&afm->seq_completed, 2*HZ);
 	if (!ret) {
-		dev_warn(afm->dev, "sequence timeout, force exit!\n");
+		dev_warn(afm->dev, "%s: Seq timeout, force exit!\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm->status = NAND_STATUS_FAIL;
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -1731,7 +1731,7 @@ static int afm_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
 	/* Wait for data to become available */
 	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
 	if (!ret) {
-		dev_err(afm->dev, "RBn timeout, force exit\n");
+		dev_err(afm->dev, "%s: RBn timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm_disable_interrupts(afm, NAND_INT_RBN);
 		return 1;
@@ -1785,7 +1785,7 @@ static int afm_read_oob_chip(struct mtd_info *mtd, struct nand_chip *chip,
 	/* Wait for data to become available */
 	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
 	if (!ret) {
-		dev_err(afm->dev, "RBn timeout, force exit\n");
+		dev_err(afm->dev, "%s: RBn timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm_disable_interrupts(afm, NAND_INT_RBN);
 		return 1;
@@ -1839,7 +1839,7 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 	/*    Wait for the sequence to terminate */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
 	if (!ret) {
-		dev_err(afm->dev, "seq timeout, force exit\n");
+		dev_err(afm->dev, "%s: Seq timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm->status = NAND_STATUS_FAIL;
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -1881,7 +1881,7 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 	/*    Wait for page program operation to complete */
 	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
 	if (!ret)
-		dev_err(afm->dev, "RBn timeout, force exit\n");
+		dev_err(afm->dev, "%s: RBn timeout, force exit\n", __func__);
 
 	/*    Get status */
 	afm_writereg(FLEX_CMD(NAND_CMD_STATUS), NANDHAM_FLEX_CMD);
@@ -1947,7 +1947,7 @@ static void afm_write_page_ecc_lp(struct mtd_info *mtd,
 	/* Wait for sequence to complete */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
 	if (!ret) {
-		dev_err(afm->dev, "seq timeout, force exit\n");
+		dev_err(afm->dev, "%s: Seq timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm->status = NAND_STATUS_FAIL;
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -1993,7 +1993,7 @@ static void afm_write_page_raw_lp(struct mtd_info *mtd, struct nand_chip *chip,
 	/* Wait for sequence to complete */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
 	if (!ret) {
-		dev_err(afm->dev, "seq timeout, force exit\n");
+		dev_err(afm->dev, "%s: Seq timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm->status = NAND_STATUS_FAIL;
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -2040,7 +2040,7 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 	/*    Wait for the sequence to terminate */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
 	if (!ret) {
-		dev_err(afm->dev, "seq timeout, force exit\n");
+		dev_err(afm->dev, "%s: Seq timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm->status = NAND_STATUS_FAIL;
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -2094,7 +2094,7 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 	/* Wait for page program operation to complete */
 	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
 	if (!ret)
-		dev_err(afm->dev, "RBn timeout!\n");
+		dev_err(afm->dev, "%s: RBn timeout!\n", __func__);
 
 	/*     Get status */
 	afm_writereg(FLEX_CMD(NAND_CMD_STATUS), NANDHAM_FLEX_CMD);
@@ -2132,7 +2132,7 @@ static int afm_write_oob_chip_lp(struct mtd_info *mtd, struct nand_chip *chip,
 	/* Wait for sequence to complete */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ);
 	if (!ret) {
-		dev_err(afm->dev, "seq timeout, force exit\n");
+		dev_err(afm->dev, "%s: Seq timeout, force exit\n", __func__);
 		afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
 		afm->status = NAND_STATUS_FAIL;
 		afm_disable_interrupts(afm, NANDHAM_INT_SEQ_DREQ);
@@ -2199,7 +2199,7 @@ static int afm_write_oob_chip_sp(struct mtd_info *mtd, struct nand_chip *chip,
 	/* Wait for page program operation to complete */
 	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
 	if (!ret)
-		dev_err(afm->dev, "RBn timeout\n");
+		dev_err(afm->dev, "%s: RBn timeout\n", __func__);
 
 	/* Get status */
 	afm_writereg(FLEX_CMD(NAND_CMD_STATUS), NANDHAM_FLEX_CMD);
@@ -2367,7 +2367,7 @@ static int flex_wait_rbn(struct stm_nand_afm_controller *afm)
 
 	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
 	if (!ret)
-		dev_err(afm->dev, "FLEX RBn timeout\n");
+		dev_err(afm->dev, "%s: FLEX RBn timeout\n", __func__);
 
 	return ret;
 }

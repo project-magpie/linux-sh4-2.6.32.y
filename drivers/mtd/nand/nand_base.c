@@ -2771,8 +2771,10 @@ static int nand_flash_detect_onfi(struct mtd_info *mtd, struct nand_chip *chip,
 		}
 	}
 
-	if (i == 3)
+	if (i == 3) {
+		printk(KERN_INFO "No valid ONFI param page found (bad CRC)\n");
 		return 0;
+	}
 
 	/* check version */
 	val = le16_to_cpu(p->revision);

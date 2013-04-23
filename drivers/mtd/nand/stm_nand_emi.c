@@ -565,7 +565,7 @@ static int nand_config_emi(int bank, struct stm_nand_timing_data *td)
  */
 static struct stm_nand_emi * __devinit nand_probe_bank(
 	struct stm_nand_bank_data *bank, int rbn_gpio,
-	const char* name)
+	struct platform_device *pdev)
 {
 	struct stm_nand_emi *data;
 	struct stm_nand_timing_data *tm;
@@ -594,7 +594,7 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 	}
 
 	/* Request IO Memory */
-	if (!request_mem_region(data->emi_base, data->emi_size, name)) {
+	if (!request_mem_region(data->emi_base, data->emi_size, NAME)) {
 		printk(KERN_ERR NAME ": Request mem 0x%x region failed\n",
 		       data->emi_base);
 		res = -ENODEV;
@@ -642,9 +642,10 @@ static struct stm_nand_emi * __devinit nand_probe_bank(
 	data->chip.priv = data;
 	data->mtd.priv = &data->chip;
 	data->mtd.owner = THIS_MODULE;
+	data->mtd.dev.parent = &pdev->dev;
 
 	/* Assign more sensible name (default is string from nand_ids.c!) */
-	data->mtd.name = name;
+	data->mtd.name = dev_name(&pdev->dev);
 
 	tm = bank->timing_data;
 
@@ -800,8 +801,7 @@ static int __devinit stm_nand_emi_probe(struct platform_device *pdev)
 	group->nr_banks = pdata->nr_banks;
 
 	for (n = 0; n < pdata->nr_banks; n++) {
-		emi = nand_probe_bank(&pdata->banks[n], rbn_gpio,
-				      dev_name(&pdev->dev));
+		emi = nand_probe_bank(&pdata->banks[n], rbn_gpio, pdev);
 
 		if (IS_ERR(emi)) {
 			err = PTR_ERR(emi);

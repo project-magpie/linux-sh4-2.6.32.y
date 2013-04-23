@@ -2452,6 +2452,7 @@ static int __devinit stm_nand_bch_probe(struct platform_device *pdev)
 	mtd = &info->mtd;
 	mtd->priv = chip;
 	mtd->name = dev_name(&pdev->dev);
+	mtd->dev.parent = &pdev->dev;
 
 	nandi_set_mtd_defaults(nandi, mtd, chip);
 

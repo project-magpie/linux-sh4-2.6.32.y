@@ -3010,7 +3010,7 @@ static int pbl_boot_boundary(struct mtd_info *mtd, uint32_t *boundary)
 static struct stm_nand_afm_device * __devinit
 afm_init_bank(struct stm_nand_afm_controller *afm,
 	      struct stm_nand_bank_data *bank,
-	      const char *name)
+	      struct platform_device *pdev)
 {
 	struct stm_nand_afm_device *data;
 	int err;
@@ -3035,6 +3035,7 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 	data->chip.priv = data;
 	data->mtd.priv = &data->chip;
 	data->mtd.owner = THIS_MODULE;
+	data->mtd.dev.parent = &pdev->dev;
 	data->dev = afm->dev;
 
 	/* Use hwcontrol structure to manage access to AFM Controller */
@@ -3042,7 +3043,7 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 	data->chip.state = FL_READY;
 
 	/* Assign more sensible name (default is string from nand_ids.c!) */
-	data->mtd.name = name;
+	data->mtd.name = dev_name(&pdev->dev);
 	data->csn = bank->csn;
 
 	data->timing_data = bank->timing_data;
@@ -3173,7 +3174,7 @@ static int __devinit stm_afm_probe(struct platform_device *pdev)
 
 	bank = pdata->banks;
 	for (n = 0; n < pdata->nr_banks; n++) {
-		data = afm_init_bank(afm, bank, dev_name(&pdev->dev));
+		data = afm_init_bank(afm, bank, pdev);
 
 		if (IS_ERR(data)) {
 			err = PTR_ERR(data);

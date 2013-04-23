@@ -2230,6 +2230,7 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	else
 		fsm->mtd.name = NAME;
 
+	fsm->mtd.dev.parent = &pdev->dev;
 	fsm->mtd.type = MTD_NORFLASH;
 	fsm->mtd.writesize = 4;
 	fsm->mtd.flags = MTD_CAP_NORFLASH;

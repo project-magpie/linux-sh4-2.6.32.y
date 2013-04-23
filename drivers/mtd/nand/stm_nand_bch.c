@@ -2816,6 +2816,12 @@ static int __devinit stm_nand_bch_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "No timing data available\n");
 	}
 
+	if (mtd->writesize < NANDI_BCH_SECTOR_SIZE) {
+		dev_err(nandi->dev, "page size incompatible with BCH ECC "
+			"sector\n");
+		return -EINVAL;
+	}
+
 	/* Derive some working variables */
 	nandi->sectors_per_page = mtd->writesize / NANDI_BCH_SECTOR_SIZE;
 	nandi->blocks_per_device = mtd->size >> chip->phys_erase_shift;

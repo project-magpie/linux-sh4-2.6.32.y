@@ -549,9 +549,9 @@ void __init stxh205_configure_spifsm(struct stm_plat_spifsm_data *data)
 	/* SoC/IP Capabilities */
 	data->capabilities.no_read_repeat = 1;
 	data->capabilities.no_write_repeat = 1;
-	data->capabilities.no_sw_reset = 1;
+	data->capabilities.no_sw_reset = 0;
 	data->capabilities.read_status_bug = spifsm_read_status_clkdiv4;
-	data->capabilities.no_poll_mode_change = 1;
+	data->capabilities.no_poll_mode_change = 0;
 	data->capabilities.boot_from_spi = (sysconf_read(sc) == 0x1a) ? 1 : 0;
 
 	sysconf_release(sc);

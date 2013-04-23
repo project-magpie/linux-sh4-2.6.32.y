@@ -407,7 +407,7 @@ static void fsm_dump_seq(char *tag, struct fsm_seq *seq)
 	for (i = 0; i < 5; i++) {
 		if (seq->seq_opc[i] == 0x00000000) {
 			printk(KERN_INFO "\tSEQ_OPC%d   : 0x%08x\n",
-			       i, seq->seq_opc[i]);
+			       i + 1, seq->seq_opc[i]);
 		} else {
 			cmd = (uint8_t)(seq->seq_opc[i] & 0xff);
 			str = flash_cmd_strs[cmd];
@@ -415,7 +415,7 @@ static void fsm_dump_seq(char *tag, struct fsm_seq *seq)
 				str = "UNKNOWN";
 			printk(KERN_INFO "\tSEQ_OPC%d   : 0x%08x  "
 			       "[ 0x%02x/%-12s %d(x%d)%11s ]\n",
-			       i, seq->seq_opc[i], cmd, str,
+			       i + 1, seq->seq_opc[i], cmd, str,
 			       (seq->seq_opc[i] >> 8) & 0x3f,
 			       ((seq->seq_opc[i] >> 14) & 0x3) + 1,
 			       ((seq->seq_opc[i] >> 16) & 0x1) ?

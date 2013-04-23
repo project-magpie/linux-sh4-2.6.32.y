@@ -26,6 +26,7 @@
 #include <linux/mtd/nand_ecc.h>
 #include <linux/clk.h>
 #include <linux/stm/platform.h>
+#include <linux/stm/pm_sys.h>
 #include <linux/stm/nand.h>
 #include <linux/completion.h>
 #include <linux/interrupt.h>
@@ -714,9 +715,38 @@ static void afm_calc_timing_registers(struct nand_timing_spec *spec,
 		       (n_ren_off & 0xff) << 8);
 }
 
+static void afm_init_controller(struct stm_nand_afm_controller *afm)
+{
+	/* Stop AFM Controller, in case it's still running! */
+	afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
+	memset(afm->base + NANDHAM_AFM_SEQ_REG_1, 0, 32);
+
+	/* Reset AFM Controller */
+	afm_writereg((0x1 << 3), NANDHAM_FLEXMODE_CFG);
+	udelay(1);
+	afm_writereg(0x00, NANDHAM_FLEXMODE_CFG);
+
+	/* Disable boot_not_flex */
+	afm_writereg(0x00000000, NANDHAM_BOOTBANK_CFG);
+
+	/* Set Controller to AFM */
+	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
+
+	/* Enable Interrupts: individual interrupts enabled when needed! */
+	afm_writereg(0x0000007C, NANDHAM_INT_CLR);
+	afm_writereg(NAND_EDGE_CFG_RBN_RISING, NANDHAM_INT_EDGE_CFG);
+	afm_writereg(NAND_INT_ENABLE, NANDHAM_INT_EN);
+
+	/* Configure FLEX Data register for 1-byte Read/Write operation */
+	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		     NANDHAM_FLEX_DATAREAD_CONFIG);
+	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
+		     NANDHAM_FLEX_DATAWRITE_CONFIG);
+}
+
 /* Initialise the AFM NAND controller */
 static struct stm_nand_afm_controller * __devinit
-afm_init_controller(struct platform_device *pdev)
+afm_init_resources(struct platform_device *pdev)
 {
 	struct stm_plat_nand_flex_data *pdata = pdev->dev.platform_data;
 	struct stm_nand_afm_controller *afm;
@@ -800,33 +830,10 @@ afm_init_controller(struct platform_device *pdev)
 
 	init_completion(&afm->rbn_completed);
 	init_completion(&afm->seq_completed);
+
 	afm->current_csn = -1;
 
-	/* Stop AFM Controller, in case it's still running! */
-	afm_writereg(0x00000000, NANDHAM_AFM_SEQ_CFG);
-	memset(afm->base + NANDHAM_AFM_SEQ_REG_1, 0, 32);
-
-	/* Reset AFM Controller */
-	afm_writereg((0x1 << 3), NANDHAM_FLEXMODE_CFG);
-	udelay(1);
-	afm_writereg(0x00, NANDHAM_FLEXMODE_CFG);
-
-	/* Disable boot_not_flex */
-	afm_writereg(0x00000000, NANDHAM_BOOTBANK_CFG);
-
-	/* Set Controller to AFM */
-	afm_writereg(0x00000002, NANDHAM_FLEXMODE_CFG);
-
-	/* Enable Interrupts: individual interrupts enabled when needed! */
-	afm_writereg(0x0000007C, NANDHAM_INT_CLR);
-	afm_writereg(NAND_EDGE_CFG_RBN_RISING, NANDHAM_INT_EDGE_CFG);
-	afm_writereg(NAND_INT_ENABLE, NANDHAM_INT_EN);
-
-	/* Configure FLEX Data register for 1-byte Read/Write operation */
-	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
-		     NANDHAM_FLEX_DATAREAD_CONFIG);
-	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
-		     NANDHAM_FLEX_DATAWRITE_CONFIG);
+	afm_init_controller(afm);
 
 	platform_set_drvdata(pdev, afm);
 
@@ -3098,7 +3105,7 @@ static int __devinit stm_afm_probe(struct platform_device *pdev)
 	int n;
 	int err = 0;
 
-	afm = afm_init_controller(pdev);
+	afm = afm_init_resources(pdev);
 	if (IS_ERR(afm)) {
 		dev_err(&pdev->dev, "failed to initialise NAND Controller.\n");
 		err = PTR_ERR(afm);
@@ -3155,12 +3162,31 @@ static int __devexit stm_afm_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_HIBERNATION
+static int stm_nand_afm_restore(struct device *dev)
+{
+	struct stm_nand_afm_controller *afm = dev_get_drvdata(dev);
+
+	afm->current_csn = -1;
+	afm_init_controller(afm);
+
+	return 0;
+}
+
+static struct dev_pm_ops stm_nand_afm_pm = {
+	.restore = stm_nand_afm_restore,
+};
+#else
+static struct dev_pm_ops stm_nand_afm_pm;
+#endif
+
 static struct platform_driver stm_afm_nand_driver = {
 	.probe		= stm_afm_probe,
 	.remove		= stm_afm_remove,
 	.driver		= {
 		.name	= NAME,
 		.owner	= THIS_MODULE,
+		.pm	= &stm_nand_afm_pm,
 	},
 };
 

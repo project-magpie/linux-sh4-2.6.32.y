@@ -25,6 +25,7 @@
 #include <linux/spi/spi_gpio.h>
 #include <linux/spi/flash.h>
 #include <linux/stm/nand.h>
+#include <linux/stm/nand_devices.h>
 #include <linux/stm/emi.h>
 #include <linux/stm/pci-glue.h>
 #include <linux/stm/platform.h>
@@ -284,17 +285,7 @@ static struct stm_nand_bank_data hdk7108_nand_flash = {
 			.size	= MTDPART_SIZ_FULL
 		},
 	},
-	.timing_data = &(struct stm_nand_timing_data) {
-		.sig_setup      = 10,           /* times in ns */
-		.sig_hold       = 10,
-		.CE_deassert    = 0,
-		.WE_to_RBn      = 100,
-		.wr_on          = 10,
-		.wr_off         = 30,
-		.rd_on          = 10,
-		.rd_off         = 30,
-		.chip_delay     = 30,           /* in us */
-	},
+	.timing_spec = &NAND_TSPEC_ST_NAND08GW3B2CN6,
 };
 
 

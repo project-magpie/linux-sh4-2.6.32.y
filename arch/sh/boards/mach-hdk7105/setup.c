@@ -23,6 +23,8 @@
 #include <linux/stm/stx7105.h>
 #include <linux/stm/pci-glue.h>
 #include <linux/stm/emi.h>
+#include <linux/stm/nand.h>
+#include <linux/stm/nand_devices.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/nand.h>
@@ -222,17 +224,7 @@ struct stm_nand_bank_data hdk7105_nand_flash = {
 			.size	= MTDPART_SIZ_FULL
 		},
 	},
-	.timing_data		= &(struct stm_nand_timing_data) {
-		.sig_setup	= 50,		/* times in ns */
-		.sig_hold	= 50,
-		.CE_deassert	= 0,
-		.WE_to_RBn	= 100,
-		.wr_on		= 10,
-		.wr_off		= 40,
-		.rd_on		= 10,
-		.rd_off		= 40,
-		.chip_delay	= 30,		/* in us */
-	},
+	.timing_spec	= &NAND_TSPEC_HYNIX_HY27UH08AG5B,
 };
 
 /* Serial Flash */
@@ -240,7 +232,7 @@ static struct spi_board_info hdk7105_serial_flash = {
 	.modalias       = "m25p80",
 	.bus_num        = 0,
 	.chip_select    = stm_gpio(2, 4),
-	.max_speed_hz   = 7000000,
+	.max_speed_hz   = 3000000,
 	.mode           = SPI_MODE_3,
 	.platform_data  = &(struct flash_platform_data) {
 		.name = "m25p80",
@@ -412,7 +404,7 @@ static int __init hdk7105_device_init(void)
 			.driver = stm_nand_flex,
 			.nr_banks = 1,
 			.banks = &hdk7105_nand_flash,
-			.rbn.flex_connected = -1,});
+			.rbn.flex_connected = 1,});
 
 	spi_register_board_info(&hdk7105_serial_flash, 1);
 

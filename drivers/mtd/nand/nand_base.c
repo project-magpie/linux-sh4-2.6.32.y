@@ -441,13 +441,14 @@ static int nand_default_block_markbad(struct mtd_info *mtd, loff_t ofs)
  *
  * The function expects, that the device is already selected
  */
-static int nand_check_wp(struct mtd_info *mtd)
+int nand_check_wp(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
 	/* Check the WP bit */
 	chip->cmdfunc(mtd, NAND_CMD_STATUS, -1, -1);
 	return (chip->read_byte(mtd) & NAND_STATUS_WP) ? 0 : 1;
 }
+EXPORT_SYMBOL_GPL(nand_check_wp);
 
 /**
  * nand_block_checkbad - [GENERIC] Check if a block is marked bad
@@ -1281,8 +1282,8 @@ static int nand_read_page_syndrome(struct mtd_info *mtd, struct nand_chip *chip,
  * @ops:	oob ops structure
  * @len:	size of oob to transfer
  */
-static uint8_t *nand_transfer_oob(struct nand_chip *chip, uint8_t *oob,
-				  struct mtd_oob_ops *ops, size_t len)
+uint8_t *nand_transfer_oob(struct nand_chip *chip, uint8_t *oob,
+			   struct mtd_oob_ops *ops, size_t len)
 {
 	switch(ops->mode) {
 
@@ -1321,6 +1322,7 @@ static uint8_t *nand_transfer_oob(struct nand_chip *chip, uint8_t *oob,
 	}
 	return NULL;
 }
+EXPORT_SYMBOL_GPL(nand_transfer_oob);
 
 /**
  * nand_do_read_ops - [Internal] Read data with ECC
@@ -2014,8 +2016,8 @@ static int nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
  * @oob:	oob data buffer
  * @ops:	oob ops structure
  */
-static uint8_t *nand_fill_oob(struct nand_chip *chip, uint8_t *oob,
-				  struct mtd_oob_ops *ops)
+uint8_t *nand_fill_oob(struct nand_chip *chip, uint8_t *oob,
+		       struct mtd_oob_ops *ops)
 {
 	size_t len = ops->ooblen;
 
@@ -2056,6 +2058,7 @@ static uint8_t *nand_fill_oob(struct nand_chip *chip, uint8_t *oob,
 	}
 	return NULL;
 }
+EXPORT_SYMBOL_GPL(nand_fill_oob);
 
 #define NOTALIGNED(x)	(x & (chip->subpagesize - 1)) != 0
 

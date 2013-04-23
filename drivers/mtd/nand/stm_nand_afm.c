@@ -826,48 +826,6 @@ static void afm_select_eccparams(struct mtd_info *mtd, loff_t offs)
 /*
  * Internal helper-functions for MTD Interface callbacks
  */
-static uint8_t *afm_transfer_oob(struct nand_chip *chip, uint8_t *oob,
-				 struct mtd_oob_ops *ops, size_t len)
-{
-	switch (ops->mode) {
-
-	case MTD_OOB_PLACE:
-	case MTD_OOB_RAW:
-		memcpy(oob, chip->oob_poi + ops->ooboffs, len);
-		return oob + len;
-
-	case MTD_OOB_AUTO: {
-		struct nand_oobfree *free = chip->ecc.layout->oobfree;
-		uint32_t boffs = 0, roffs = ops->ooboffs;
-		size_t bytes = 0;
-
-		for (; free->length && len; free++, len -= bytes) {
-			/* Read request not from offset 0 ? */
-			if (unlikely(roffs)) {
-				if (roffs >= free->length) {
-					roffs -= free->length;
-					continue;
-				}
-				boffs = free->offset + roffs;
-				bytes = min_t(size_t, len,
-					      (free->length - roffs));
-				roffs = 0;
-			} else {
-				bytes = min_t(size_t, len, free->length);
-				boffs = free->offset;
-			}
-			memcpy(oob, chip->oob_poi + boffs, bytes);
-			oob += bytes;
-		}
-
-		return oob;
-	}
-	default:
-		BUG();
-	}
-	return NULL;
-}
-
 static int afm_do_read_oob(struct mtd_info *mtd, loff_t from,
 			   struct mtd_oob_ops *ops)
 {
@@ -920,7 +878,7 @@ static int afm_do_read_oob(struct mtd_info *mtd, loff_t from,
 		sndcmd = chip->ecc.read_oob(mtd, chip, page, sndcmd);
 
 		len = min(len, readlen);
-		buf = afm_transfer_oob(chip, buf, ops, len);
+		buf = nand_transfer_oob(chip, buf, ops, len);
 
 		if (!(chip->options & NAND_NO_READRDY)) {
 			/*
@@ -1039,16 +997,16 @@ static int afm_do_read_ops(struct mtd_info *mtd, loff_t from,
 					int toread = min(oobreadlen,
 						chip->ecc.layout->oobavail);
 					if (toread) {
-						oob = afm_transfer_oob(chip,
-								       oob,
-								       ops,
-								       toread);
+						oob = nand_transfer_oob(chip,
+									oob,
+									ops,
+									toread);
 						oobreadlen -= toread;
 					}
 				} else
-					buf = afm_transfer_oob(chip,
-							       buf, ops,
-							       mtd->oobsize);
+					buf = nand_transfer_oob(chip,
+								buf, ops,
+								mtd->oobsize);
 			}
 		} else {
 			memcpy(buf, chip->buffers->databuf + col, bytes);
@@ -1092,128 +1050,6 @@ static int afm_do_read_ops(struct mtd_info *mtd, loff_t from,
 
 	return  mtd->ecc_stats.corrected - stats.corrected ? -EUCLEAN : 0;
 
-}
-
-static int afm_check_wp(struct mtd_info *mtd)
-{
-	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
-	uint32_t status;
-
-	/* Switch to Flex Mode */
-	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
-
-	/* Read status register */
-	afm_writereg(FLEX_CMD(NAND_CMD_STATUS), NANDHAM_FLEX_CMD);
-	status = afm_readreg(NANDHAM_FLEX_DATA);
-
-	return (status & NAND_STATUS_WP) ? 0 : 1;
-}
-
-static uint8_t *afm_fill_oob(struct nand_chip *chip, uint8_t *oob,
-			     struct mtd_oob_ops *ops)
-{
-	size_t len = ops->ooblen;
-
-	switch (ops->mode) {
-
-	case MTD_OOB_PLACE:
-	case MTD_OOB_RAW:
-		memcpy(chip->oob_poi + ops->ooboffs, oob, len);
-		return oob + len;
-
-	case MTD_OOB_AUTO: {
-		struct nand_oobfree *free = chip->ecc.layout->oobfree;
-		uint32_t boffs = 0, woffs = ops->ooboffs;
-		size_t bytes = 0;
-
-		for (; free->length && len; free++, len -= bytes) {
-			/* Write request not from offset 0 ? */
-			if (unlikely(woffs)) {
-				if (woffs >= free->length) {
-					woffs -= free->length;
-					continue;
-				}
-				boffs = free->offset + woffs;
-				bytes = min_t(size_t, len,
-					      (free->length - woffs));
-				woffs = 0;
-			} else {
-				bytes = min_t(size_t, len, free->length);
-				boffs = free->offset;
-			}
-			memcpy(chip->oob_poi + boffs, oob, bytes);
-			oob += bytes;
-		}
-		return oob;
-	}
-	default:
-		BUG();
-	}
-	return NULL;
-}
-
-static int afm_do_write_oob(struct mtd_info *mtd, loff_t to,
-			    struct mtd_oob_ops *ops)
-{
-	int chipnr, page, status, len;
-	struct nand_chip *chip = mtd->priv;
-
-	DEBUG(MTD_DEBUG_LEVEL3, "nand_write_oob: to = 0x%08x, len = %i\n",
-	      (unsigned int)to, (int)ops->ooblen);
-
-	if (ops->mode == MTD_OOB_AUTO)
-		len = chip->ecc.layout->oobavail;
-	else
-		len = mtd->oobsize;
-
-	/* Do not allow write past end of page */
-	if ((ops->ooboffs + ops->ooblen) > len) {
-		DEBUG(MTD_DEBUG_LEVEL0, "nand_write_oob: "
-		      "Attempt to write past end of page\n");
-		return -EINVAL;
-	}
-
-	if (unlikely(ops->ooboffs >= len)) {
-		DEBUG(MTD_DEBUG_LEVEL0, "nand_read_oob: "
-			"Attempt to start write outside oob\n");
-		return -EINVAL;
-	}
-
-	/* Do not allow reads past end of device */
-	if (unlikely(to >= mtd->size ||
-		     ops->ooboffs + ops->ooblen >
-			((mtd->size >> chip->page_shift) -
-			 (to >> chip->page_shift)) * len)) {
-		DEBUG(MTD_DEBUG_LEVEL0, "nand_read_oob: "
-			"Attempt write beyond end of device\n");
-		return -EINVAL;
-	}
-
-	chipnr = (int)(to >> chip->chip_shift);
-	chip->select_chip(mtd, chipnr);
-
-	/* Shift to get page */
-	page = (int)(to >> chip->page_shift);
-
-	/* Check, if it is write protected */
-	if (afm_check_wp(mtd))
-		return -EROFS;
-
-	/* Invalidate the page cache, if we write to the cached page */
-	if (page == chip->pagebuf)
-		chip->pagebuf = -1;
-
-	memset(chip->oob_poi, 0xff, mtd->oobsize);
-	afm_fill_oob(chip, ops->oobbuf, ops);
-	status = chip->ecc.write_oob(mtd, chip, page & chip->pagemask);
-	memset(chip->oob_poi, 0xff, mtd->oobsize);
-
-	if (status)
-		return status;
-
-	ops->oobretlen = ops->ooblen;
-
-	return 0;
 }
 
 static int afm_write_page(struct mtd_info *mtd, struct nand_chip *chip,
@@ -1269,7 +1105,7 @@ static int afm_do_write_ops(struct mtd_info *mtd, loff_t to,
 	chip->select_chip(mtd, chipnr);
 
 	/* Check, if it is write protected */
-	if (afm_check_wp(mtd))
+	if (nand_check_wp(mtd))
 		return -EIO;
 
 	realpage = (int)(to >> chip->page_shift);
@@ -1307,7 +1143,7 @@ static int afm_do_write_ops(struct mtd_info *mtd, loff_t to,
 		}
 
 		if (unlikely(oob))
-			oob = afm_fill_oob(chip, oob, ops);
+			oob = nand_fill_oob(chip, oob, ops);
 
 		ret = chip->write_page(mtd, chip, wbuf, page, cached,
 				       (ops->mode == MTD_OOB_RAW));
@@ -1402,7 +1238,7 @@ static int afm_block_markbad(struct mtd_info *mtd, loff_t offs)
 		chip->ops.oobbuf = buf;
 		chip->ops.ooboffs = chip->badblockpos & ~0x01;
 
-		ret = afm_do_write_oob(mtd, offs, &chip->ops);
+		ret = nand_do_write_oob(mtd, offs, &chip->ops);
 		nand_release_device(mtd);
 	}
 	if (ret == 0)
@@ -1535,46 +1371,13 @@ static int afm_write_oob(struct mtd_info *mtd, loff_t to,
 	}
 
 	if (!ops->datbuf)
-		ret = afm_do_write_oob(mtd, to, ops);
+		ret = nand_do_write_oob(mtd, to, ops);
 	else
 		ret = afm_do_write_ops(mtd, to, ops);
 
  out:
 	nand_release_device(mtd);
 	return ret;
-}
-
-/* MTD Interface - Sync (just wait for chip ready, then release) */
-static void afm_sync(struct mtd_info *mtd)
-{
-	struct nand_chip *chip = mtd->priv;
-
-	DEBUG(MTD_DEBUG_LEVEL3, "nand_sync: called\n");
-
-	/* Grab the lock and see if the device is available */
-	nand_get_device(chip, mtd, FL_SYNCING);
-	/* Release it and go back */
-	nand_release_device(mtd);
-}
-
-/* MTD Interface - Suspend (wait for chip ready, then suspend) */
-static int afm_suspend(struct mtd_info *mtd)
-{
-	struct nand_chip *chip = mtd->priv;
-
-	return nand_get_device(chip, mtd, FL_PM_SUSPENDED);
-}
-
-/* MTD Interface - Resume (release device) */
-static void afm_resume(struct mtd_info *mtd)
-{
-	struct nand_chip *chip = mtd->priv;
-
-	if (chip->state == FL_PM_SUSPENDED)
-		nand_release_device(mtd);
-	else
-		printk(KERN_ERR "afm_resume() called for a chip which is not "
-		       "in suspended state\n");
 }
 
 /*
@@ -2296,55 +2099,6 @@ static int afm_write_oob_chip_sp(struct mtd_info *mtd, struct nand_chip *chip,
 	return status & NAND_STATUS_FAIL ? -EIO : 0;
 }
 
-/* Read the device electronic signature */
-static int afm_read_sig(struct mtd_info *mtd,
-		       int *maf_id, int *dev_id,
-		       uint8_t *cellinfo, uint8_t *extid)
-{
-	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
-	uint32_t ret, reg;
-
-	/* Enable RBn interrupts */
-	INIT_COMPLETION(afm->rbn_completed);
-	afm_enable_interrupts(afm, NAND_INT_RBN);
-
-	/* Enable FLEX Mode */
-	afm_writereg(CFG_ENABLE_FLEX, NANDHAM_FLEXMODE_CFG);
-
-	/* Issue NAND reset */
-	afm_writereg(FLEX_CMD(NAND_CMD_RESET), NANDHAM_FLEX_CMD);
-
-	/* Wait for reset to complete */
-	ret = wait_for_completion_timeout(&afm->rbn_completed, HZ/2);
-	if (!ret)
-		dev_err(afm->dev, "RBn timeout\n");
-
-	/* Read electronic signature */
-	afm_writereg(FLEX_CMD(NAND_CMD_READID), NANDHAM_FLEX_CMD);
-
-	reg = (0x00 | FLEX_ADDR_BEATS_1 | FLEX_ADDR_RBN | FLEX_ADDR_CSN);
-	afm_writereg(reg, NANDHAM_FLEX_ADD);
-
-	afm_writereg(FLEX_DATA_CFG_BEATS_4 | FLEX_DATA_CFG_CSN,
-		     NANDHAM_FLEX_DATAREAD_CONFIG);
-	reg = afm_readreg(NANDHAM_FLEX_DATA);
-	afm_writereg(FLEX_DATA_CFG_BEATS_1 | FLEX_DATA_CFG_CSN,
-		      NANDHAM_FLEX_DATAREAD_CONFIG);
-
-	/* Extract manufacturer and device ID */
-	*maf_id = reg & 0xff;
-	*dev_id = (reg >> 8) & 0xff;
-
-	/* Newer devices have all the information in additional id bytes */
-	*cellinfo = (reg >> 16) & 0xff;
-	*extid = (reg >> 24) & 0xff;
-
-	/* Disable RBn interrupts */
-	afm_disable_interrupts(afm, NAND_INT_RBN);
-
-	return 0;
-}
-
 #ifdef CONFIG_STM_NAND_AFM_BOOTMODESUPPORT
 /* For boot-mode, we use software ECC with AFM raw read/write commands */
 static int boot_calc_ecc(struct mtd_info *mtd, const unsigned char *buf,
@@ -2710,164 +2464,7 @@ static void afm_set_defaults(struct nand_chip *chip, int busw)
 	chip->scan_bbt = stmnand_scan_bbt;
 }
 
-
-/* Determine the NAND device paramters
- * [cf nand_base.c:nand_get_flash_type()] */
-static struct nand_flash_dev *afm_get_flash_type(struct mtd_info *mtd,
-						 struct nand_chip *chip,
-						 int busw, int *maf_id)
-{
-	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
-	struct nand_flash_dev *type = NULL;
-	int i, dev_id, maf_idx;
-	uint8_t cellinfo;
-	uint8_t extid;
-
-	/* Select the device */
-	chip->select_chip(mtd, 0);
-
-	/* Read the electronic signature */
-	afm_read_sig(mtd, maf_id, &dev_id, &cellinfo, &extid);
-
-	/* Lookup device */
-	for (i = 0; nand_flash_ids[i].name != NULL; i++) {
-		if (dev_id == nand_flash_ids[i].id) {
-			type =  &nand_flash_ids[i];
-			break;
-		}
-	}
-
-	if (!type)
-		return ERR_PTR(-ENODEV);
-
-	if (!mtd->name)
-		mtd->name = type->name;
-
-	chip->chipsize = type->chipsize << 20;
-
-	if (!type->pagesize) {
-		/* New devices use the extended chip info... */
-		chip->cellinfo = cellinfo;
-
-		/* Calc pagesize */
-		mtd->writesize = 1024 << (extid & 0x3);
-		extid >>= 2;
-
-		/* Calc oobsize */
-		mtd->oobsize = (8 << (extid & 0x01)) * (mtd->writesize >> 9);
-		extid >>= 2;
-
-		/* Calc blocksize. Blocksize is multiples of 64KiB */
-		mtd->erasesize = (64 * 1024) << (extid & 0x03);
-		extid >>= 2;
-
-		/* Get buswidth information */
-		busw = (extid & 0x01) ? NAND_BUSWIDTH_16 : 0;
-	} else {
-		/* Old devices have chip data hardcoded in device id table */
-		mtd->erasesize = type->erasesize;
-		mtd->writesize = type->pagesize;
-		mtd->oobsize = mtd->writesize / 32;
-		busw = type->options & NAND_BUSWIDTH_16;
-	}
-
-	afm_generic_config(afm, chip->options & NAND_BUSWIDTH_16,
-			   mtd->writesize, chip->chipsize);
-
-	/* Try to identify manufacturer */
-	for (maf_idx = 0; nand_manuf_ids[maf_idx].id != 0x0; maf_idx++) {
-		if (nand_manuf_ids[maf_idx].id == *maf_id)
-			break;
-	}
-
-	/*
-	 * Check, if buswidth is correct. Hardware drivers should set
-	 * chip correct !
-	 */
-	if (busw != (chip->options & NAND_BUSWIDTH_16)) {
-		dev_info(afm->dev, "NAND device: Manufacturer ID:"
-			 " 0x%02x, Chip ID: 0x%02x (%s %s)\n", *maf_id,
-			 dev_id, nand_manuf_ids[maf_idx].name, mtd->name);
-		dev_info(afm->dev, "NAND bus width %d instead %d bit\n",
-			 (chip->options & NAND_BUSWIDTH_16) ? 16 : 8,
-			 busw ? 16 : 8);
-		return ERR_PTR(-EINVAL);
-	}
-
-	/* Calculate the address shift from the page size */
-	chip->page_shift = ffs(mtd->writesize) - 1;
-
-	/* Convert chipsize to number of pages per chip -1. */
-	chip->pagemask = (chip->chipsize >> chip->page_shift) - 1;
-
-	chip->bbt_erase_shift = ffs(mtd->erasesize) - 1;
-	chip->phys_erase_shift = chip->bbt_erase_shift;
-
-	chip->chip_shift = ffs(chip->chipsize) - 1;
-
-	/* Set the bad block position [AAC: Now obsolete?] */
-	chip->badblockpos = mtd->writesize > 512 ?
-		NAND_LARGE_BADBLOCK_POS : NAND_SMALL_BADBLOCK_POS;
-
-	/* Get chip options, preserve non chip based options */
-	chip->options &= ~NAND_CHIPOPTIONS_MSK;
-	chip->options |= type->options & NAND_CHIPOPTIONS_MSK;
-
-	/*
-	 * Set chip as a default. Board drivers can override it, if necessary
-	 */
-	chip->options |= NAND_NO_AUTOINCR;
-
-	/* Check if chip is a not a samsung device. Do not clear the
-	 * options for chips which are not having an extended id.
-	 */
-	if (*maf_id != NAND_MFR_SAMSUNG && !type->pagesize)
-		chip->options &= ~NAND_SAMSUNG_LP_OPTIONS;
-
-
-	chip->erase_cmd = afm_erase_cmd;
-
-	dev_info(afm->dev, "NAND device: Manufacturer ID:"
-		 " 0x%02x, Chip ID: 0x%02x (%s %s)\n", *maf_id, dev_id,
-		 nand_manuf_ids[maf_idx].name, type->name);
-
-	return type;
-}
-
-
-/* Scan device, part 1 : Determine device paramters */
-int afm_scan_ident(struct mtd_info *mtd, int maxchips)
-{
-	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
-	int busw, maf_id;
-	struct nand_chip *chip = mtd->priv;
-	struct nand_flash_dev *type = NULL;
-
-	if (maxchips != 1) {
-		dev_err(afm->dev, "Only chip per MTD device allowed\n");
-		return 1;
-	}
-
-	busw = chip->options & NAND_BUSWIDTH_16;
-	afm_set_defaults(chip, busw);
-
-	type = afm_get_flash_type(mtd, chip, busw, &maf_id);
-
-	if (IS_ERR(type)) {
-		dev_err(afm->dev, "No NAND device found\n");
-		chip->select_chip(mtd, -1);
-		return PTR_ERR(type);
-	}
-
-	/* Not dealing with multichip support just yet! */
-	chip->numchips = 1;
-	mtd->size = chip->chipsize;
-
-	return 0;
-
-}
-
-/* Scan device, part 2: Configure AFM according to device paramters */
+/* Configure AFM according to device paramters */
 static int afm_scan_tail(struct mtd_info *mtd)
 {
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
@@ -2894,6 +2491,12 @@ static int afm_scan_tail(struct mtd_info *mtd)
 			mtd->writesize, mtd->oobsize);
 		return 1;
 	}
+
+	afm_generic_config(afm, chip->options & NAND_BUSWIDTH_16,
+			   mtd->writesize, chip->chipsize);
+
+	/* Use our own 'erase_cmd', not the one set in nand_get_flash_type() */
+	chip->erase_cmd = afm_erase_cmd;
 
 	/* Set ECC parameters and call-backs */
 	chip->ecc.mode = NAND_ECC_HW;
@@ -2936,24 +2539,27 @@ static int afm_scan_tail(struct mtd_info *mtd)
 	/* Initialize state */
 	chip->state = FL_READY;
 
+	/* De-select the device */
+	chip->select_chip(mtd, -1);
+
 	/* Invalidate the pagebuffer reference */
 	chip->pagebuf = -1;
 
 	/* Fill in remaining MTD driver data */
 	mtd->type = MTD_NANDFLASH;
 	mtd->flags = MTD_CAP_NANDFLASH;
-	mtd->erase = afm_erase;  /* uses chip->erase_cmd */
+	mtd->erase = afm_erase;
 	mtd->point = NULL;
 	mtd->unpoint = NULL;
 	mtd->read = afm_read;
 	mtd->write = afm_write;
 	mtd->read_oob = afm_read_oob;
 	mtd->write_oob = afm_write_oob;
-	mtd->sync = afm_sync;
+	mtd->sync = nand_sync;
 	mtd->lock = NULL;
 	mtd->unlock = NULL;
-	mtd->suspend = afm_suspend;
-	mtd->resume = afm_resume;
+	mtd->suspend = nand_suspend;
+	mtd->resume = nand_resume;
 	mtd->block_isbad = afm_block_isbad;
 	mtd->block_markbad = afm_block_markbad;
 
@@ -2971,19 +2577,6 @@ static int afm_scan_tail(struct mtd_info *mtd)
 
 	/* Build bad block table */
 	ret = chip->scan_bbt(mtd);
-
-	return ret;
-}
-
-/* Scan for the NAND device */
-int afm_scan(struct mtd_info *mtd, int maxchips)
-{
-	int ret;
-
-	ret = afm_scan_ident(mtd, maxchips);
-	if (!ret)
-		ret = afm_scan_tail(mtd);
-
 
 	return ret;
 }
@@ -3214,9 +2807,17 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 	data->chip.options = bank->options;
 	data->chip.options |= NAND_NO_AUTOINCR;
 
+	afm_set_defaults(&data->chip, data->chip.options & NAND_BUSWIDTH_16);
+
 	/* Scan to find existance of device */
-	if (afm_scan(&data->mtd, 1)) {
+	if (nand_scan_ident(&data->mtd, 1) != 0) {
 		dev_err(afm->dev, "device scan failed\n");
+		err = -ENODEV;
+		goto err2;
+	}
+
+	/* Complete the scan */
+	if (afm_scan_tail(&data->mtd) != 0) {
 		err = -ENXIO;
 		goto err2;
 	}

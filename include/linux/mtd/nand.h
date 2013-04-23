@@ -681,6 +681,13 @@ extern void nand_release_device(struct mtd_info *mtd);
 extern int nand_suspend(struct mtd_info *mtd);
 extern void nand_resume(struct mtd_info *mtd);
 extern void nand_sync(struct mtd_info *mtd);
+extern uint8_t *nand_transfer_oob(struct nand_chip *chip, uint8_t *oob,
+				  struct mtd_oob_ops *ops, size_t len);
+extern int nand_check_wp(struct mtd_info *mtd);
+extern uint8_t *nand_fill_oob(struct nand_chip *chip, uint8_t *oob,
+			      struct mtd_oob_ops *ops);
+extern int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
+			     struct mtd_oob_ops *ops);
 extern u8 nand_erasebb;
 
 /*

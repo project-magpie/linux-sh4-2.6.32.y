@@ -1576,7 +1576,7 @@ static void afm_resume(struct mtd_info *mtd)
  */
 
 #ifdef CONFIG_STM_NAND_AFM_CACHED
-static void afm_read_buf_cached(struct mtd_info *mtd, uint8_t *buf, int len)
+static void afm_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	struct stm_nand_afm_controller *afm = mtd_to_afm(mtd);
 
@@ -1814,8 +1814,8 @@ static int afm_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
 		return 1;
 	}
 	/* Read page data and OOB (SmallPage: +48 bytes dummy data) */
-	chip->read_buf(mtd, buf, mtd->writesize);
-	chip->read_buf(mtd, chip->oob_poi, 64);
+	afm_read_buf(mtd, buf, mtd->writesize);
+	afm_read_buf(mtd, chip->oob_poi, 64);
 
 	/* Disable RBn interrupts */
 	afm_disable_interrupts(afm, NAND_INT_RBN);
@@ -1869,7 +1869,7 @@ static int afm_read_oob_chip(struct mtd_info *mtd, struct nand_chip *chip,
 	}
 
 	/* Read OOB data to chip->oob_poi buffer */
-	chip->read_buf(mtd, chip->oob_poi, 64);
+	afm_read_buf(mtd, chip->oob_poi, 64);
 
 	/* Disable RBn Interrupts */
 	afm_disable_interrupts(afm, NAND_INT_RBN);
@@ -1911,7 +1911,7 @@ static void afm_write_page_ecc_sp(struct mtd_info *mtd,
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
 
 	/*    Write page data */
-	chip->write_buf(mtd, buf, mtd->writesize);
+	afm_write_buf(mtd, buf, mtd->writesize);
 
 	/*    Wait for the sequence to terminate */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
@@ -2018,8 +2018,8 @@ static void afm_write_page_ecc_lp(struct mtd_info *mtd,
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
 
 	/* Write page and oob data */
-	chip->write_buf(mtd, buf, mtd->writesize);
-	chip->write_buf(mtd, chip->oob_poi, 64);
+	afm_write_buf(mtd, buf, mtd->writesize);
+	afm_write_buf(mtd, chip->oob_poi, 64);
 
 	/* Wait for sequence to complete */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
@@ -2064,8 +2064,8 @@ static void afm_write_page_raw_lp(struct mtd_info *mtd, struct nand_chip *chip,
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
 
 	/* Write page and OOB data */
-	chip->write_buf(mtd, buf, 2048);
-	chip->write_buf(mtd, chip->oob_poi, 64);
+	afm_write_buf(mtd, buf, mtd->writesize);
+	afm_write_buf(mtd, chip->oob_poi, 64);
 
 	/* Wait for sequence to complete */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
@@ -2111,7 +2111,8 @@ static void afm_write_page_raw_sp(struct mtd_info *mtd, struct nand_chip *chip,
 	/*    Copy program to controller, and start sequence */
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
 
-	chip->write_buf(mtd, buf, mtd->writesize);
+	/*    Wite page data */
+	afm_write_buf(mtd, buf, mtd->writesize);
 
 	/*    Wait for the sequence to terminate */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ/2);
@@ -2203,7 +2204,7 @@ static int afm_write_oob_chip_lp(struct mtd_info *mtd, struct nand_chip *chip,
 	memcpy_toio(afm->base + NANDHAM_AFM_SEQ_REG_1, prog, 32);
 
 	/* Write OOB */
-	chip->write_buf(mtd, chip->oob_poi, 64);
+	afm_write_buf(mtd, chip->oob_poi, 64);
 
 	/* Wait for sequence to complete */
 	ret = wait_for_completion_timeout(&afm->seq_completed, HZ);
@@ -2541,14 +2542,10 @@ static void afm_set_defaults(struct nand_chip *chip, int busw)
 	chip->read_word = afm_read_word;
 	chip->block_bad = NULL;
 	chip->block_markbad = NULL;
-	chip->write_buf = afm_write_buf;
+	chip->read_buf = NULL;
+	chip->write_buf = NULL;
 	chip->verify_buf = afm_verify_buf;
 	chip->scan_bbt = stmnand_scan_bbt;
-#ifdef CONFIG_STM_NAND_AFM_CACHED
-	chip->read_buf = afm_read_buf_cached;
-#else
-	chip->read_buf = afm_read_buf;
-#endif
 }
 
 

@@ -94,7 +94,12 @@ struct stm_nand_afm_device {
 	struct mtd_info		mtd;
 
 	int			csn;
-	struct stm_nand_timing_data *timing_data;
+
+	uint32_t		ctl_timing;
+	uint32_t		wen_timing;
+	uint32_t		ren_timing;
+
+	uint32_t		afm_gen_cfg;
 
 	struct device		*dev;
 
@@ -515,8 +520,8 @@ static irqreturn_t afm_irq_handler(int irq, void *dev)
  * AFM Initialisation
  */
 
-/* AFM set generic config register */
-static void afm_generic_config(struct stm_nand_afm_controller *afm,
+/* Derive AFM_GEN_CFG data according to device probed */
+static uint32_t afm_gen_config(struct stm_nand_afm_controller *afm,
 			       uint32_t busw, uint32_t page_size,
 			       uint32_t chip_size)
 {
@@ -534,17 +539,20 @@ static void afm_generic_config(struct stm_nand_afm_controller *afm,
 			reg |= AFM_GEN_CFG_EXTRA_ADD_CYCLE;
 	} else if (chip_size > (32 << 20)) {
 		reg |= AFM_GEN_CFG_EXTRA_ADD_CYCLE;
-
 	}
 
-	dev_dbg(afm->dev, "setting AFM_GEN_CFG = 0x%08x\n", reg);
-
-	afm_writereg(reg, NANDHAM_AFM_GEN_CFG);
+	return reg;
 }
 
-/* AFM configure timing parameters */
-static void afm_set_timings(struct stm_nand_afm_controller *afm,
-			    struct stm_nand_timing_data *tm)
+/* Derive timing register values from 'stm_nand_timing_data' data.
+ *
+ * [DEPRECATED in favour of afm_calc_timing_registers() based on 'struct
+ * nand_timing_spec' data.]
+ */
+static void afm_calc_timing_registers_legacy(struct stm_nand_timing_data *tm,
+					      uint32_t *ctl_timing,
+					      uint32_t *wen_timing,
+					      uint32_t *ren_timing)
 {
 	uint32_t n;
 	uint32_t reg;
@@ -576,8 +584,7 @@ static void afm_set_timings(struct stm_nand_afm_controller *afm,
 	n = (tm->WE_to_RBn + emi_t_ns - 1)/emi_t_ns;
 	reg |= (n & 0xff) << 24;
 
-	dev_dbg(afm->dev, "setting CTL_TIMING = 0x%08x\n", reg);
-	afm_writereg(reg, NANDHAM_CTL_TIMING);
+	*ctl_timing = reg;
 
 	/* WEN_TIMING */
 	n = (tm->wr_on + emi_t_ns - 1)/emi_t_ns;
@@ -586,8 +593,8 @@ static void afm_set_timings(struct stm_nand_afm_controller *afm,
 	n = (tm->wr_off + emi_t_ns - 1)/emi_t_ns;
 	reg |= (n & 0xff) << 8;
 
-	dev_dbg(afm->dev, "setting WEN_TIMING = 0x%08x\n", reg);
-	afm_writereg(reg, NANDHAM_WEN_TIMING);
+	*wen_timing = reg;
+
 
 	/* REN_TIMING */
 	n = (tm->rd_on + emi_t_ns - 1)/emi_t_ns;
@@ -596,8 +603,115 @@ static void afm_set_timings(struct stm_nand_afm_controller *afm,
 	n = (tm->rd_off + emi_t_ns - 1)/emi_t_ns;
 	reg |= (n & 0xff) << 8;
 
-	dev_dbg(afm->dev, "setting REN_TIMING = 0x%08x\n", reg);
-	afm_writereg(reg, NANDHAM_REN_TIMING);
+	*ren_timing = reg;
+}
+
+/* Derive timing register values from 'nand_timing_spec' data */
+static void afm_calc_timing_registers(struct nand_timing_spec *spec,
+				      int relax,
+				      uint32_t *ctl_timing,
+				      uint32_t *wen_timing,
+				      uint32_t *ren_timing)
+{
+	struct clk *emi_clk;
+	int tCLK;
+
+	int tMAX_HOLD;
+	int n_ctl_setup;
+	int n_ctl_hold;
+	int n_ctl_wb;
+
+	int tMAX_WEN_OFF;
+	int n_wen_on;
+	int n_wen_off;
+
+	int tMAX_REN_OFF;
+	int n_ren_on;
+	int n_ren_off;
+
+	/* Get EMI clock (default 100MHz) */
+	emi_clk = clk_get(NULL, "emi_clk");
+	if (!emi_clk || IS_ERR(emi_clk)) {
+		printk(KERN_WARNING NAME
+		       ": Failed to get EMI clock, assuming default 100MHz\n");
+		tCLK = 10;
+	} else {
+		tCLK = 1000000000 / clk_get_rate(emi_clk);
+	}
+
+	/*
+	 * CTL_TIMING
+	 */
+
+	/*	- SETUP */
+	n_ctl_setup = (spec->tCLS - spec->tWP + tCLK - 1)/tCLK;
+	if (n_ctl_setup < 1)
+		n_ctl_setup = 1;
+	n_ctl_setup += relax;
+
+	/*	- HOLD */
+	tMAX_HOLD = spec->tCLH;
+	if (spec->tCH > tMAX_HOLD)
+		tMAX_HOLD = spec->tCH;
+	if (spec->tALH > tMAX_HOLD)
+		tMAX_HOLD = spec->tALH;
+	if (spec->tDH > tMAX_HOLD)
+		tMAX_HOLD = spec->tDH;
+	n_ctl_hold = (tMAX_HOLD + tCLK - 1)/tCLK + relax;
+
+	/*	- CE_deassert_hold = 0 */
+
+	/*	- WE_high_to_RBn_low */
+	n_ctl_wb = (spec->tWB + tCLK - 1)/tCLK;
+
+	*ctl_timing = ((n_ctl_setup & 0xff) |
+		       (n_ctl_hold & 0xff) << 8 |
+		       (n_ctl_wb & 0xff) << 24);
+
+	/*
+	 * WEN_TIMING
+	 */
+
+	/*	- ON */
+	n_wen_on = (spec->tWH + tCLK - 1)/tCLK - 2;
+	if (n_wen_on < 1)
+		n_wen_on = 1;
+	n_wen_on += relax;
+
+	/*	- OFF */
+	tMAX_WEN_OFF = spec->tWC - spec->tWH;
+	if (spec->tWP > tMAX_WEN_OFF)
+		tMAX_WEN_OFF = spec->tWP;
+	n_wen_off = (tMAX_WEN_OFF + tCLK - 1)/tCLK + relax;
+
+	*wen_timing = ((n_wen_on & 0xff) |
+		       (n_wen_off & 0xff) << 8);
+
+
+	/*
+	 * REN_TIMING
+	 */
+
+	/*	- ON */
+	if (spec->tREH == 3 * tCLK) {
+		n_ren_on = 2;
+	} else {
+		n_ren_on = (spec->tREH + tCLK - 1)/tCLK - 1;
+		if (n_ren_on < 1)
+			n_ren_on = 1;
+	}
+	n_ren_on += relax;
+
+	/*	- OFF */
+	tMAX_REN_OFF = spec->tRC - spec->tREH;
+	if (spec->tRP > tMAX_REN_OFF)
+		tMAX_REN_OFF = spec->tRP;
+	if (spec->tREA > tMAX_REN_OFF)
+		tMAX_REN_OFF = spec->tREA;
+	n_ren_off = (tMAX_REN_OFF + tCLK - 1)/tCLK + 1 + relax;
+
+	*ren_timing = ((n_ren_on & 0xff) |
+		       (n_ren_off & 0xff) << 8);
 }
 
 /* Initialise the AFM NAND controller */
@@ -2217,8 +2331,22 @@ static void afm_select_chip(struct mtd_info *mtd, int chipnr)
 		afm->current_csn = data->csn;
 		afm_writereg(0x1 << data->csn, NANDHAM_FLEX_MUXCTRL);
 
-		/* Set up timing parameters */
-		afm_set_timings(afm, data->timing_data);
+		/* Update AFM_GEN_CFG */
+		dev_dbg(afm->dev, "updating generic configuration [0x%08x]\n",
+			data->afm_gen_cfg);
+		afm_writereg(data->afm_gen_cfg, NANDHAM_AFM_GEN_CFG);
+
+		/* Configure timing registers */
+		if (data->ctl_timing) {
+			dev_dbg(afm->dev, "updating timing configuration "
+				"[0x%08x, 0x%08x, 0x%08x]\n",
+				data->ctl_timing,
+				data->wen_timing,
+				data->ren_timing);
+			afm_writereg(data->ctl_timing, NANDHAM_CTL_TIMING);
+			afm_writereg(data->wen_timing, NANDHAM_WEN_TIMING);
+			afm_writereg(data->ren_timing, NANDHAM_REN_TIMING);
+		}
 	} else {
 		dev_err(afm->dev, "attempt to select chipnr = %d\n", chipnr);
 	}
@@ -2491,9 +2619,6 @@ static int afm_scan_tail(struct mtd_info *mtd)
 			mtd->writesize, mtd->oobsize);
 		return 1;
 	}
-
-	afm_generic_config(afm, chip->options & NAND_BUSWIDTH_16,
-			   mtd->writesize, chip->chipsize);
 
 	/* Use our own 'erase_cmd', not the one set in nand_get_flash_type() */
 	chip->erase_cmd = afm_erase_cmd;
@@ -2802,19 +2927,63 @@ afm_init_bank(struct stm_nand_afm_controller *afm,
 	data->mtd.name = dev_name(&pdev->dev);
 	data->csn = bank->csn;
 
-	data->timing_data = bank->timing_data;
-
 	data->chip.options = bank->options;
 	data->chip.options |= NAND_NO_AUTOINCR;
 
 	afm_set_defaults(&data->chip, data->chip.options & NAND_BUSWIDTH_16);
 
-	/* Scan to find existance of device */
+	/* Scan to find existence of device */
 	if (nand_scan_ident(&data->mtd, 1) != 0) {
-		dev_err(afm->dev, "device scan failed\n");
 		err = -ENODEV;
 		goto err2;
 	}
+
+	/* Calculate AFM_GEN_CFG for device found */
+	data->afm_gen_cfg = afm_gen_config(afm,
+				data->chip.options & NAND_BUSWIDTH_16,
+				data->mtd.writesize,
+				data->chip.chipsize);
+
+	/*
+	 * Configure timing registers
+	 */
+	if (bank->timing_spec) {
+		dev_info(afm->dev, "Using platform timing data\n");
+		afm_calc_timing_registers(bank->timing_spec, bank->timing_relax,
+					  &data->ctl_timing,
+					  &data->wen_timing,
+					  &data->ren_timing);
+		data->chip.chip_delay = bank->timing_spec->tR;
+	} else if (bank->timing_data) {
+		dev_info(afm->dev, "Using legacy platform timing data\n");
+		afm_calc_timing_registers_legacy(bank->timing_data,
+						 &data->ctl_timing,
+						 &data->wen_timing,
+						 &data->ren_timing);
+		data->chip.chip_delay = bank->timing_data->chip_delay;
+	} else if (data->chip.onfi_version) {
+		struct nand_onfi_params *onfi = &data->chip.onfi_params;
+		int mode;
+
+		mode = fls(le16_to_cpu(onfi->async_timing_mode)) - 1;
+		/* Modes 4 and 5 (EDO) are not supported on our H/W */
+		if (mode > 3)
+			mode = 3;
+
+		dev_info(afm->dev, "Using ONFI Timing Mode %d\n", mode);
+		afm_calc_timing_registers(&nand_onfi_timing_specs[mode],
+					  bank->timing_relax,
+					  &data->ctl_timing,
+					  &data->wen_timing,
+					  &data->ren_timing);
+		data->chip.chip_delay = le16_to_cpu(data->chip.onfi_params.t_r);
+	} else {
+		dev_warn(afm->dev, "No timing data available\n");
+	}
+
+	/* Ensure 'complete' chip-specific configuration on next select_chip()
+	 * activation */
+	afm->current_csn = -1;
 
 	/* Complete the scan */
 	if (afm_scan_tail(&data->mtd) != 0) {

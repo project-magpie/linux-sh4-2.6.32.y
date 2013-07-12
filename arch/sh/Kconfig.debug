@@ -140,4 +140,13 @@ config MCOUNT
 	depends on SUPERH32
 	depends on STACK_DEBUG || FUNCTION_TRACER
 
+config COUNT_EXCEPTIONS
+	bool "Count all exceptions"
+	depends on CPU_SH4
+	default n
+	help
+	  Add additional code to the exception handling path to count
+	  the number of every exception type. The output is visible
+	  in /sys/kernel/debug/sh/exceptions.
+
 endmenu

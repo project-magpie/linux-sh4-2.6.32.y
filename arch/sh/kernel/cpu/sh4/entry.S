@@ -247,7 +247,7 @@ general_exception:
 	shlr2	r8
 	shlr	r8
 
-#ifdef COUNT_EXCEPTIONS
+#ifdef CONFIG_COUNT_EXCEPTIONS
 	mov.l	3f, r9
 	add	r8, r9
 	mov.l	@r9, r10
@@ -266,7 +266,7 @@ general_exception:
 	.balign	32 /* d-cache align to only one line */
 1:	.long	EXPEVT
 2:	.long	ret_from_exception
-#ifdef COUNT_EXCEPTIONS
+#ifdef CONFIG_COUNT_EXCEPTIONS
 3:	.long	exception_count_table
 #endif
 998: 	.long	0x000080f0
@@ -289,9 +289,14 @@ general_exception:
 
 	.balign 	1024,0,1024
 tlb_miss:
-#ifdef COUNT_EXCEPTIONS
+#ifdef CONFIG_COUNT_EXCEPTIONS
 	! Increment the counts
+	mov.l	11f, k2
+	mov.l	@k2, k2
+	shlr2	k2
+	shlr	k2
 	mov.l	9f, k1
+	add	k2, k1
 	mov.l	@k1, k2
 	add	#1, k2
 	mov.l	k2, @k1
@@ -439,8 +444,9 @@ tlb_miss:
 5:	.long	_PAGE_PRESENT
 7:	.long	_PAGE_FLAGS_HARDWARE_MASK
 8:	.long	MMU_PTEH
-#ifdef COUNT_EXCEPTIONS
-9:	.long	exception_count_miss
+#ifdef CONFIG_COUNT_EXCEPTIONS
+9:	.long	exception_count_table2
+11:	.long	EXPEVT
 #endif
 
 	.balign 	512,0,512

@@ -4,6 +4,7 @@
 
 obj-y	:= probe.o common.o
 common-y	+= entry.o
+obj-$(CONFIG_COUNT_EXCEPTIONS)		+= count_exceptions.o
 
 swsusp-y				:= $(addprefix ../sh3/, swsusp.o)
 obj-$(CONFIG_HIBERNATION)		+= swsusp.o

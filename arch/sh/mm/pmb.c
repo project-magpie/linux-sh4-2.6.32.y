@@ -142,7 +142,8 @@ static __always_inline void __get_pmb_entry(unsigned long *vpn,
 	ctrl_barrier();
 	*vpn   = ctrl_inl(mk_pmb_addr(pos)) & PMB_VPN;
 	*ppn   = ctrl_inl(mk_pmb_data(pos)) & PMB_PPN;
-	*flags = ctrl_inl(mk_pmb_data(pos)) & (PMB_SZ_MASK|PMB_C|PMB_WT|PMB_UB);
+	*flags = ctrl_inl(mk_pmb_data(pos)) &
+	     (PMB_SZ_MASK|PMB_C|PMB_WT|PMB_UB|PMB_V);
 	ctrl_barrier();
 }
 
@@ -265,7 +266,7 @@ static struct {
  * address which accomodates the mapping we're interested in.
  */
 static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
-				    unsigned long req_virt, int *req_pos,
+				    unsigned long req_virt, int req_pos,
 				    unsigned long pmb_flags)
 {
 	struct pmb_mapping *new_mapping;
@@ -324,7 +325,8 @@ next:
 
 	DPRINTK("found space at %08lx to %08lx\n", new_start, new_end);
 
-	BUG_ON(req_pos && (*req_pos != PMB_VIRT2POS(new_start)));
+	BUG_ON((req_pos != PMB_NO_ENTRY) &&
+	       (req_pos != PMB_VIRT2POS(new_start)));
 
 	phys &= ~(pmb_size - 1);
 	new_start &= ~(pmb_size - 1);
@@ -376,7 +378,7 @@ static struct {
 };
 
 static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
-				    unsigned long req_virt, int *req_pos,
+				    unsigned long req_virt, int req_pos,
 				    unsigned long pmb_flags)
 {
 	unsigned long orig_phys = phys;
@@ -433,7 +435,8 @@ static struct pmb_mapping* pmb_calc(unsigned long phys, unsigned long size,
 		if (entry == NULL) {
 			int pos;
 
-			pos = pmb_alloc(req_pos ? *req_pos++ : PMB_NO_ENTRY);
+			pos = pmb_alloc((req_pos != PMB_NO_ENTRY) ?
+					req_pos++ : PMB_NO_ENTRY);
 			if (pos == PMB_NO_ENTRY)
 				goto failed_give_up;
 			entry = &pmbe[pos];
@@ -604,7 +607,7 @@ long pmb_remap(unsigned long phys,
 		write_unlock(&pmb_lock);
 		return 0;
 	} else {
-		mapping = pmb_calc(phys, size, 0, NULL, pmb_flags);
+		mapping = pmb_calc(phys, size, 0, PMB_NO_ENTRY, pmb_flags);
 		if (!mapping) {
 			write_unlock(&pmb_lock);
 			return 0;
@@ -774,7 +777,7 @@ static void call_apply_boot_mappings(struct pmb_mapping *uc_mapping,
 void __init pmb_init(void)
 {
 	int i;
-	int entry;
+	struct pmb_entry *entry;
 	unsigned long uc_vpn, uc_ppn, uc_flags;
 	int uc_mapping_present;
 
@@ -790,15 +793,14 @@ void __init pmb_init(void)
 
 	/* Create the initial mappings */
 #ifdef CONFIG_PMB_LARGE_UNCACHED_MAPPING
-	entry = 8;
 	uc_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P2SEG,
-		 &entry, PMB_WT | PMB_UB);
+			      8, PMB_WT | PMB_UB);
 #else
-	entry = NR_PMB_ENTRIES-1;
 	uc_mapping = pmb_calc(__pa(__uncached_start), __uncached_end - __uncached_start,
-		 P3SEG-pmb_sizes[0].size, &entry, PMB_WT | PMB_UB);
+		P3SEG-pmb_sizes[0].size, NR_PMB_ENTRIES-1, PMB_WT | PMB_UB);
 #endif
-	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG, 0, PMB_C);
+	ram_mapping = pmb_calc(__MEMORY_START, __MEMORY_SIZE, P1SEG,
+			       PMB_NO_ENTRY, PMB_C);
 
 	/*
 	 * If we already have the uncached mapping there is no need to set
@@ -806,11 +808,14 @@ void __init pmb_init(void)
 	 * restarting after a kexec, and so the main ram mapping could be
 	 * cached, and it wouldn't be safe to manipulate the PMB directly.
 	 */
-	entry = NR_PMB_ENTRIES-1;
-	__get_pmb_entry(&uc_vpn, &uc_ppn, &uc_flags, entry);
-	uc_mapping_present = ((uc_mapping->virt == uc_vpn) &&
-	     (uc_mapping->phys == uc_ppn) &&
-	     (uc_mapping->flags == uc_flags));
+	uc_mapping_present = 1;
+	for (entry = uc_mapping->entries; entry; entry=entry->next) {
+	     __get_pmb_entry(&uc_vpn, &uc_ppn, &uc_flags, entry->pos);
+	     if (((entry->vpn != uc_vpn) ||
+		  (entry->ppn != uc_ppn) ||
+		  (entry->flags != uc_flags)))
+		  uc_mapping_present = 0;
+	}
 
 	cached_to_uncached = uc_mapping->virt -
 		(((unsigned long)&__uncached_start) &

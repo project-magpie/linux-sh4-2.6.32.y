@@ -330,18 +330,18 @@ EXPORT_SYMBOL_GPL(stm_hom_register);
  */
 static struct stm_hom_board *board_hom;
 
-int stm_freeze_board(void)
+int stm_freeze_board(struct stm_wakeup_devices *wkd)
 {
 	if (board_hom && board_hom->freeze)
-		return board_hom->freeze();
+		return board_hom->freeze(wkd);
 
 	return 0;
 }
 
-int stm_restore_board(void)
+int stm_restore_board(struct stm_wakeup_devices *wkd)
 {
 	if (board_hom && board_hom->restore)
-		return board_hom->restore();
+		return board_hom->restore(wkd);
 
 	return 0;
 }

@@ -11,6 +11,7 @@
 #define __STM_MEM_HIBERNATION_H__
 
 #include <linux/hom.h>
+#include <linux/stm/wakeup_devices.h>
 
 struct stm_mem_hibernation {
 	long flags;
@@ -31,12 +32,12 @@ void stm_defrost_kernel(void);
 /*
  * HOM - board API
  */
-int stm_freeze_board(void);
-int stm_restore_board(void);
+int stm_freeze_board(struct stm_wakeup_devices *wkd);
+int stm_restore_board(struct stm_wakeup_devices *wkd);
 
 struct stm_hom_board {
-	int (*freeze)(void);
-	int (*restore)(void);
+	int (*freeze)(struct stm_wakeup_devices *wkd);
+	int (*restore)(struct stm_wakeup_devices *wkd);
 };
 
 int stm_hom_board_register(struct stm_hom_board *board);

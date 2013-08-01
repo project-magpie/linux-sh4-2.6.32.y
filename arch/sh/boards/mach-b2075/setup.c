@@ -301,13 +301,14 @@ struct sh_machine_vector mv_b2075 __initmv = {
 
 #include "../../kernel/cpu/sh4/stm_hom.h"
 
-static int b2075_board_freeze(void)
+static int b2075_board_freeze(struct stm_wakeup_devices *wkd)
 {
-	gpio_set_value(B2075_GPIO_POWER_ON_ETH, 0);
+	if (!wkd->stm_mac0_can_wakeup)
+		gpio_set_value(B2075_GPIO_POWER_ON_ETH, 0);
 	return 0;
 }
 
-static int b2075_board_defrost(void)
+static int b2075_board_defrost(struct stm_wakeup_devices *wkd)
 {
 	b2075_phy_reset(NULL);
 	return 0;

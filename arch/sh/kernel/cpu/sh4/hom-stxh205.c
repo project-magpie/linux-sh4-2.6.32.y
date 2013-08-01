@@ -66,6 +66,7 @@ END_MARKER,
 };
 
 static void __iomem *early_console_base;
+static struct stm_wakeup_devices stxh205_wkd;
 
 static void stxh205_hom_early_console(void)
 {
@@ -81,9 +82,17 @@ static void stxh205_hom_early_console(void)
 	pr_info("Early console ready\n");
 }
 
+static int stxh205_hom_begin(void)
+{
+	pr_info("stm: pm: Analyzing the wakeup devices\n");
+
+	stm_check_wakeup_devices(&stxh205_wkd);
+	return 0;
+}
+
 static int stxh205_hom_prepare(void)
 {
-	stm_freeze_board();
+	stm_freeze_board(&stxh205_wkd);
 
 	return 0;
 }
@@ -94,7 +103,7 @@ static int stxh205_hom_complete(void)
 	writel(7, 0xfda30000 + 0x00);	/* INTPRI00 */
 	writel(1, 0xfda30000 + 0x60);	/* INTMSKCLR00 */
 
-	stm_restore_board();
+	stm_restore_board(&stxh205_wkd);
 
 	return 0;
 }
@@ -105,6 +114,7 @@ static struct stm_mem_hibernation stxh205_hom = {
 	.tbl_size = DIV_ROUND_UP(ARRAY_SIZE(stxh205_hom_table) *
 			sizeof(long), L1_CACHE_BYTES),
 
+	.ops.begin = stxh205_hom_begin,
 	.ops.prepare = stxh205_hom_prepare,
 	.ops.complete = stxh205_hom_complete,
 };

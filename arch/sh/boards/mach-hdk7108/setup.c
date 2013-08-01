@@ -680,13 +680,13 @@ struct sh_machine_vector mv_hdk7108 __initmv = {
 
 #include "../../kernel/cpu/sh4/stm_hom.h"
 
-static int hdk7108_board_freeze(void)
+static int hdk7108_board_freeze(struct stm_wakeup_devices *wkd)
 {
 	gpio_direction_output(HDK7108_PIO_POWER_ON, 0);
 	return 0;
 }
 
-static int hdk7108_board_restore(void)
+static int hdk7108_board_restore(struct stm_wakeup_devices *wkd)
 {
 	/* Some of the peripherals are powered by regulators
 	 * triggered by the following PIO line... */

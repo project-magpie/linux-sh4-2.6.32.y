@@ -102,7 +102,7 @@ struct inode *ubifs_new_inode(struct ubifs_info *c, const struct inode *dir,
 	 * UBIFS has to fully control "clean <-> dirty" transitions of inodes
 	 * to make budgeting work.
 	 */
-	inode->i_flags |= (S_NOCMTIME);
+	inode->i_flags |= S_NOCMTIME;
 
 	inode->i_uid = current_fsuid();
 	if (dir->i_mode & S_ISGID) {
@@ -177,11 +177,11 @@ struct inode *ubifs_new_inode(struct ubifs_info *c, const struct inode *dir,
 	return inode;
 }
 
-#ifdef CONFIG_UBIFS_FS_DEBUG
-
-static int dbg_check_name(struct ubifs_dent_node *dent, struct qstr *nm)
+static int dbg_check_name(const struct ubifs_info *c,
+			  const struct ubifs_dent_node *dent,
+			  const struct qstr *nm)
 {
-	if (!(ubifs_chk_flags & UBIFS_CHK_GEN))
+	if (!dbg_is_chk_gen(c))
 		return 0;
 	if (le16_to_cpu(dent->nlen) != nm->len)
 		return -EINVAL;
@@ -189,12 +189,6 @@ static int dbg_check_name(struct ubifs_dent_node *dent, struct qstr *nm)
 		return -EINVAL;
 	return 0;
 }
-
-#else
-
-#define dbg_check_name(dent, nm) 0
-
-#endif
 
 static struct dentry *ubifs_lookup(struct inode *dir, struct dentry *dentry,
 				   struct nameidata *nd)
@@ -226,7 +220,7 @@ static struct dentry *ubifs_lookup(struct inode *dir, struct dentry *dentry,
 		goto out;
 	}
 
-	if (dbg_check_name(dent, &dentry->d_name)) {
+	if (dbg_check_name(c, dent, &dentry->d_name)) {
 		err = -EINVAL;
 		goto out;
 	}
@@ -547,7 +541,7 @@ static int ubifs_link(struct dentry *old_dentry, struct inode *dir,
 	 if (inode->i_nlink == 0)
 		 return -ENOENT;
 
-	err = dbg_check_synced_i_size(inode);
+	err = dbg_check_synced_i_size(c, inode);
 	if (err)
 		return err;
 
@@ -602,7 +596,7 @@ static int ubifs_unlink(struct inode *dir, struct dentry *dentry)
 		inode->i_nlink, dir->i_ino);
 	ubifs_assert(mutex_is_locked(&dir->i_mutex));
 	ubifs_assert(mutex_is_locked(&inode->i_mutex));
-	err = dbg_check_synced_i_size(inode);
+	err = dbg_check_synced_i_size(c, inode);
 	if (err)
 		return err;
 
@@ -628,7 +622,7 @@ static int ubifs_unlink(struct inode *dir, struct dentry *dentry)
 		ubifs_release_budget(c, &req);
 	else {
 		/* We've deleted something - clean the "no space" flags */
-		c->nospace = c->nospace_rp = 0;
+		c->bi.nospace = c->bi.nospace_rp = 0;
 		smp_wmb();
 	}
 	return 0;
@@ -718,7 +712,7 @@ static int ubifs_rmdir(struct inode *dir, struct dentry *dentry)
 		ubifs_release_budget(c, &req);
 	else {
 		/* We've deleted something - clean the "no space" flags */
-		c->nospace = c->nospace_rp = 0;
+		c->bi.nospace = c->bi.nospace_rp = 0;
 		smp_wmb();
 	}
 	return 0;
@@ -1010,8 +1004,8 @@ static int ubifs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	 * separately.
 	 */
 
-	dbg_gen("dent '%.*s' ino %lu in dir ino %lu to dent '%.*s' in "
-		"dir ino %lu", old_dentry->d_name.len, old_dentry->d_name.name,
+	dbg_gen("dent '%.*s' ino %lu in dir ino %lu to dent '%.*s' in dir ino %lu",
+		old_dentry->d_name.len, old_dentry->d_name.name,
 		old_inode->i_ino, old_dir->i_ino, new_dentry->d_name.len,
 		new_dentry->d_name.name, new_dir->i_ino);
 	ubifs_assert(mutex_is_locked(&old_dir->i_mutex));
@@ -1210,12 +1204,10 @@ const struct inode_operations ubifs_dir_inode_operations = {
 	.rename      = ubifs_rename,
 	.setattr     = ubifs_setattr,
 	.getattr     = ubifs_getattr,
-#ifdef CONFIG_UBIFS_FS_XATTR
 	.setxattr    = ubifs_setxattr,
 	.getxattr    = ubifs_getxattr,
 	.listxattr   = ubifs_listxattr,
 	.removexattr = ubifs_removexattr,
-#endif
 };
 
 const struct file_operations ubifs_dir_operations = {

@@ -129,7 +129,6 @@ static int create_default_filesystem(struct ubifs_info *c)
 	 * orphan node.
 	 */
 	orph_lebs = UBIFS_MIN_ORPH_LEBS;
-#ifdef CONFIG_UBIFS_FS_DEBUG
 	if (c->leb_cnt - min_leb_cnt > 1)
 		/*
 		 * For debugging purposes it is better to have at least 2
@@ -137,7 +136,6 @@ static int create_default_filesystem(struct ubifs_info *c)
 		 * consolidations and would be stressed more.
 		 */
 		orph_lebs += 1;
-#endif
 
 	main_lebs = c->leb_cnt - UBIFS_SB_LEBS - UBIFS_MST_LEBS - log_lebs;
 	main_lebs -= orph_lebs;
@@ -195,7 +193,7 @@ static int create_default_filesystem(struct ubifs_info *c)
 	sup->rp_size = cpu_to_le64(tmp64);
 	sup->ro_compat_version = cpu_to_le32(UBIFS_RO_COMPAT_VERSION);
 
-	err = ubifs_write_node(c, sup, UBIFS_SB_NODE_SZ, 0, 0, UBI_LONGTERM);
+	err = ubifs_write_node(c, sup, UBIFS_SB_NODE_SZ, 0, 0);
 	kfree(sup);
 	if (err)
 		return err;
@@ -246,19 +244,18 @@ static int create_default_filesystem(struct ubifs_info *c)
 	mst->total_dirty = cpu_to_le64(tmp64);
 
 	/*  The indexing LEB does not contribute to dark space */
-	tmp64 = (c->main_lebs - 1) * c->dark_wm;
+	tmp64 = ((long long)(c->main_lebs - 1) * c->dark_wm);
 	mst->total_dark = cpu_to_le64(tmp64);
 
 	mst->total_used = cpu_to_le64(UBIFS_INO_NODE_SZ);
 
-	err = ubifs_write_node(c, mst, UBIFS_MST_NODE_SZ, UBIFS_MST_LNUM, 0,
-			       UBI_UNKNOWN);
+	err = ubifs_write_node(c, mst, UBIFS_MST_NODE_SZ, UBIFS_MST_LNUM, 0);
 	if (err) {
 		kfree(mst);
 		return err;
 	}
-	err = ubifs_write_node(c, mst, UBIFS_MST_NODE_SZ, UBIFS_MST_LNUM + 1, 0,
-			       UBI_UNKNOWN);
+	err = ubifs_write_node(c, mst, UBIFS_MST_NODE_SZ, UBIFS_MST_LNUM + 1,
+			       0);
 	kfree(mst);
 	if (err)
 		return err;
@@ -281,8 +278,7 @@ static int create_default_filesystem(struct ubifs_info *c)
 	key_write_idx(c, &key, &br->key);
 	br->lnum = cpu_to_le32(main_first + DEFAULT_DATA_LEB);
 	br->len  = cpu_to_le32(UBIFS_INO_NODE_SZ);
-	err = ubifs_write_node(c, idx, tmp, main_first + DEFAULT_IDX_LEB, 0,
-			       UBI_UNKNOWN);
+	err = ubifs_write_node(c, idx, tmp, main_first + DEFAULT_IDX_LEB, 0);
 	kfree(idx);
 	if (err)
 		return err;
@@ -314,8 +310,7 @@ static int create_default_filesystem(struct ubifs_info *c)
 	ino->flags = cpu_to_le32(UBIFS_COMPR_FL);
 
 	err = ubifs_write_node(c, ino, UBIFS_INO_NODE_SZ,
-			       main_first + DEFAULT_DATA_LEB, 0,
-			       UBI_UNKNOWN);
+			       main_first + DEFAULT_DATA_LEB, 0);
 	kfree(ino);
 	if (err)
 		return err;
@@ -334,8 +329,7 @@ static int create_default_filesystem(struct ubifs_info *c)
 		return -ENOMEM;
 
 	cs->ch.node_type = UBIFS_CS_NODE;
-	err = ubifs_write_node(c, cs, UBIFS_CS_NODE_SZ, UBIFS_LOG_LNUM,
-			       0, UBI_UNKNOWN);
+	err = ubifs_write_node(c, cs, UBIFS_CS_NODE_SZ, UBIFS_LOG_LNUM, 0);
 	kfree(cs);
 
 	ubifs_msg("default file-system created");
@@ -396,9 +390,8 @@ static int validate_sb(struct ubifs_info *c, struct ubifs_sb_node *sup)
 	min_leb_cnt += c->lpt_lebs + c->orph_lebs + c->jhead_cnt + 6;
 
 	if (c->leb_cnt < min_leb_cnt || c->leb_cnt > c->vi.size) {
-		ubifs_err("bad LEB count: %d in superblock, %d on UBI volume, "
-			  "%d minimum required", c->leb_cnt, c->vi.size,
-			  min_leb_cnt);
+		ubifs_err("bad LEB count: %d in superblock, %d on UBI volume, %d minimum required",
+			  c->leb_cnt, c->vi.size, min_leb_cnt);
 		goto failed;
 	}
 
@@ -409,13 +402,22 @@ static int validate_sb(struct ubifs_info *c, struct ubifs_sb_node *sup)
 	}
 
 	if (c->main_lebs < UBIFS_MIN_MAIN_LEBS) {
-		err = 7;
+		ubifs_err("too few main LEBs count %d, must be at least %d",
+			  c->main_lebs, UBIFS_MIN_MAIN_LEBS);
 		goto failed;
 	}
 
-	if (c->max_bud_bytes < (long long)c->leb_size * UBIFS_MIN_BUD_LEBS ||
-	    c->max_bud_bytes > (long long)c->leb_size * c->main_lebs) {
-		err = 8;
+	max_bytes = (long long)c->leb_size * UBIFS_MIN_BUD_LEBS;
+	if (c->max_bud_bytes < max_bytes) {
+		ubifs_err("too small journal (%lld bytes), must be at least %lld bytes",
+			  c->max_bud_bytes, max_bytes);
+		goto failed;
+	}
+
+	max_bytes = (long long)c->leb_size * c->main_lebs;
+	if (c->max_bud_bytes > max_bytes) {
+		ubifs_err("too large journal size (%lld bytes), only %lld bytes available in the main area",
+			  c->max_bud_bytes, max_bytes);
 		goto failed;
 	}
 
@@ -449,7 +451,6 @@ static int validate_sb(struct ubifs_info *c, struct ubifs_sb_node *sup)
 		goto failed;
 	}
 
-	max_bytes = c->main_lebs * (long long)c->leb_size;
 	if (c->rp_size < 0 || max_bytes < c->rp_size) {
 		err = 14;
 		goto failed;
@@ -465,7 +466,7 @@ static int validate_sb(struct ubifs_info *c, struct ubifs_sb_node *sup)
 
 failed:
 	ubifs_err("bad superblock, error %d", err);
-	dbg_dump_node(c, sup);
+	ubifs_dump_node(c, sup);
 	return -EINVAL;
 }
 
@@ -508,7 +509,7 @@ int ubifs_write_sb_node(struct ubifs_info *c, struct ubifs_sb_node *sup)
 	int len = ALIGN(UBIFS_SB_NODE_SZ, c->min_io_size);
 
 	ubifs_prepare_node(c, sup, UBIFS_SB_NODE_SZ, 1);
-	return ubifs_leb_change(c, UBIFS_SB_LNUM, sup, len, UBI_LONGTERM);
+	return ubifs_leb_change(c, UBIFS_SB_LNUM, sup, len);
 }
 
 /**
@@ -542,16 +543,12 @@ int ubifs_read_superblock(struct ubifs_info *c)
 	 * due to the unavailability of time-travelling equipment.
 	 */
 	if (c->fmt_version > UBIFS_FORMAT_VERSION) {
-		struct super_block *sb = c->vfs_sb;
-		int mounting_ro = sb->s_flags & MS_RDONLY;
-
-		ubifs_assert(!c->ro_media || mounting_ro);
-		if (!mounting_ro ||
+		ubifs_assert(!c->ro_media || c->ro_mount);
+		if (!c->ro_mount ||
 		    c->ro_compat_version > UBIFS_RO_COMPAT_VERSION) {
-			ubifs_err("on-flash format version is w%d/r%d, but "
-				  "software only supports up to version "
-				  "w%d/r%d", c->fmt_version,
-				  c->ro_compat_version, UBIFS_FORMAT_VERSION,
+			ubifs_err("on-flash format version is w%d/r%d, but software only supports up to version w%d/r%d",
+				  c->fmt_version, c->ro_compat_version,
+				  UBIFS_FORMAT_VERSION,
 				  UBIFS_RO_COMPAT_VERSION);
 			if (c->ro_compat_version <= UBIFS_RO_COMPAT_VERSION) {
 				ubifs_msg("only R/O mounting is possible");
@@ -619,12 +616,13 @@ int ubifs_read_superblock(struct ubifs_info *c)
 	c->vfs_sb->s_time_gran = le32_to_cpu(sup->time_gran);
 	memcpy(&c->uuid, &sup->uuid, 16);
 	c->big_lpt = !!(sup_flags & UBIFS_FLG_BIGLPT);
+	c->space_fixup = !!(sup_flags & UBIFS_FLG_SPACE_FIXUP);
 
 	/* Automatically increase file system size to the maximum size */
 	c->old_leb_cnt = c->leb_cnt;
 	if (c->leb_cnt < c->vi.size && c->leb_cnt < c->max_leb_cnt) {
 		c->leb_cnt = min_t(int, c->max_leb_cnt, c->vi.size);
-		if (c->vfs_sb->s_flags & MS_RDONLY)
+		if (c->ro_mount)
 			dbg_mnt("Auto resizing (ro) from %d LEBs to %d LEBs",
 				c->old_leb_cnt,	c->leb_cnt);
 		else {
@@ -651,5 +649,158 @@ int ubifs_read_superblock(struct ubifs_info *c)
 	err = validate_sb(c, sup);
 out:
 	kfree(sup);
+	return err;
+}
+
+/**
+ * fixup_leb - fixup/unmap an LEB containing free space.
+ * @c: UBIFS file-system description object
+ * @lnum: the LEB number to fix up
+ * @len: number of used bytes in LEB (starting at offset 0)
+ *
+ * This function reads the contents of the given LEB number @lnum, then fixes
+ * it up, so that empty min. I/O units in the end of LEB are actually erased on
+ * flash (rather than being just all-0xff real data). If the LEB is completely
+ * empty, it is simply unmapped.
+ */
+static int fixup_leb(struct ubifs_info *c, int lnum, int len)
+{
+	int err;
+
+	ubifs_assert(len >= 0);
+	ubifs_assert(len % c->min_io_size == 0);
+	ubifs_assert(len < c->leb_size);
+
+	if (len == 0) {
+		dbg_mnt("unmap empty LEB %d", lnum);
+		return ubifs_leb_unmap(c, lnum);
+	}
+
+	dbg_mnt("fixup LEB %d, data len %d", lnum, len);
+	err = ubifs_leb_read(c, lnum, c->sbuf, 0, len, 1);
+	if (err)
+		return err;
+
+	return ubifs_leb_change(c, lnum, c->sbuf, len);
+}
+
+/**
+ * fixup_free_space - find & remap all LEBs containing free space.
+ * @c: UBIFS file-system description object
+ *
+ * This function walks through all LEBs in the filesystem and fiexes up those
+ * containing free/empty space.
+ */
+static int fixup_free_space(struct ubifs_info *c)
+{
+	int lnum, err = 0;
+	struct ubifs_lprops *lprops;
+
+	ubifs_get_lprops(c);
+
+	/* Fixup LEBs in the master area */
+	for (lnum = UBIFS_MST_LNUM; lnum < UBIFS_LOG_LNUM; lnum++) {
+		err = fixup_leb(c, lnum, c->mst_offs + c->mst_node_alsz);
+		if (err)
+			goto out;
+	}
+
+	/* Unmap unused log LEBs */
+	lnum = ubifs_next_log_lnum(c, c->lhead_lnum);
+	while (lnum != c->ltail_lnum) {
+		err = fixup_leb(c, lnum, 0);
+		if (err)
+			goto out;
+		lnum = ubifs_next_log_lnum(c, lnum);
+	}
+
+	/*
+	 * Fixup the log head which contains the only a CS node at the
+	 * beginning.
+	 */
+	err = fixup_leb(c, c->lhead_lnum,
+			ALIGN(UBIFS_CS_NODE_SZ, c->min_io_size));
+	if (err)
+		goto out;
+
+	/* Fixup LEBs in the LPT area */
+	for (lnum = c->lpt_first; lnum <= c->lpt_last; lnum++) {
+		int free = c->ltab[lnum - c->lpt_first].free;
+
+		if (free > 0) {
+			err = fixup_leb(c, lnum, c->leb_size - free);
+			if (err)
+				goto out;
+		}
+	}
+
+	/* Unmap LEBs in the orphans area */
+	for (lnum = c->orph_first; lnum <= c->orph_last; lnum++) {
+		err = fixup_leb(c, lnum, 0);
+		if (err)
+			goto out;
+	}
+
+	/* Fixup LEBs in the main area */
+	for (lnum = c->main_first; lnum < c->leb_cnt; lnum++) {
+		lprops = ubifs_lpt_lookup(c, lnum);
+		if (IS_ERR(lprops)) {
+			err = PTR_ERR(lprops);
+			goto out;
+		}
+
+		if (lprops->free > 0) {
+			err = fixup_leb(c, lnum, c->leb_size - lprops->free);
+			if (err)
+				goto out;
+		}
+	}
+
+out:
+	ubifs_release_lprops(c);
+	return err;
+}
+
+/**
+ * ubifs_fixup_free_space - find & fix all LEBs with free space.
+ * @c: UBIFS file-system description object
+ *
+ * This function fixes up LEBs containing free space on first mount, if the
+ * appropriate flag was set when the FS was created. Each LEB with one or more
+ * empty min. I/O unit (i.e. free-space-count > 0) is re-written, to make sure
+ * the free space is actually erased. E.g., this is necessary for some NAND
+ * chips, since the free space may have been programmed like real "0xff" data
+ * (generating a non-0xff ECC), causing future writes to the not-really-erased
+ * NAND pages to behave badly. After the space is fixed up, the superblock flag
+ * is cleared, so that this is skipped for all future mounts.
+ */
+int ubifs_fixup_free_space(struct ubifs_info *c)
+{
+	int err;
+	struct ubifs_sb_node *sup;
+
+	ubifs_assert(c->space_fixup);
+	ubifs_assert(!c->ro_mount);
+
+	ubifs_msg("start fixing up free space");
+
+	err = fixup_free_space(c);
+	if (err)
+		return err;
+
+	sup = ubifs_read_sb_node(c);
+	if (IS_ERR(sup))
+		return PTR_ERR(sup);
+
+	/* Free-space fixup is no longer required */
+	c->space_fixup = 0;
+	sup->flags &= cpu_to_le32(~UBIFS_FLG_SPACE_FIXUP);
+
+	err = ubifs_write_sb_node(c, sup);
+	kfree(sup);
+	if (err)
+		return err;
+
+	ubifs_msg("free space fixup complete");
 	return err;
 }

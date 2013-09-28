@@ -136,8 +136,13 @@ static int uni2char(wchar_t uni, unsigned char *out, int boundlen)
 
 static int char2uni(const unsigned char *rawstring, int boundlen, wchar_t *uni)
 {
-	*uni = charset2uni[*rawstring];
-	if (*uni == 0x0000)
+	wchar_t temp;
+
+	memcpy(uni, &charset2uni[*rawstring], sizeof(*uni));
+	memcpy(&temp, uni, sizeof(*uni));
+
+	if (temp == 0x0000)
+
 		return -EINVAL;
 	return 1;
 }

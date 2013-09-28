@@ -83,9 +83,9 @@ static void dwmac100_set_umac_addr(void __iomem *ioaddr, unsigned char *addr,
 }
 
 static void dwmac100_get_umac_addr(void __iomem *ioaddr, unsigned char *addr,
-				   unsigned int reg_n)
+				   unsigned int reg_n, char* ethaddr)
 {
-	stmmac_get_mac_addr(ioaddr, addr, MAC_ADDR_HIGH, MAC_ADDR_LOW);
+	stmmac_get_mac_addr(ioaddr, addr, MAC_ADDR_HIGH, MAC_ADDR_LOW, ethaddr);
 }
 
 static void dwmac100_set_filter(struct net_device *dev)

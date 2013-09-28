@@ -117,6 +117,9 @@ config DECOMPRESS_BZIP2
 config DECOMPRESS_LZMA
 	tristate
 
+config DECOMPRESS_LZMA_NEEDED
+	boolean
+
 config LIBELF_32
 	bool
 

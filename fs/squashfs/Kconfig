@@ -26,6 +26,12 @@ config SQUASHFS
 
 	  If unsure, say N.
 
+config SQUASHFS_LZMA
+	bool "Include support for LZMA compressed file systems"
+	depends on SQUASHFS
+	select DECOMPRESS_LZMA
+	select DECOMPRESS_LZMA_NEEDED
+
 config SQUASHFS_EMBEDDED
 
 	bool "Additional option for memory-constrained systems" 

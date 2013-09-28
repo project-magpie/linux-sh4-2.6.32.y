@@ -389,6 +389,34 @@ void __init setup_arch(char **cmdline_p)
 #endif
 #endif
 
+	{
+	char org_command_line[] = "console=ttyAS1,115200 root=/dev/mtdblock6";
+	char tdt_command_line[] = "console=ttyAS0,115200 root=/dev/mtdblock6 rw rootfstype=jffs2 init=/bin/devinit coprocessor_mem=4m@0x40000000,4m@0x40400000 printk=1 stmmaceth=ethaddr:";
+	char mac[] = "00:00:00:00:00:00";
+	int command_line_len = strlen(command_line);
+	int org_command_line_len = strlen(org_command_line);
+
+	if(command_line_len >= org_command_line_len && !strncmp(command_line, org_command_line, org_command_line_len))
+	{
+		int i;
+		for(i = 0; i < (command_line_len - 7); i++)
+		{
+			if(!strncmp(command_line + i, "ethaddr", 7))
+			{
+				strlcpy(mac, command_line + i + 8, sizeof(mac));
+				break;
+			}
+			if(!strncmp(command_line + i, "hwaddr", 6))
+			{
+				strlcpy(mac, command_line + i + 7, sizeof(mac));
+				break;
+			}
+		}
+		strlcpy(command_line, tdt_command_line, sizeof(command_line));
+		strlcat(command_line, mac, sizeof(command_line));
+	}
+	}
+
 	/* Save unparsed command line copy for /proc/cmdline */
 	memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = command_line;

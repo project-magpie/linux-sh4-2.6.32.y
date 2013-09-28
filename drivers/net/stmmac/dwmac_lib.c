@@ -210,7 +210,7 @@ int dwmac_dma_interrupt(void __iomem *ioaddr,
 	}
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
-		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
+		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)) && printk_ratelimit())
 		pr_info("%s: unexpected status %08x\n", __func__, intr_status);
 	/* Clear the interrupt by writing a logic 1 to the CSR5[15-0] */
 	writel((intr_status & 0x1ffff), ioaddr + DMA_STATUS);

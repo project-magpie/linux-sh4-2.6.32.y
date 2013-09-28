@@ -885,6 +885,8 @@ int snd_pcm_start(struct snd_pcm_substream *substream)
 			      SNDRV_PCM_STATE_RUNNING);
 }
 
+EXPORT_SYMBOL(snd_pcm_start);
+
 /*
  * stop callbacks
  */
@@ -1883,6 +1885,8 @@ int snd_pcm_hw_constraints_init(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+EXPORT_SYMBOL_GPL(snd_pcm_hw_constraints_init);
+
 int snd_pcm_hw_constraints_complete(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -1965,6 +1969,8 @@ int snd_pcm_hw_constraints_complete(struct snd_pcm_substream *substream)
 
 	return 0;
 }
+
+EXPORT_SYMBOL_GPL(snd_pcm_hw_constraints_complete);
 
 static void pcm_release_private(struct snd_pcm_substream *substream)
 {

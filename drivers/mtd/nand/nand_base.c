@@ -1379,15 +1379,21 @@ int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 
 			/* Now read the page into the buffer */
 			if (unlikely(ops->mode == MTD_OOB_RAW))
-				ret = chip->ecc.read_page_raw(mtd, chip,bufpoi, page);
+				ret = chip->ecc.read_page_raw(mtd, chip,
+							      bufpoi, page);
+			else if (!aligned && NAND_SUBPAGE_READ(chip) && !oob)
+				ret = chip->ecc.read_subpage(mtd, chip, col, bytes, bufpoi);
 			else
-				ret = chip->ecc.read_page(mtd, chip, bufpoi, page);
+				ret = chip->ecc.read_page(mtd, chip, bufpoi,
+							  page);
 			if (ret < 0)
 				break;
 
 			/* Transfer not aligned data */
 			if (!aligned) {
-				chip->pagebuf = realpage;
+				if (!NAND_SUBPAGE_READ(chip) && !oob &&
+				    !(mtd->ecc_stats.failed - stats.failed))
+					chip->pagebuf = realpage;
 				memcpy(buf, chip->buffers->databuf + col, bytes);
 			}
 
@@ -3243,6 +3249,7 @@ int nand_scan_tail(struct mtd_info *mtd)
 	mtd->resume = nand_resume;
 	mtd->block_isbad = nand_block_isbad;
 	mtd->block_markbad = nand_block_markbad;
+	mtd->writebufsize = mtd->writesize;
 
 	/* propagate ecc.layout to mtd_info */
 	mtd->ecclayout = chip->ecc.layout;

@@ -41,16 +41,15 @@
 #define UBIFS_VERSION 1
 
 /* Normal UBIFS messages */
-#define ubifs_msg(fmt, ...) \
-		printk(KERN_NOTICE "UBIFS: " fmt "\n", ##__VA_ARGS__)
+#define ubifs_msg(fmt, ...) pr_notice("UBIFS: " fmt "\n", ##__VA_ARGS__)
 /* UBIFS error messages */
-#define ubifs_err(fmt, ...)                                                  \
-	printk(KERN_ERR "UBIFS error (pid %d): %s: " fmt "\n", current->pid, \
+#define ubifs_err(fmt, ...)                                         \
+	pr_err("UBIFS error (pid %d): %s: " fmt "\n", current->pid, \
 	       __func__, ##__VA_ARGS__)
 /* UBIFS warning messages */
-#define ubifs_warn(fmt, ...)                                         \
-	printk(KERN_WARNING "UBIFS warning (pid %d): %s: " fmt "\n", \
-	       current->pid, __func__, ##__VA_ARGS__)
+#define ubifs_warn(fmt, ...)                                        \
+	pr_warn("UBIFS warning (pid %d): %s: " fmt "\n",            \
+		current->pid, __func__, ##__VA_ARGS__)
 
 /* UBIFS file system VFS magic number */
 #define UBIFS_SUPER_MAGIC 0x24051905
@@ -82,9 +81,6 @@
  */
 #define INUM_WARN_WATERMARK 0xFFF00000
 #define INUM_WATERMARK      0xFFFFFF00
-
-/* Largest key size supported in this implementation */
-#define CUR_MAX_KEY_LEN UBIFS_SK_LEN
 
 /* Maximum number of entries in each LPT (LEB category) heap */
 #define LPT_HEAP_SZ 256
@@ -118,8 +114,12 @@
  * in TNC. However, when replaying, it is handy to introduce fake "truncation"
  * keys for truncation nodes because the code becomes simpler. So we define
  * %UBIFS_TRUN_KEY type.
+ *
+ * But otherwise, out of the journal reply scope, the truncation keys are
+ * invalid.
  */
-#define UBIFS_TRUN_KEY UBIFS_KEY_TYPES_CNT
+#define UBIFS_TRUN_KEY    UBIFS_KEY_TYPES_CNT
+#define UBIFS_INVALID_KEY UBIFS_KEY_TYPES_CNT
 
 /*
  * How much a directory entry/extended attribute entry adds to the parent/host
@@ -145,6 +145,12 @@
  * will not corrupt memory in case of worst case compression.
  */
 #define WORST_COMPR_FACTOR 2
+
+/*
+ * How much memory is needed for a buffer where we comress a data node.
+ */
+#define COMPRESSED_DATA_NODE_BUF_SZ \
+	(UBIFS_DATA_NODE_SZ + UBIFS_BLOCK_SIZE * WORST_COMPR_FACTOR)
 
 /* Maximum expected tree height for use by bottom_up_buf */
 #define BOTTOM_UP_HEIGHT 64
@@ -219,14 +225,14 @@ enum {
  * LPT cnode flag bits.
  *
  * DIRTY_CNODE: cnode is dirty
- * COW_CNODE: cnode is being committed and must be copied before writing
  * OBSOLETE_CNODE: cnode is being committed and has been copied (or deleted),
- * so it can (and must) be freed when the commit is finished
+ *                 so it can (and must) be freed when the commit is finished
+ * COW_CNODE: cnode is being committed and must be copied before writing
  */
 enum {
 	DIRTY_CNODE    = 0,
-	COW_CNODE      = 1,
-	OBSOLETE_CNODE = 2,
+	OBSOLETE_CNODE = 1,
+	COW_CNODE      = 2,
 };
 
 /*
@@ -266,10 +272,10 @@ struct ubifs_old_idx {
 
 /* The below union makes it easier to deal with keys */
 union ubifs_key {
-	uint8_t u8[CUR_MAX_KEY_LEN];
-	uint32_t u32[CUR_MAX_KEY_LEN/4];
-	uint64_t u64[CUR_MAX_KEY_LEN/8];
-	__le32 j32[CUR_MAX_KEY_LEN/4];
+	uint8_t u8[UBIFS_SK_LEN];
+	uint32_t u32[UBIFS_SK_LEN/4];
+	uint64_t u64[UBIFS_SK_LEN/8];
+	__le32 j32[UBIFS_SK_LEN/4];
 };
 
 /**
@@ -641,8 +647,7 @@ typedef int (*ubifs_lpt_scan_callback)(struct ubifs_info *c,
  * @offs: write-buffer offset in this logical eraseblock
  * @avail: number of bytes available in the write-buffer
  * @used:  number of used bytes in the write-buffer
- * @dtype: type of data stored in this LEB (%UBI_LONGTERM, %UBI_SHORTTERM,
- * %UBI_UNKNOWN)
+ * @size: write-buffer size (in [@c->min_io_size, @c->max_write_size] range)
  * @jhead: journal head the mutex belongs to (note, needed only to shut lockdep
  *         up by 'mutex_lock_nested()).
  * @sync_callback: write-buffer synchronization callback
@@ -675,7 +680,7 @@ struct ubifs_wbuf {
 	int offs;
 	int avail;
 	int used;
-	int dtype;
+	int size;
 	int jhead;
 	int (*sync_callback)(struct ubifs_info *c, int lnum, int free, int pad);
 	struct mutex io_mutex;
@@ -709,12 +714,14 @@ struct ubifs_bud {
  * struct ubifs_jhead - journal head.
  * @wbuf: head's write-buffer
  * @buds_list: list of bud LEBs belonging to this journal head
+ * @grouped: non-zero if UBIFS groups nodes when writing to this journal head
  *
  * Note, the @buds list is protected by the @c->buds_lock.
  */
 struct ubifs_jhead {
 	struct ubifs_wbuf wbuf;
 	struct list_head buds_list;
+	unsigned int grouped:1;
 };
 
 /**
@@ -750,6 +757,9 @@ struct ubifs_zbranch {
  * @offs: offset of the corresponding indexing node
  * @len: length  of the corresponding indexing node
  * @zbranch: array of znode branches (@c->fanout elements)
+ *
+ * Note! The @lnum, @offs, and @len fields are not really needed - we have them
+ * only for internal consistency check. They could be removed to save some RAM.
  */
 struct ubifs_znode {
 	struct ubifs_znode *parent;
@@ -760,9 +770,9 @@ struct ubifs_znode {
 	int child_cnt;
 	int iip;
 	int alt;
-#ifdef CONFIG_UBIFS_FS_DEBUG
-	int lnum, offs, len;
-#endif
+	int lnum;
+	int offs;
+	int len;
 	struct ubifs_zbranch zbranch[];
 };
 
@@ -924,6 +934,40 @@ struct ubifs_mount_opts {
 	unsigned int compr_type:2;
 };
 
+/**
+ * struct ubifs_budg_info - UBIFS budgeting information.
+ * @idx_growth: amount of bytes budgeted for index growth
+ * @data_growth: amount of bytes budgeted for cached data
+ * @dd_growth: amount of bytes budgeted for cached data that will make
+ *             other data dirty
+ * @uncommitted_idx: amount of bytes were budgeted for growth of the index, but
+ *                   which still have to be taken into account because the index
+ *                   has not been committed so far
+ * @old_idx_sz: size of index on flash
+ * @min_idx_lebs: minimum number of LEBs required for the index
+ * @nospace: non-zero if the file-system does not have flash space (used as
+ *           optimization)
+ * @nospace_rp: the same as @nospace, but additionally means that even reserved
+ *              pool is full
+ * @page_budget: budget for a page (constant, nenver changed after mount)
+ * @inode_budget: budget for an inode (constant, nenver changed after mount)
+ * @dent_budget: budget for a directory entry (constant, nenver changed after
+ *               mount)
+ */
+struct ubifs_budg_info {
+	long long idx_growth;
+	long long data_growth;
+	long long dd_growth;
+	long long uncommitted_idx;
+	unsigned long long old_idx_sz;
+	int min_idx_lebs;
+	unsigned int nospace:1;
+	unsigned int nospace_rp:1;
+	int page_budget;
+	int inode_budget;
+	int dent_budget;
+};
+
 struct ubifs_debug_info;
 
 /**
@@ -967,6 +1011,7 @@ struct ubifs_debug_info;
  * @cmt_wq: wait queue to sleep on if the log is full and a commit is running
  *
  * @big_lpt: flag that LPT is too big to write whole during commit
+ * @space_fixup: flag indicating that free space in LEBs needs to be cleaned up
  * @no_chk_data_crc: do not check CRCs when reading data nodes (except during
  *                   recovery)
  * @bulk_read: enable bulk-reads
@@ -998,6 +1043,11 @@ struct ubifs_debug_info;
  * @bu_mutex: protects the pre-allocated bulk-read buffer and @c->bu
  * @bu: pre-allocated bulk-read information
  *
+ * @write_reserve_mutex: protects @write_reserve_buf
+ * @write_reserve_buf: on the write path we allocate memory, which might
+ *                     sometimes be unavailable, in which case we use this
+ *                     write reserve buffer
+ *
  * @log_lebs: number of logical eraseblocks in the log
  * @log_bytes: log size in bytes
  * @log_last: last LEB of the log
@@ -1019,7 +1069,12 @@ struct ubifs_debug_info;
  *
  * @min_io_size: minimal input/output unit size
  * @min_io_shift: number of bits in @min_io_size minus one
+ * @max_write_size: maximum amount of bytes the underlying flash can write at a
+ *                  time (MTD write buffer size)
+ * @max_write_shift: number of bits in @max_write_size minus one
  * @leb_size: logical eraseblock size in bytes
+ * @leb_start: starting offset of logical eraseblocks within physical
+ *             eraseblocks
  * @half_leb_size: half LEB size
  * @idx_leb_size: how many bytes of an LEB are effectively available when it is
  *                used to store indexing nodes (@leb_size - @max_idx_node_sz)
@@ -1027,37 +1082,21 @@ struct ubifs_debug_info;
  * @max_leb_cnt: maximum count of logical eraseblocks
  * @old_leb_cnt: count of logical eraseblocks before re-size
  * @ro_media: the underlying UBI volume is read-only
+ * @ro_mount: the file-system was mounted as read-only
+ * @ro_error: UBIFS switched to R/O mode because an error happened
  *
  * @dirty_pg_cnt: number of dirty pages (not used)
  * @dirty_zn_cnt: number of dirty znodes
  * @clean_zn_cnt: number of clean znodes
  *
- * @budg_idx_growth: amount of bytes budgeted for index growth
- * @budg_data_growth: amount of bytes budgeted for cached data
- * @budg_dd_growth: amount of bytes budgeted for cached data that will make
- *                  other data dirty
- * @budg_uncommitted_idx: amount of bytes were budgeted for growth of the index,
- *                        but which still have to be taken into account because
- *                        the index has not been committed so far
- * @space_lock: protects @budg_idx_growth, @budg_data_growth, @budg_dd_growth,
- *              @budg_uncommited_idx, @min_idx_lebs, @old_idx_sz, @lst,
- *              @nospace, and @nospace_rp;
- * @min_idx_lebs: minimum number of LEBs required for the index
- * @old_idx_sz: size of index on flash
+ * @space_lock: protects @bi and @lst
+ * @lst: lprops statistics
+ * @bi: budgeting information
  * @calc_idx_sz: temporary variable which is used to calculate new index size
  *               (contains accurate new index size at end of TNC commit start)
- * @lst: lprops statistics
- * @nospace: non-zero if the file-system does not have flash space (used as
- *           optimization)
- * @nospace_rp: the same as @nospace, but additionally means that even reserved
- *              pool is full
- *
- * @page_budget: budget for a page
- * @inode_budget: budget for an inode
- * @dent_budget: budget for a directory entry
  *
  * @ref_node_alsz: size of the LEB reference node aligned to the min. flash
- * I/O unit
+ *                 I/O unit
  * @mst_node_alsz: master node aligned size
  * @min_idx_node_sz: minimum indexing node aligned on 8-bytes boundary
  * @max_idx_node_sz: maximum indexing node aligned on 8-bytes boundary
@@ -1159,19 +1198,20 @@ struct ubifs_debug_info;
  * @rp_uid: reserved pool user ID
  * @rp_gid: reserved pool group ID
  *
- * @empty: if the UBI device is empty
- * @replay_tree: temporary tree used during journal replay
+ * @empty: %1 if the UBI device is empty
+ * @need_recovery: %1 if the file-system needs recovery
+ * @replaying: %1 during journal replay
+ * @mounting: %1 while mounting
+ * @remounting_rw: %1 while re-mounting from R/O mode to R/W mode
  * @replay_list: temporary list used during journal replay
  * @replay_buds: list of buds to replay
  * @cs_sqnum: sequence number of first node in the log (commit start node)
  * @replay_sqnum: sequence number of node currently being replayed
- * @need_recovery: file-system needs recovery
- * @replaying: set to %1 during journal replay
- * @unclean_leb_list: LEBs to recover when mounting ro to rw
- * @rcvrd_mst_node: recovered master node to write when mounting ro to rw
+ * @unclean_leb_list: LEBs to recover when re-mounting R/O mounted FS to R/W
+ *                    mode
+ * @rcvrd_mst_node: recovered master node to write when re-mounting R/O mounted
+ *                  FS to R/W mode
  * @size_tree: inode size information for recovery
- * @remounting_rw: set while remounting from ro to rw (sb flags have MS_RDONLY)
- * @always_chk_crc: always check CRCs (while mounting and remounting rw)
  * @mount_opts: UBIFS-specific mount options
  *
  * @dbg: debugging-related information
@@ -1211,6 +1251,7 @@ struct ubifs_info {
 	wait_queue_head_t cmt_wq;
 
 	unsigned int big_lpt:1;
+	unsigned int space_fixup:1;
 	unsigned int no_chk_data_crc:1;
 	unsigned int bulk_read:1;
 	unsigned int default_compr:2;
@@ -1240,6 +1281,9 @@ struct ubifs_info {
 	struct mutex bu_mutex;
 	struct bu_info bu;
 
+	struct mutex write_reserve_mutex;
+	void *write_reserve_buf;
+
 	int log_lebs;
 	long long log_bytes;
 	int log_last;
@@ -1261,33 +1305,27 @@ struct ubifs_info {
 
 	int min_io_size;
 	int min_io_shift;
+	int max_write_size;
+	int max_write_shift;
 	int leb_size;
+	int leb_start;
 	int half_leb_size;
 	int idx_leb_size;
 	int leb_cnt;
 	int max_leb_cnt;
 	int old_leb_cnt;
-	int ro_media;
+	unsigned int ro_media:1;
+	unsigned int ro_mount:1;
+	unsigned int ro_error:1;
 
 	atomic_long_t dirty_pg_cnt;
 	atomic_long_t dirty_zn_cnt;
 	atomic_long_t clean_zn_cnt;
 
-	long long budg_idx_growth;
-	long long budg_data_growth;
-	long long budg_dd_growth;
-	long long budg_uncommitted_idx;
 	spinlock_t space_lock;
-	int min_idx_lebs;
-	unsigned long long old_idx_sz;
-	unsigned long long calc_idx_sz;
 	struct ubifs_lp_stats lst;
-	unsigned int nospace:1;
-	unsigned int nospace_rp:1;
-
-	int page_budget;
-	int inode_budget;
-	int dent_budget;
+	struct ubifs_budg_info bi;
+	unsigned long long calc_idx_sz;
 
 	int ref_node_alsz;
 	int mst_node_alsz;
@@ -1390,24 +1428,21 @@ struct ubifs_info {
 	gid_t rp_gid;
 
 	/* The below fields are used only during mounting and re-mounting */
-	int empty;
-	struct rb_root replay_tree;
+	unsigned int empty:1;
+	unsigned int need_recovery:1;
+	unsigned int replaying:1;
+	unsigned int mounting:1;
+	unsigned int remounting_rw:1;
 	struct list_head replay_list;
 	struct list_head replay_buds;
 	unsigned long long cs_sqnum;
 	unsigned long long replay_sqnum;
-	int need_recovery;
-	int replaying;
 	struct list_head unclean_leb_list;
 	struct ubifs_mst_node *rcvrd_mst_node;
 	struct rb_root size_tree;
-	int remounting_rw;
-	int always_chk_crc;
 	struct ubifs_mount_opts mount_opts;
 
-#ifdef CONFIG_UBIFS_FS_DEBUG
 	struct ubifs_debug_info *dbg;
-#endif
 };
 
 extern struct list_head ubifs_infos;
@@ -1426,16 +1461,23 @@ extern struct ubifs_compressor *ubifs_compressors[UBIFS_COMPR_TYPES_CNT];
 
 /* io.c */
 void ubifs_ro_mode(struct ubifs_info *c, int err);
+int ubifs_leb_read(const struct ubifs_info *c, int lnum, void *buf, int offs,
+		   int len, int even_ebadmsg);
+int ubifs_leb_write(struct ubifs_info *c, int lnum, const void *buf, int offs,
+		    int len);
+int ubifs_leb_change(struct ubifs_info *c, int lnum, const void *buf, int len);
+int ubifs_leb_unmap(struct ubifs_info *c, int lnum);
+int ubifs_leb_map(struct ubifs_info *c, int lnum);
+int ubifs_is_mapped(const struct ubifs_info *c, int lnum);
 int ubifs_wbuf_write_nolock(struct ubifs_wbuf *wbuf, void *buf, int len);
-int ubifs_wbuf_seek_nolock(struct ubifs_wbuf *wbuf, int lnum, int offs,
-			   int dtype);
+int ubifs_wbuf_seek_nolock(struct ubifs_wbuf *wbuf, int lnum, int offs);
 int ubifs_wbuf_init(struct ubifs_info *c, struct ubifs_wbuf *wbuf);
 int ubifs_read_node(const struct ubifs_info *c, void *buf, int type, int len,
 		    int lnum, int offs);
 int ubifs_read_node_wbuf(struct ubifs_wbuf *wbuf, void *buf, int type, int len,
 			 int lnum, int offs);
 int ubifs_write_node(struct ubifs_info *c, void *node, int len, int lnum,
-		     int offs, int dtype);
+		     int offs);
 int ubifs_check_node(const struct ubifs_info *c, const void *buf, int lnum,
 		     int offs, int quiet, int must_chk_crc);
 void ubifs_prepare_node(struct ubifs_info *c, void *buf, int len, int pad);
@@ -1593,6 +1635,7 @@ int ubifs_write_master(struct ubifs_info *c);
 int ubifs_read_superblock(struct ubifs_info *c);
 struct ubifs_sb_node *ubifs_read_sb_node(struct ubifs_info *c);
 int ubifs_write_sb_node(struct ubifs_info *c, struct ubifs_sb_node *sup);
+int ubifs_fixup_free_space(struct ubifs_info *c);
 
 /* replay.c */
 int ubifs_validate_entry(struct ubifs_info *c,
@@ -1701,11 +1744,11 @@ struct inode *ubifs_iget(struct super_block *sb, unsigned long inum);
 int ubifs_recover_master_node(struct ubifs_info *c);
 int ubifs_write_rcvrd_mst_node(struct ubifs_info *c);
 struct ubifs_scan_leb *ubifs_recover_leb(struct ubifs_info *c, int lnum,
-					 int offs, void *sbuf, int grouped);
+					 int offs, void *sbuf, int jhead);
 struct ubifs_scan_leb *ubifs_recover_log_leb(struct ubifs_info *c, int lnum,
 					     int offs, void *sbuf);
-int ubifs_recover_inl_heads(const struct ubifs_info *c, void *sbuf);
-int ubifs_clean_lebs(const struct ubifs_info *c, void *sbuf);
+int ubifs_recover_inl_heads(struct ubifs_info *c, void *sbuf);
+int ubifs_clean_lebs(struct ubifs_info *c, void *sbuf);
 int ubifs_rcvry_gc_commit(struct ubifs_info *c);
 int ubifs_recover_size_accum(struct ubifs_info *c, union ubifs_key *key,
 			     int deletion, loff_t new_size);

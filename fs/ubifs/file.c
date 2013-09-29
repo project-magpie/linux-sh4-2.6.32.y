@@ -96,7 +96,7 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 dump:
 	ubifs_err("bad data node (block %u, inode %lu)",
 		  block, inode->i_ino);
-	dbg_dump_node(c, dn);
+	ubifs_dump_node(c, dn);
 	return -EINVAL;
 }
 
@@ -211,7 +211,7 @@ static void release_new_page_budget(struct ubifs_info *c)
  */
 static void release_existing_page_budget(struct ubifs_info *c)
 {
-	struct ubifs_budget_req req = { .dd_growth = c->page_budget};
+	struct ubifs_budget_req req = { .dd_growth = c->bi.page_budget};
 
 	ubifs_release_budget(c, &req);
 }
@@ -432,8 +432,9 @@ static int ubifs_write_begin(struct file *file, struct address_space *mapping,
 	struct page *page;
 
 	ubifs_assert(ubifs_inode(inode)->ui_size == inode->i_size);
+	ubifs_assert(!c->ro_media && !c->ro_mount);
 
-	if (unlikely(c->ro_media))
+	if (unlikely(c->ro_error))
 		return -EROFS;
 
 	/* Try out the fast-path part first */
@@ -446,10 +447,12 @@ static int ubifs_write_begin(struct file *file, struct address_space *mapping,
 		if (!(pos & ~PAGE_CACHE_MASK) && len == PAGE_CACHE_SIZE) {
 			/*
 			 * We change whole page so no need to load it. But we
-			 * have to set the @PG_checked flag to make the further
-			 * code know that the page is new. This might be not
-			 * true, but it is better to budget more than to read
-			 * the page from the media.
+			 * do not know whether this page exists on the media or
+			 * not, so we assume the latter because it requires
+			 * larger budget. The assumption is that it is better
+			 * to budget a bit more than to read the page from the
+			 * media. Thus, we are setting the @PG_checked flag
+			 * here.
 			 */
 			SetPageChecked(page);
 			skipped_read = 1;
@@ -557,6 +560,7 @@ static int ubifs_write_end(struct file *file, struct address_space *mapping,
 		dbg_gen("copied %d instead of %d, read page and repeat",
 			copied, len);
 		cancel_budget(c, page, ui, appending);
+		ClearPageChecked(page);
 
 		/*
 		 * Return 0 to force VFS to repeat the whole operation, or the
@@ -1182,7 +1186,7 @@ out_budg:
 	if (budgeted)
 		ubifs_release_budget(c, &req);
 	else {
-		c->nospace = c->nospace_rp = 0;
+		c->bi.nospace = c->bi.nospace_rp = 0;
 		smp_wmb();
 	}
 	return err;
@@ -1262,7 +1266,7 @@ int ubifs_setattr(struct dentry *dentry, struct iattr *attr)
 	if (err)
 		return err;
 
-	err = dbg_check_synced_i_size(inode);
+	err = dbg_check_synced_i_size(c, inode);
 	if (err)
 		return err;
 
@@ -1311,7 +1315,11 @@ int ubifs_fsync(struct file *file, struct dentry *dentry, int datasync)
 
 	dbg_gen("syncing inode %lu", inode->i_ino);
 
-	if (inode->i_sb->s_flags & MS_RDONLY)
+	if (c->ro_mount)
+		/*
+		 * For some really strange reasons VFS does not filter out
+		 * 'fsync()' for R/O mounted file-systems as per 2.6.39.
+		 */
 		return 0;
 
 	/*
@@ -1392,7 +1400,6 @@ static ssize_t ubifs_aio_write(struct kiocb *iocb, const struct iovec *iov,
 			       unsigned long nr_segs, loff_t pos)
 {
 	int err;
-	ssize_t ret;
 	struct inode *inode = iocb->ki_filp->f_mapping->host;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 
@@ -1400,17 +1407,7 @@ static ssize_t ubifs_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	if (err)
 		return err;
 
-	ret = generic_file_aio_write(iocb, iov, nr_segs, pos);
-	if (ret < 0)
-		return ret;
-
-	if (ret > 0 && (IS_SYNC(inode) || iocb->ki_filp->f_flags & O_SYNC)) {
-		err = ubifs_sync_wbufs_by_inode(c, inode);
-		if (err)
-			return err;
-	}
-
-	return ret;
+	return generic_file_aio_write(iocb, iov, nr_segs, pos);
 }
 
 static int ubifs_set_page_dirty(struct page *page)
@@ -1442,8 +1439,8 @@ static int ubifs_releasepage(struct page *page, gfp_t unused_gfp_flags)
 }
 
 /*
- * mmap()d file has taken write protection fault and is being made
- * writable. UBIFS must ensure page is budgeted for.
+ * mmap()d file has taken write protection fault and is being made writable.
+ * UBIFS must ensure page is budgeted for.
  */
 static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
@@ -1456,9 +1453,9 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vm
 
 	dbg_gen("ino %lu, pg %lu, i_size %lld",	inode->i_ino, page->index,
 		i_size_read(inode));
-	ubifs_assert(!(inode->i_sb->s_flags & MS_RDONLY));
+	ubifs_assert(!c->ro_media && !c->ro_mount);
 
-	if (unlikely(c->ro_media))
+	if (unlikely(c->ro_error))
 		return VM_FAULT_SIGBUS; /* -EROFS */
 
 	/*
@@ -1490,8 +1487,8 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vm
 	err = ubifs_budget_space(c, &req);
 	if (unlikely(err)) {
 		if (err == -ENOSPC)
-			ubifs_warn("out of space for mmapped file "
-				   "(inode number %lu)", inode->i_ino);
+			ubifs_warn("out of space for mmapped file (inode number %lu)",
+				   inode->i_ino);
 		return VM_FAULT_SIGBUS;
 	}
 
@@ -1546,7 +1543,6 @@ static int ubifs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	int err;
 
-	/* 'generic_file_mmap()' takes care of NOMMU case */
 	err = generic_file_mmap(file, vma);
 	if (err)
 		return err;
@@ -1567,12 +1563,10 @@ const struct address_space_operations ubifs_file_address_operations = {
 const struct inode_operations ubifs_file_inode_operations = {
 	.setattr     = ubifs_setattr,
 	.getattr     = ubifs_getattr,
-#ifdef CONFIG_UBIFS_FS_XATTR
 	.setxattr    = ubifs_setxattr,
 	.getxattr    = ubifs_getxattr,
 	.listxattr   = ubifs_listxattr,
 	.removexattr = ubifs_removexattr,
-#endif
 };
 
 const struct inode_operations ubifs_symlink_inode_operations = {

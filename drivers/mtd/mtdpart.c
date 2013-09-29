@@ -348,6 +348,7 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 	slave->mtd.flags = master->flags & ~part->mask_flags;
 	slave->mtd.size = part->size;
 	slave->mtd.writesize = master->writesize;
+	slave->mtd.writebufsize = master->writebufsize;
 	slave->mtd.oobsize = master->oobsize;
 	slave->mtd.oobavail = master->oobavail;
 	slave->mtd.subpage_sft = master->subpage_sft;

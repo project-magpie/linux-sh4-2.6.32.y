@@ -198,3 +198,10 @@ int platform_allow_pm_sysconf(struct device *dev, int reg_nr, int freezing)
 	 */
 
 	if (pdev->id != 0)
+		return 1;
+
+	if (reg_nr != 4)
+		return 1;
+
+	return 0;
+}

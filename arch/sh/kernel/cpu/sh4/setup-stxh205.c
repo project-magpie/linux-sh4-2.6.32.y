@@ -15,6 +15,7 @@
 #include <linux/stm/stxh205.h>
 #include <linux/stm/sysconf.h>
 #include <asm/irq-ilc.h>
+#include <asm/restart.h>
 
 /* SH4-only resources ----------------------------------------------------- */
 
@@ -58,7 +59,26 @@ static int __init stxh205_sh4_devices_setup(void)
 }
 core_initcall(stxh205_sh4_devices_setup);
 
+/* Warm reboot --------------------------------------------------------- */
 
+void stxh205_prepare_restart(void)
+{
+	struct sysconf_field *sc;
+
+	sc = sysconf_claim(SYSCONF(498), 0, 0, "reset");
+	sysconf_write(sc, 0);
+
+	sc = sysconf_claim(SYSCONF(475), 2, 2, "reset");
+	sysconf_write(sc, 0);
+}
+
+static int __init stxh205_reset_init(void)
+{
+	register_prepare_restart_handler(stxh205_prepare_restart);
+
+	return 0;
+}
+arch_initcall(stxh205_reset_init);
 
 /* Interrupt initialisation ----------------------------------------------- */
 

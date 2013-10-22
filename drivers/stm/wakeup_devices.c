@@ -60,6 +60,7 @@ static int __check_wakeup_device(struct device *dev, void *data)
 	return 0;
 }
 
+#ifdef CONFIG_PHYLIB
 static int __check_mdio_wakeup_device(struct device *dev, void *data)
 {
 	struct stm_wakeup_devices *wkd = (struct stm_wakeup_devices *)data;
@@ -73,12 +74,15 @@ static int __check_mdio_wakeup_device(struct device *dev, void *data)
 
 	return 0;
 }
+#endif
 
 int stm_check_wakeup_devices(struct stm_wakeup_devices *wkd)
 {
 	stm_wake_init(wkd);
 	bus_for_each_dev(&platform_bus_type, NULL, wkd, __check_wakeup_device);
+#ifdef CONFIG_PHYLIB
 	bus_for_each_dev(&mdio_bus_type, NULL, wkd, __check_mdio_wakeup_device);
+#endif
 	return 0;
 }
 

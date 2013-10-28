@@ -74,8 +74,6 @@ struct stm_spi_fsm {
 #define FLASH_CMD_SE_32K	0x52
 #define FLASH_CMD_SE		0xd8
 #define FLASH_CMD_CHIPERASE	0xc7
-#define FLASH_CMD_WRVCR		0x81
-#define FLASH_CMD_RDVCR		0x85
 
 #define FLASH_CMD_READ		0x03	/* READ */
 #define FLASH_CMD_READ_FAST	0x0b	/* FAST READ */
@@ -106,6 +104,12 @@ struct stm_spi_fsm {
 /*	- READ/CLEAR Flags Status register */
 #define N25Q_CMD_RFSR		0x70
 #define N25Q_CMD_CLFSR		0x50
+#define N25Q_CMD_WRVCR		0x81
+#define N25Q_CMD_RDVCR		0x85
+#define N25Q_CMD_RDVECR		0x65
+#define N25Q_CMD_RDNVCR		0xb5
+#define N25Q_CMD_WRNVCR		0xb1
+
 
 /* MX25 Commands */
 /*	- Read Security Register (home of '4BYTE' status bit!) */
@@ -241,23 +245,6 @@ static struct fsm_seq fsm_seq_write_status = {
 		    SEQ_CFG_STARTSEQ),
 };
 
-static struct fsm_seq fsm_seq_wrvcr = {
-	.seq_opc[0] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
-		       SEQ_OPC_OPCODE(FLASH_CMD_WREN) | SEQ_OPC_CSDEASSERT),
-	.seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
-		       SEQ_OPC_OPCODE(FLASH_CMD_WRVCR)),
-	.seq = {
-		FSM_INST_CMD1,
-		FSM_INST_CMD2,
-		FSM_INST_STA_WR1,
-		FSM_INST_STOP,
-	},
-	.seq_cfg = (SEQ_CFG_PADS_1 |
-		    SEQ_CFG_READNOTWRITE |
-		    SEQ_CFG_CSDEASSERT |
-		    SEQ_CFG_STARTSEQ),
-};
-
 static struct fsm_seq fsm_seq_erase_sector = {
 	/* 'addr_cfg' configured during initialisation */
 	.seq_opc = {
@@ -334,7 +321,6 @@ char *flash_cmd_strs[256] = {
 	[FLASH_CMD_SE_4K]	= "SE_4K",
 	[FLASH_CMD_SE_32K]	= "SE_32K",
 	[FLASH_CMD_CHIPERASE]	= "CHIPERASE",
-	[FLASH_CMD_WRVCR]	= "WRVCR",
 	[FLASH_CMD_READ]	= "READ",
 	[FLASH_CMD_READ_FAST]	= "READ_FAST",
 	[FLASH_CMD_READ_1_1_2]	= "READ_1_1_2",
@@ -813,13 +799,6 @@ static int fsm_search_configure_rw_seq(struct stm_spi_fsm *fsm,
 	return 0;
 }
 
-static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
-			   uint8_t *status);
-static int fsm_write_status(struct stm_spi_fsm *fsm, uint16_t status,
-			    int sta_bytes);
-static int fsm_wrvcr(struct stm_spi_fsm *fsm, uint8_t data);
-static int fsm_enter_32bitaddr(struct stm_spi_fsm *fsm, int enter);
-
 /* [DEFAULT] Configure READ/WRITE/ERASE sequences */
 static int fsm_config_rwe_seqs_default(struct stm_spi_fsm *fsm,
 				      struct flash_info *info)
@@ -857,6 +836,11 @@ static int fsm_config_rwe_seqs_default(struct stm_spi_fsm *fsm,
 	return 0;
 }
 
+static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
+			   uint8_t *data, int bytes);
+static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
+			    uint16_t status, int bytes, int wait_busy);
+static int fsm_enter_32bitaddr(struct stm_spi_fsm *fsm, int enter);
 static uint8_t fsm_wait_busy(struct stm_spi_fsm *fsm);
 static int fsm_write_fifo(struct stm_spi_fsm *fsm,
 			  const uint32_t *buf, const uint32_t size);
@@ -866,30 +850,43 @@ static inline void fsm_load_seq(struct stm_spi_fsm *fsm,
 				const struct fsm_seq *const seq);
 static int fsm_wait_seq(struct stm_spi_fsm *fsm);
 
-/* [W25Qxxx] Configure READ/WRITE sequences */
-#define W25Q_STATUS_QE			(0x1 << 9)
+/*
+ * [W25Qxxx] Configuration
+ */
+#define W25Q_STATUS_QE			(0x1 << 1)
+
 static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
 	uint32_t data_pads;
-	uint8_t sta1, sta2;
-	uint16_t sta_wr;
+	uint8_t sr1, sr2;
+	uint16_t sr_wr;
+	int update_sr;
 
 	if (fsm_config_rwe_seqs_default(fsm, info) != 0)
 		return 1;
 
-	/* If using QUAD mode, set QE STATUS bit */
+	/* Check status of 'QE' bit, update if required. */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
+	fsm_read_status(fsm, FLASH_CMD_RDSR2, &sr2, 1);
+	update_sr = 0;
 	if (data_pads == 4) {
-		fsm_read_status(fsm, FLASH_CMD_RDSR, &sta1);
-		fsm_read_status(fsm, FLASH_CMD_RDSR2, &sta2);
-
-		sta_wr = ((uint16_t)sta2 << 8) | sta1;
-
-		sta_wr |= W25Q_STATUS_QE;
-
-		fsm_write_status(fsm, sta_wr, 2);
-
-		fsm_wait_busy(fsm);
+		if (!(sr2 & W25Q_STATUS_QE)) {
+			/* Set 'QE' */
+			sr2 |= W25Q_STATUS_QE;
+			update_sr = 1;
+		}
+	} else {
+		if (sr2 & W25Q_STATUS_QE) {
+			/* Clear 'QE' */
+			sr2 &= ~W25Q_STATUS_QE;
+			update_sr = 1;
+		}
+	}
+	if (update_sr) {
+		/* Write status register */
+		fsm_read_status(fsm, FLASH_CMD_RDSR, &sr1, 1);
+		sr_wr = ((uint16_t)sr2 << 8) | sr1;
+		fsm_write_status(fsm, FLASH_CMD_WRSR, sr_wr, 2, 1);
 	}
 
 	return 0;
@@ -1049,6 +1046,7 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	uint16_t sta_wr;
 	uint32_t capabilities = info->capabilities;
 	uint32_t offs;
+	int update_sr;
 
 	/* Mask out-capabilities not supported by platform */
 	if (fsm->capabilities.quad_mode == 0)
@@ -1100,34 +1098,27 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 		}
 	}
 
-	/* Check status of 'QE' bit */
+	/* Check status of 'QE' bit, update if required. */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
-	fsm_read_status(fsm, FLASH_CMD_RDSR2, &cr1);
+	fsm_read_status(fsm, FLASH_CMD_RDSR2, &cr1, 1);
+	update_sr = 0;
 	if (data_pads == 4) {
 		if (!(cr1 & S25FL_CONFIG_QE)) {
 			/* Set 'QE' */
 			cr1 |= S25FL_CONFIG_QE;
-
-			fsm_read_status(fsm, FLASH_CMD_RDSR, &sr1);
-			sta_wr = ((uint16_t)cr1  << 8) | sr1;
-
-			fsm_write_status(fsm, sta_wr, 2);
-
-			fsm_wait_busy(fsm);
+			update_sr = 1;
 		}
 	} else {
-		if ((cr1 & S25FL_CONFIG_QE)) {
+		if (cr1 & S25FL_CONFIG_QE) {
 			/* Clear 'QE' */
 			cr1 &= ~S25FL_CONFIG_QE;
-
-			fsm_read_status(fsm, FLASH_CMD_RDSR, &sr1);
-			sta_wr = ((uint16_t)cr1  << 8) | sr1;
-
-			fsm_write_status(fsm, sta_wr, 2);
-
-			fsm_wait_busy(fsm);
+			update_sr = 1;
 		}
-
+	}
+	if (update_sr) {
+		fsm_read_status(fsm, FLASH_CMD_RDSR, &sr1, 1);
+		sta_wr = ((uint16_t)cr1  << 8) | sr1;
+		fsm_write_status(fsm, FLASH_CMD_WRSR, sta_wr, 2, 1);
 	}
 
 	/* S25FLxxx devices support Program and Error error flags.  Configure
@@ -1203,26 +1194,20 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 					      CFG_ERASESEC_TOGGLE32BITADDR);
 	}
 
-	/* Check status of 'QE' bit */
+	/* Check status of 'QE' bit, update if required. */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
-	fsm_read_status(fsm, FLASH_CMD_RDSR, &sta);
+	fsm_read_status(fsm, FLASH_CMD_RDSR, &sta, 1);
 	if (data_pads == 4) {
 		if (!(sta & MX25_STATUS_QE)) {
 			/* Set 'QE' */
 			sta |= MX25_STATUS_QE;
-
-			fsm_write_status(fsm, sta, 1);
-
-			fsm_wait_busy(fsm);
+			fsm_write_status(fsm, FLASH_CMD_WRSR, sta, 1, 1);
 		}
 	} else {
 		if (sta & MX25_STATUS_QE) {
 			/* Clear 'QE' */
 			sta &= ~MX25_STATUS_QE;
-
-			fsm_write_status(fsm, sta, 1);
-
-			fsm_wait_busy(fsm);
+			fsm_write_status(fsm, FLASH_CMD_WRSR, sta, 1, 1);
 		}
 	}
 
@@ -1370,7 +1355,7 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 */
 	vcr = (N25Q_VCR_DUMMY_CYCLES(8) | N25Q_VCR_XIP_DISABLED |
 	       N25Q_VCR_WRAP_CONT);
-	fsm_wrvcr(fsm, vcr);
+	fsm_write_status(fsm, N25Q_CMD_WRVCR, vcr, 1, 0);
 
 	return ret;
 }
@@ -1525,59 +1510,56 @@ static int fsm_read_jedec(struct stm_spi_fsm *fsm, uint8_t *const jedec)
 }
 
 static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
-			   uint8_t *status)
+			   uint8_t *data, int bytes)
 {
 	struct fsm_seq *seq = &fsm_seq_read_status_fifo;
 	uint32_t tmp;
+	uint8_t *t = (uint8_t *)&tmp;
+	int i;
 
-	dev_dbg(fsm->dev, "reading STA[%s]\n",
-		(cmd == FLASH_CMD_RDSR) ? "1" : "2");
+	dev_dbg(fsm->dev, "read 'status' register [0x%02x], %d byte(s)\n",
+		cmd, bytes);
 
-	seq->seq_opc[0] = (SEQ_OPC_PADS_1 |
-			   SEQ_OPC_CYCLES(8) |
+	BUG_ON(bytes != 1 && bytes != 2);
+
+	seq->seq_opc[0] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
 			   SEQ_OPC_OPCODE(cmd)),
 
 	fsm_load_seq(fsm, seq);
 
 	fsm_read_fifo(fsm, &tmp, 4);
 
-	*status = (uint8_t)(tmp >> 24);
+	for (i = 0; i < bytes; i++)
+		data[i] = t[i];
 
 	fsm_wait_seq(fsm);
 
 	return 0;
 }
 
-static int fsm_write_status(struct stm_spi_fsm *fsm, uint16_t status,
-			    int sta_bytes)
+static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
+			    uint16_t data, int bytes, int wait_busy)
 {
 	struct fsm_seq *seq = &fsm_seq_write_status;
 
-	dev_dbg(fsm->dev, "writing STA[%s] 0x%04x\n",
-		(sta_bytes == 1) ? "1" : "1+2", status);
+	dev_dbg(fsm->dev, "write 'status' register [0x%02x], %d byte(s), "
+		"0x%04x, %s wait-busy\n",
+		cmd, bytes, data, wait_busy ? "with" : "no");
 
-	seq->status = (uint32_t)status | STA_PADS_1 | STA_CSDEASSERT;
-	seq->seq[2] = (sta_bytes == 1) ? FSM_INST_STA_WR1 : FSM_INST_STA_WR1_2;
+	BUG_ON(bytes != 1 && bytes != 2);
 
-	fsm_load_seq(fsm, seq);
+	seq->seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
+			   SEQ_OPC_OPCODE(cmd));
 
-	fsm_wait_seq(fsm);
-
-	return 0;
-};
-
-static int fsm_wrvcr(struct stm_spi_fsm *fsm, uint8_t data)
-{
-	struct fsm_seq *seq = &fsm_seq_wrvcr;
-
-	dev_dbg(fsm->dev, "writing VCR 0x%02x\n", data);
-
-	seq->status = (STA_DATA_BYTE1(data) |
-		       STA_PADS_1 | STA_CSDEASSERT);
+	seq->status = (uint32_t)data | STA_PADS_1 | STA_CSDEASSERT;
+	seq->seq[2] = (bytes == 1) ? FSM_INST_STA_WR1 : FSM_INST_STA_WR1_2;
 
 	fsm_load_seq(fsm, seq);
 
 	fsm_wait_seq(fsm);
+
+	if (wait_busy)
+		fsm_wait_busy(fsm);
 
 	return 0;
 }

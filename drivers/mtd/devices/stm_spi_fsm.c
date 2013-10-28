@@ -25,8 +25,6 @@
 
 #define NAME		"stm-spi-fsm"
 
-/* #define DEBUG_SPI_FSM_SEQS */
-
 #define FLASH_PROBE_FREQ	10		/* Probe freq. (MHz) */
 #define FLASH_PAGESIZE		256
 #define FLASH_MAX_BUSY_WAIT	(10 * HZ)	/* Maximum erase time */
@@ -309,7 +307,7 @@ static struct fsm_seq fsm_seq_en32bitaddr;
 /*
  * Debug code for examining FSM sequences
  */
-#ifdef DEBUG_SPI_FSM_SEQS
+#ifdef CONFIG_STM_SPI_FSM_DEBUG
 char *flash_cmd_strs[256] = {
 	[FLASH_CMD_WREN]	= "WREN",
 	[FLASH_CMD_WRDI]	= "WRDI",
@@ -465,7 +463,7 @@ static void fsm_dump_seq(char *tag, struct fsm_seq *seq)
 	printk(KERN_INFO "\t-------------------------------------------------"
 	       "--------------\n");
 }
-#endif /* DEBUG_SPI_FSM_SEQS */
+#endif /* CONFIG_STM_SPI_FSM_DEBUG */
 
 /*
  * SPI Flash Device Table
@@ -1131,7 +1129,7 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 */
 	fsm->configuration |= CFG_S25FL_CHECK_ERROR_FLAGS;
 
-#ifdef DEBUG_SPI_FSM_SEQS
+#ifdef CONFIG_STM_SPI_FSM_DEBUG
 	/* Debug strings for S25FLxxx specific commands */
 	flash_cmd_strs[S25FL_CMD_WRITE4]	= "WRITE4";
 	flash_cmd_strs[S25FL_CMD_WRITE4_1_1_4]	= "WRITE4_1_1_4";
@@ -1214,7 +1212,7 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 		}
 	}
 
-#ifdef DEBUG_SPI_FSM_SEQS
+#ifdef CONFIG_STM_SPI_FSM_DEBUG
 	/* Debug strings for MX25xxx specific commands */
 	flash_cmd_strs[MX25_CMD_RDSCUR]	= "RDSCUR";
 #endif
@@ -1365,7 +1363,7 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	       N25Q_VCR_WRAP_CONT);
 	fsm_write_status(fsm, N25Q_CMD_WRVCR, vcr, 1, 0);
 
-#ifdef DEBUG_SPI_FSM_SEQS
+#ifdef CONFIG_STM_SPI_FSM_DEBUG
 	/* Debug strings for N25Qxxx specific commands */
 	flash_cmd_strs[N25Q_CMD_RFSR]	= "RFSR";
 	flash_cmd_strs[N25Q_CMD_CLFSR]	= "CLRFSR";
@@ -2287,7 +2285,7 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "WARNING: no provision for SPI reset on "
 			 "boot-from-spi system\n");
 
-#ifdef DEBUG_SPI_FSM_SEQS
+#ifdef CONFIG_STM_SPI_FSM_DEBUG
 	fsm_dump_seq("FSM READ SEQ", &fsm_seq_read);
 	fsm_dump_seq("FSM WRITE_SEQ", &fsm_seq_write);
 	fsm_dump_seq("FSM ERASE_SECT_SEQ", &fsm_seq_erase_sector);

@@ -37,6 +37,7 @@
 #define CFG_WRITE_TOGGLE32BITADDR		0x00000002
 #define CFG_ERASESEC_TOGGLE32BITADDR		0x00000008
 #define CFG_S25FL_CHECK_ERROR_FLAGS		0x00000010
+#define CFG_N25Q_CHECK_ERROR_FLAGS		0x00000020
 
 
 /*
@@ -108,6 +109,15 @@ struct stm_spi_fsm {
 #define N25Q_CMD_RDNVCR		0xb5
 #define N25Q_CMD_WRNVCR		0xb1
 
+/* N25Q Flags Status Register: Error Flags */
+#define N25Q_FLAGS_ERR_ERASE	(1 << 5)
+#define N25Q_FLAGS_ERR_PROG	(1 << 4)
+#define N25Q_FLAGS_ERR_VPP	(1 << 3)
+#define N25Q_FLAGS_ERR_PROT	(1 << 1)
+#define N25Q_FLAGS_ERROR	(N25Q_FLAGS_ERR_ERASE	| \
+				 N25Q_FLAGS_ERR_PROG	| \
+				 N25Q_FLAGS_ERR_VPP	| \
+				 N25Q_FLAGS_ERR_PROT)
 
 /* MX25 Commands */
 /*	- Read Security Register (home of '4BYTE' status bit!) */
@@ -541,6 +551,7 @@ static struct flash_info __devinitdata flash_types[] = {
 	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
 	  70, mx25_config},
 
+/* Micron N25Qxxx */
 #define N25Q_CAPS (FLASH_CAPS_READ_WRITE	| \
 		   FLASH_CAPS_READ_FAST		| \
 		   FLASH_CAPS_READ_1_1_2	| \
@@ -552,8 +563,30 @@ static struct flash_info __devinitdata flash_types[] = {
 		   FLASH_CAPS_WRITE_1_1_4	| \
 		   FLASH_CAPS_WRITE_1_4_4)
 	{ "n25q128", 0x20ba18, 0, 64 * 1024,  256, N25Q_CAPS, 108, n25q_config},
-	{ "n25q256", 0x20ba19, 0, 64 * 1024,  512,
-	  N25Q_CAPS | FLASH_CAPS_32BITADDR, 108, n25q_config},
+
+	/* Micron N25Q256/N25Q512/N25Q00A (32-bit ADDR devices)
+	 *
+	 * Versions are available with or without a dedicated RESET# pin
+	 * (e.g. N25Q512A83GSF40G vs. N25Q512A13GSF40G).  To complicate matters,
+	 * the versions that include a RESET# pin (Feature Set = 8) require a
+	 * different opcode for the FLASH_CMD_WRITE_1_4_4 command.
+	 * Unfortunately it is not possible to determine easily at run-time
+	 * which version is being used.  We therefore remove support for
+	 * FLASH_CAPS_WRITE_1_4_4 (falling back to FLASH_CAPS_WRITE_1_1_4), and
+	 * defer overall support for RESET# to the board-level platform/Device
+	 * Tree property "reset-signal".
+	 */
+#define N25Q_32BITADDR_CAPS	((N25Q_CAPS		| \
+				  FLASH_CAPS_32BITADDR	| \
+				  FLASH_CAPS_RESET)	& \
+				 ~FLASH_CAPS_WRITE_1_4_4)
+	{ "n25q256", 0x20ba19,      0, 64 * 1024,   512,
+	  N25Q_32BITADDR_CAPS, 108, n25q_config},
+	{ "n25q512", 0x20ba20, 0x1000, 64 * 1024,  1024,
+	  N25Q_32BITADDR_CAPS, 108, n25q_config},
+	{ "n25q00a", 0x20ba21, 0x1000, 64 * 1024,  2048,
+	  N25Q_32BITADDR_CAPS, 108, n25q_config},
+
 
 	/* Spansion S25FLxxxP
 	 *     - 256KiB and 64KiB sector variants (identified by ext. JEDEC)
@@ -1285,9 +1318,33 @@ static int n25q_configure_en32bitaddr_seq(struct fsm_seq *seq)
 	return 0;
 }
 
+static int n25q_clear_flags(struct stm_spi_fsm *fsm)
+{
+	struct fsm_seq seq = {
+		.seq_opc[0] = (SEQ_OPC_PADS_1 |
+			       SEQ_OPC_CYCLES(8) |
+			       SEQ_OPC_OPCODE(N25Q_CMD_CLFSR) |
+			       SEQ_OPC_CSDEASSERT),
+		.seq = {
+			FSM_INST_CMD1,
+			FSM_INST_STOP,
+		},
+		.seq_cfg = (SEQ_CFG_PADS_1 |
+			    SEQ_CFG_READNOTWRITE |
+			    SEQ_CFG_CSDEASSERT |
+			    SEQ_CFG_STARTSEQ),
+	};
+
+	fsm_load_seq(fsm, &seq);
+
+	fsm_wait_seq(fsm);
+
+	return 0;
+}
+
 static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
-	uint8_t vcr;
+	uint8_t vcr, sta;
 	int ret = 0;
 	uint32_t capabilities = info->capabilities;
 
@@ -1355,6 +1412,14 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 					      CFG_ERASESEC_TOGGLE32BITADDR);
 		}
 	}
+
+	/*
+	 * Check/Clear Error Flags
+	 */
+	fsm->configuration |= CFG_N25Q_CHECK_ERROR_FLAGS;
+	fsm_read_status(fsm, N25Q_CMD_RFSR, &sta, 1);
+	if (sta & N25Q_FLAGS_ERROR)
+		n25q_clear_flags(fsm);
 
 	/*
 	 * Configure device to use 8 dummy cycles
@@ -1691,6 +1756,15 @@ static int fsm_erase_sector(struct stm_spi_fsm *fsm, const uint32_t offset)
 			s25fl_clear_status_reg(fsm);
 	}
 
+	/* N25Q: Check/Clear Error Flags */
+	if (fsm->configuration & CFG_N25Q_CHECK_ERROR_FLAGS) {
+		fsm_read_status(fsm, N25Q_CMD_RFSR, &sta, 1);
+		if (sta & N25Q_FLAGS_ERROR) {
+			ret = 1;
+			n25q_clear_flags(fsm);
+		}
+	}
+
 	/* Exit 32-bit address mode, if required */
 	if (fsm->configuration & CFG_ERASESEC_TOGGLE32BITADDR)
 		fsm_enter_32bitaddr(fsm, 0);
@@ -1862,6 +1936,15 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 		ret = 1;
 		if (fsm->configuration & CFG_S25FL_CHECK_ERROR_FLAGS)
 			s25fl_clear_status_reg(fsm);
+	}
+
+	/* N25Q: Check/Clear Error Flags */
+	if (fsm->configuration & CFG_N25Q_CHECK_ERROR_FLAGS) {
+		fsm_read_status(fsm, N25Q_CMD_RFSR, &sta, 1);
+		if (sta & N25Q_FLAGS_ERROR) {
+			ret = 1;
+			n25q_clear_flags(fsm);
+		}
 	}
 
 	/* Exit 32-bit address mode, if required */

@@ -621,6 +621,8 @@ void __init stxh205_configure_nand(struct stm_nand_config *config)
 		emiss_nandi_select(STM_NANDI_BCH);
 		stxh205_nand_bch_data.bank = config->banks;
 		stxh205_nand_bch_data.bch_ecc_cfg = config->bch_ecc_cfg;
+		stxh205_nand_bch_data.bch_bitflip_threshold =
+			config->bch_bitflip_threshold;
 		stxh205_nandi_device.dev.platform_data =
 			&stxh205_nand_bch_data;
 		stxh205_nandi_device.name = "stm-nand-bch";

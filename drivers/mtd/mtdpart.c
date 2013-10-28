@@ -57,12 +57,13 @@ static int part_read(struct mtd_info *mtd, loff_t from, size_t len,
 		len = mtd->size - from;
 	res = part->master->read(part->master, from + part->offset,
 				   len, retlen, buf);
-	if (unlikely(res)) {
-		if (res == -EUCLEAN)
-			mtd->ecc_stats.corrected += part->master->ecc_stats.corrected - stats.corrected;
-		if (res == -EBADMSG)
-			mtd->ecc_stats.failed += part->master->ecc_stats.failed - stats.failed;
-	}
+	mtd->ecc_stats.corrected += part->master->ecc_stats.corrected -
+		stats.corrected;
+
+	if (unlikely(res) && res == -EBADMSG)
+		mtd->ecc_stats.failed += part->master->ecc_stats.failed -
+			stats.failed;
+
 	return res;
 }
 
@@ -101,13 +102,15 @@ static int part_read_oob(struct mtd_info *mtd, loff_t from,
 		struct mtd_oob_ops *ops)
 {
 	struct mtd_part *part = PART(mtd);
+	struct mtd_ecc_stats stats;
 	int res;
 
 	if (from >= mtd->size)
 		return -EINVAL;
 	if (ops->datbuf && from + ops->len > mtd->size)
 		return -EINVAL;
-	res = part->master->read_oob(part->master, from + part->offset, ops);
+
+	stats = part->master->ecc_stats;
 
 	/*
 	 * If OOB is also requested, make sure that we do not read past the end
@@ -129,12 +132,15 @@ static int part_read_oob(struct mtd_info *mtd, loff_t from,
 			return -EINVAL;
 	}
 
-	if (unlikely(res)) {
-		if (res == -EUCLEAN)
-			mtd->ecc_stats.corrected++;
-		if (res == -EBADMSG)
-			mtd->ecc_stats.failed++;
-	}
+	res = part->master->read_oob(part->master, from + part->offset, ops);
+
+	mtd->ecc_stats.corrected += part->master->ecc_stats.corrected -
+		stats.corrected;
+
+	if (unlikely(res) && res == -EBADMSG)
+		mtd->ecc_stats.failed += part->master->ecc_stats.failed -
+			stats.failed;
+
 	return res;
 }
 

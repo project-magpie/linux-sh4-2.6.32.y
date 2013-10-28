@@ -49,6 +49,11 @@ static int bch_ecc_sizes[] = {
 	[BCH_30BIT_ECC] = 54,
 	[BCH_NO_ECC] = 0,
 };
+static int bch_ecc_strength[] = {
+	[BCH_18BIT_ECC] = 18,
+	[BCH_30BIT_ECC] = 30,
+	[BCH_NO_ECC] = 0,
+};
 
 /*
  * Inband Bad Block Table (IBBT)
@@ -120,6 +125,12 @@ struct nandi_controller {
 
 	int			bch_ecc_mode;	/* ECC mode */
 	int			extra_addr;	/* 'Extra' address cycle */
+
+	/* The threshold at which the number of corrected bit-flips per sector
+	 * is deemed to have reached an excessive level (triggers '-EUCLEAN'
+	 * return code).
+	 */
+	int			bitflip_threshold;
 
 	uint32_t		page_shift;	/* Some working variables */
 	uint32_t		block_shift;
@@ -501,7 +512,7 @@ static int bch_read(struct nandi_controller *nandi,
 	loff_t page_offs;
 	int page_num;
 	uint32_t col_offs;
-	int ecc_errs;
+	int ecc_errs, max_ecc_errs = 0;
 	size_t bytes;
 	uint8_t *p;
 
@@ -535,14 +546,17 @@ static int bch_read(struct nandi_controller *nandi,
 			p = bounce ? nandi->page_buf : buf;
 
 			ecc_errs = bch_read_page(nandi, page_offs, p);
+			if (bounce)
+				memcpy(buf, p + col_offs, bytes);
+
 			if (ecc_errs < 0) {
-				/* Might be better to break/return here... but
-				 * we follow approach in
-				 * nand_base.c:do_nand_read_ops()
-				 */
 				dev_err(nandi->dev, "%s: uncorrectable error "
 					"at 0x%012llx\n", __func__, page_offs);
 				nandi->info.mtd.ecc_stats.failed++;
+
+				/* Do not cache uncorrectable pages */
+				if (bounce)
+					nandi->cached_page = -1;
 			} else {
 				if (ecc_errs) {
 					dev_info(nandi->dev, "%s: corrected %u "
@@ -550,12 +564,12 @@ static int bch_read(struct nandi_controller *nandi,
 						 __func__, ecc_errs, page_offs);
 					nandi->info.mtd.ecc_stats.corrected +=
 						ecc_errs;
+					if (ecc_errs > max_ecc_errs)
+						max_ecc_errs = ecc_errs;
 				}
-			}
 
-			if (bounce) {
-				nandi->cached_page = page_num;
-				memcpy(buf, p + col_offs, bytes);
+				if (bounce)
+					nandi->cached_page = page_num;
 			}
 		}
 
@@ -571,10 +585,13 @@ static int bch_read(struct nandi_controller *nandi,
 		col_offs = 0;
 	}
 
+	/* Return '-EBADMSG' if we have encountered an uncorrectable error. */
 	if (nandi->info.mtd.ecc_stats.failed - stats.failed)
 		return -EBADMSG;
 
-	if (nandi->info.mtd.ecc_stats.corrected - stats.corrected)
+	/* Return '-EUCLEAN' if we have reached bit-flips threshold. */
+	if ((nandi->bch_ecc_mode != BCH_NO_ECC) &&
+	    (max_ecc_errs >= nandi->bitflip_threshold))
 		return -EUCLEAN;
 
 	return 0;
@@ -2158,6 +2175,8 @@ static void nandi_dump_info(struct nandi_controller *nandi)
 		nandi->sectors_per_page);
 	pr_info("\t%-20s: %s\n", "BCH ECC mode",
 		bch_ecc_strs[nandi->bch_ecc_mode]);
+	pr_info("\t%-20s: %u\n", "Bit-flips threshold",
+		nandi->bitflip_threshold);
 	pr_info("\n");
 	nandi_dump_bch_progs(nandi);
 	pr_info("--------------------------------------------------"
@@ -2859,6 +2878,19 @@ static int __devinit stm_nand_bch_probe(struct platform_device *pdev)
 	case BCH_ECC_CFG_30BIT:
 		nandi->bch_ecc_mode = BCH_30BIT_ECC;
 		break;
+	}
+
+	/*
+	 * Get bit-flips threshold. A value of '0' is interpreted as
+	 * <ecc_strength>.
+	 */
+	if (pdata->bch_bitflip_threshold) {
+		nandi->bitflip_threshold = pdata->bch_bitflip_threshold;
+	} else {
+		dev_warn(nandi->dev, "WARNING: bit-flips threshold not specified.  Defaulting to ECC strength [%d]\n",
+			 bch_ecc_strength[nandi->bch_ecc_mode]);
+		nandi->bitflip_threshold =
+			bch_ecc_strength[nandi->bch_ecc_mode];
 	}
 
 	info->ecclayout.eccbytes = nandi->sectors_per_page *

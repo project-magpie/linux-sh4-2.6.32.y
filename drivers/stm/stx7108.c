@@ -254,6 +254,8 @@ void __init stx7108_configure_nand(struct stm_nand_config *config)
 		emiss_nandi_select(STM_NANDI_BCH);
 		stx7108_nand_bch_data.bank = config->banks;
 		stx7108_nand_bch_data.bch_ecc_cfg = config->bch_ecc_cfg;
+		stx7108_nand_bch_data.bch_bitflip_threshold =
+			config->bch_bitflip_threshold;
 		stx7108_nandi_device.dev.platform_data =
 			&stx7108_nand_bch_data;
 		stx7108_nandi_device.name = "stm-nand-bch";

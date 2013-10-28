@@ -122,6 +122,8 @@ void __init fli75xx_configure_nand(struct stm_nand_config *config)
 		emiss_nandi_select(STM_NANDI_BCH);
 		fli75xx_nand_bch_data.bank = config->banks;
 		fli75xx_nand_bch_data.bch_ecc_cfg = config->bch_ecc_cfg;
+		fli75xx_nand_bch_data.bch_bitflip_threshold =
+			config->bch_bitflip_threshold;
 		fli75xx_nandi_device.dev.platform_data =
 			&fli75xx_nand_bch_data;
 		fli75xx_nandi_device.name = "stm-nand-bch";

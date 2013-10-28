@@ -330,6 +330,15 @@ enum stm_nand_bch_ecc_config {
 struct stm_plat_nand_bch_data {
 	struct stm_nand_bank_data *bank;
 	enum stm_nand_bch_ecc_config bch_ecc_cfg;
+
+	/* The threshold at which the number of corrected bit-flips per sector
+	 * is deemed to have reached an excessive level (triggers '-EUCLEAN' to
+	 * be returned to the caller).  The value should be in the range 1 to
+	 * <ecc-strength> where <ecc-strength> is 18 or 30, depending on the BCH
+	 * ECC mode in operation.  A value of 0 is interpreted by the driver as
+	 * <ecc-strength>.
+	 */
+	unsigned int bch_bitflip_threshold;
 };
 
 struct stm_plat_nand_emi_data {
@@ -352,6 +361,9 @@ struct stm_nand_config {
 		int flex_connected;
 	} rbn;
 	enum stm_nand_bch_ecc_config bch_ecc_cfg;
+	unsigned int bch_bitflip_threshold; /* See description in
+					     * 'stm_plat_nand_bch_data'.
+					     */
 };
 
 

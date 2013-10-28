@@ -341,8 +341,6 @@ char *flash_cmd_strs[256] = {
 	[FLASH_CMD_READ4_1_2_2]	= "READ4_1_2_2",
 	[FLASH_CMD_READ4_1_1_4]	= "READ4_1_1_4",
 	[FLASH_CMD_READ4_1_4_4]	= "READ4_1_4_4",
-	[S25FL_CMD_WRITE4_1_1_4] = "WRITE4_1_1_4",
-	[S25FL_CMD_SE4]		= "SE4"
 };
 
 char *fsm_inst_strs[256] = {
@@ -1127,9 +1125,13 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	fsm->configuration |= CFG_S25FL_CHECK_ERROR_FLAGS;
 
 #ifdef DEBUG_SPI_FSM_SEQS
-	/* S25FL_CMD_WRITE4 opcode clashes with default FLASH_CMD_WRITE_1_4_4.
-	 * Redefine string for SL25FLxxx device. */
-	flash_cmd_strs[S25FL_CMD_WRITE4] = "WRITE4";
+	/* Debug strings for S25FLxxx specific commands */
+	flash_cmd_strs[S25FL_CMD_WRITE4]	= "WRITE4";
+	flash_cmd_strs[S25FL_CMD_WRITE4_1_1_4]	= "WRITE4_1_1_4";
+	flash_cmd_strs[S25FL_CMD_SE4]		= "SE4";
+	flash_cmd_strs[S25FL_CMD_CLSR]		= "CLSR";
+	flash_cmd_strs[S25FL_CMD_DYBWR]		= "DYBWR";
+	flash_cmd_strs[S25FL_CMD_DYBRD]		= "DYBRD";
 #endif
 	return 0;
 }
@@ -1210,6 +1212,11 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 			fsm_write_status(fsm, FLASH_CMD_WRSR, sta, 1, 1);
 		}
 	}
+
+#ifdef DEBUG_SPI_FSM_SEQS
+	/* Debug strings for MX25xxx specific commands */
+	flash_cmd_strs[MX25_CMD_RDSCUR]	= "RDSCUR";
+#endif
 
 	return 0;
 }
@@ -1356,6 +1363,17 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	vcr = (N25Q_VCR_DUMMY_CYCLES(8) | N25Q_VCR_XIP_DISABLED |
 	       N25Q_VCR_WRAP_CONT);
 	fsm_write_status(fsm, N25Q_CMD_WRVCR, vcr, 1, 0);
+
+#ifdef DEBUG_SPI_FSM_SEQS
+	/* Debug strings for N25Qxxx specific commands */
+	flash_cmd_strs[N25Q_CMD_RFSR]	= "RFSR";
+	flash_cmd_strs[N25Q_CMD_CLFSR]	= "CLRFSR";
+	flash_cmd_strs[N25Q_CMD_RDVCR]	= "RDVCR";
+	flash_cmd_strs[N25Q_CMD_RDVECR]	= "RDVECR";
+	flash_cmd_strs[N25Q_CMD_WRVCR]	= "WRVCR";
+	flash_cmd_strs[N25Q_CMD_RDNVCR]	= "RDNVCR";
+	flash_cmd_strs[N25Q_CMD_WRNVCR]	= "WRNVCR";
+#endif
 
 	return ret;
 }

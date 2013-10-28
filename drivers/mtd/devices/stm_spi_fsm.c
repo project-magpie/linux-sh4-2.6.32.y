@@ -522,15 +522,20 @@ static struct flash_info __devinitdata flash_types[] = {
 	{ "m25px32", 0x207116, 0,  64 * 1024,  64, M25PX_CAPS, 75, NULL},
 	{ "m25px64", 0x207117, 0,  64 * 1024, 128, M25PX_CAPS, 75, NULL},
 
+	/* Macronix MX25xxx
+	 *     - Support for 'FLASH_CAPS_WRITE_1_4_4' is omitted for devices
+	 *       where operating frequency must be reduced.
+	 */
 #define MX25_CAPS (FLASH_CAPS_READ_WRITE	| \
 		   FLASH_CAPS_READ_FAST		| \
 		   FLASH_CAPS_READ_1_1_2	| \
 		   FLASH_CAPS_READ_1_2_2	| \
 		   FLASH_CAPS_READ_1_1_4	| \
 		   FLASH_CAPS_READ_1_4_4	| \
-		   FLASH_CAPS_WRITE_1_4_4	| \
 		   FLASH_CAPS_SE_4K		| \
 		   FLASH_CAPS_SE_32K)
+	{ "mx25l3255e",  0xc29e16, 0, 64 * 1024, 64,
+	  (MX25_CAPS | FLASH_CAPS_WRITE_1_4_4), 86, mx25_config},
 	{ "mx25l25635e", 0xc22019, 0, 64*1024, 512,
 	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
 	  70, mx25_config},
@@ -1165,12 +1170,6 @@ static int mx25_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
 	uint32_t data_pads;
 	uint8_t sta;
-
-	/* Disable support for 'WRITE_1_4_4' (limited to 20MHz which is of
-	 * marginal benefit on our hardware and doesn't justify implementing
-	 * different READ/WRITE frequencies).
-	 */
-	info->capabilities &= ~FLASH_CAPS_WRITE_1_4_4;
 
 	/*
 	 * Use default READ/WRITE sequences

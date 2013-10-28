@@ -347,20 +347,31 @@ static uint8_t bch_erase_block(struct nandi_controller *nandi,
 	return status;
 }
 
-/* Attempt to establish if a page is empty (likely to have been erased), while
- * tolerating a number of bits stuck at, or drifted to, 0.
+/*
+ * Detect an erased page, tolerating and correcting up to a specified number of
+ * bits at '0'.  (For many devices, it is now deemed within spec for an erased
+ * page to include a number of bits at '0', either as a result of read-disturb
+ * behaviour or 'stuck-at-zero' failures.)  Returns the number of corrected
+ * bits, or a '-1' if we have exceeded the maximum number of bits at '0' (likely
+ * to be a genuine uncorrectable ECC error).  In the latter case, the data must
+ * be returned unmodified, in accordance with the MTD API.
  */
-static int is_page_empty(uint8_t *data, uint32_t page_size, int max_bit_errors)
+static int check_erased_page(uint8_t *data, uint32_t page_size, int max_zeros)
 {
-	int e = 0;
+	uint8_t *b = data;
+	int i;
+	int zeros = 0;
 
-	while (page_size--) {
-		e += hweight8(~*data++);
-		if (e > max_bit_errors)
-			return 0;
+	for (i = 0; i < page_size; i++) {
+		zeros += hweight8(~*b++);
+		if (zeros > max_zeros)
+			return -1;
 	}
 
-	return 1;
+	if (zeros)
+		memset(data, 0xff, page_size);
+
+	return zeros;
 }
 
 /* Returns the number of ECC errors, or '-1' for uncorrectable error */
@@ -415,16 +426,15 @@ static int bch_read_page(struct nandi_controller *nandi,
 	/* Use the maximum per-sector ECC count! */
 	ecc_err = readl(nandi->base + NANDBCH_ECC_SCORE_REG_A) & 0xff;
 	if (ecc_err == 0xff) {
-		/* Do we have a genuine uncorrectable ECC error, or is it just
-		 * an erased page?
+		/* Downgrade uncorrectable ECC error for an erased page,
+		 * tolerating 'sectors_per_page' bits at zero.
 		 */
-		if (is_page_empty(buf, page_size, nandi->sectors_per_page)) {
-			dev_dbg(nandi->dev, "%s: detected uncorrectable error, "
-				"but looks like an erased page\n", __func__);
-			ret = 0;
-		} else {
-			ret = -1;
-		}
+		ret = check_erased_page(buf, page_size,
+					nandi->sectors_per_page);
+		if (ret >= 0)
+			dev_dbg(nandi->dev, "%s: erased page detected: "
+				"downgrading uncorrectable ECC error.\n",
+				__func__);
 	} else {
 		ret = (int)ecc_err;
 	}

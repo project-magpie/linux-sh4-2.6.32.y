@@ -1416,19 +1416,85 @@ static int fsm_wait_seq(struct stm_spi_fsm *fsm)
 	return 1;
 }
 
-static void fsm_clear_fifo(struct stm_spi_fsm *fsm)
+/* Dummy sequence to read one byte of data from flash into the FIFO */
+static const struct fsm_seq fsm_seq_load_fifo_byte = {
+	.data_size = TRANSFER_SIZE(1),
+	.seq_opc[0] = (SEQ_OPC_PADS_1 |
+		       SEQ_OPC_CYCLES(8) |
+		       SEQ_OPC_OPCODE(FLASH_CMD_RDID)),
+	.seq = {
+		FSM_INST_CMD1,
+		FSM_INST_DATA_READ,
+		FSM_INST_STOP,
+	},
+	.seq_cfg = (SEQ_CFG_PADS_1 |
+		    SEQ_CFG_READNOTWRITE |
+		    SEQ_CFG_CSDEASSERT |
+		    SEQ_CFG_STARTSEQ),
+};
+
+/*
+ * Clear the data FIFO
+ *
+ * Typically, this is only required during driver initialisation, where no
+ * assumptions can be made regarding the state of the FIFO.
+ *
+ * The process of clearing the FIFO is complicated by fact that while it is
+ * possible for the FIFO to contain an arbitrary number of bytes [1], the
+ * SPI_FAST_SEQ_STA register only reports the number of complete 32-bit words
+ * present.  Furthermore, data can only be drained from the FIFO by reading
+ * complete 32-bit words.
+ *
+ * With this in mind, a two stage process is used to the clear the FIFO:
+ *
+ *     1. Read any complete 32-bit words from the FIFO, as reported by the
+ *        SPI_FAST_SEQ_STA register.
+ *
+ *     2. Mop up any remaining bytes.  At this point, it is not known if there
+ *        are 0, 1, 2, or 3 bytes in the FIFO.  To handle all cases, a dummy FSM
+ *        sequence is used to load one byte at a time, until a complete 32-bit
+ *        word is formed; at most, 4 bytes will need to be loaded.
+ *
+ * [1] It is theoretically possible for the FIFO to contain an arbitrary number
+ *     of bits.  However, since there are no known use-cases that leave
+ *     incomplete bytes in the FIFO, only words and bytes are considered here.
+ */
+static int fsm_clear_fifo(struct stm_spi_fsm *fsm)
 {
-	uint32_t avail;
+	const struct fsm_seq *seq = &fsm_seq_load_fifo_byte;
+	uint32_t words;
+	int i;
 
-	while ((avail = fsm_fifo_available(fsm)) > 0) {
-
-		dev_dbg(fsm->dev, "clearing %d bytes from FIFO\n", avail*4);
-
-		while (avail) {
+	/* 1. Clear any 32-bit words */
+	words = fsm_fifo_available(fsm);
+	if (words) {
+		for (i = 0; i < words; i++)
 			readl(fsm->base + SPI_FAST_SEQ_DATA_REG);
-			avail--;
-		}
+		dev_dbg(fsm->dev, "cleared %d words from FIFO\n", words);
 	}
+
+	/* 2. Clear any remaining bytes
+	 *    - Load the FIFO, one byte at a time, until a complete 32-bit word
+	 *      is available.
+	 */
+	for (i = 0, words = 0; i < 4 && !words; i++) {
+		fsm_load_seq(fsm, seq);
+		fsm_wait_seq(fsm);
+		words = fsm_fifo_available(fsm);
+	}
+
+	/*    - A single word must be available now */
+	if (words != 1) {
+		dev_err(fsm->dev, "failed to clear bytes from the data FIFO\n");
+		return 1;
+	}
+
+	/*    - Read the 32-bit word */
+	readl(fsm->base + SPI_FAST_SEQ_DATA_REG);
+
+	dev_dbg(fsm->dev, "cleared %d byte(s) from the data FIFO\n", 4 - i);
+
+	return 0;
 }
 
 static int fsm_read_fifo(struct stm_spi_fsm *fsm,
@@ -1668,7 +1734,7 @@ static int fsm_read(struct stm_spi_fsm *fsm, uint8_t *const buf,
 	if (fsm->configuration & CFG_READ_TOGGLE32BITADDR)
 		fsm_enter_32bitaddr(fsm, 1);
 
-	/* Must read in multiples of 32 cycles (or 32*pads/8 bytes) */
+	/* Must read in multiples of 32 cycles (i.e. (32*pads)/8 bytes) */
 	data_pads = ((seq->seq_cfg >> 16) & 0x3) + 1;
 	read_mask = (data_pads << 2) - 1;
 
@@ -1701,8 +1767,6 @@ static int fsm_read(struct stm_spi_fsm *fsm, uint8_t *const buf,
 	/* Wait for sequence to finish */
 	fsm_wait_seq(fsm);
 
-	fsm_clear_fifo(fsm);
-
 	/* Exit 32-bit address mode, if required */
 	if (fsm->configuration & CFG_READ_TOGGLE32BITADDR)
 		fsm_enter_32bitaddr(fsm, 0);
@@ -1733,7 +1797,7 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 	if (fsm->configuration & CFG_WRITE_TOGGLE32BITADDR)
 		fsm_enter_32bitaddr(fsm, 1);
 
-	/* Must write in multiples of 32 cycles (or 32*pads/8 bytes) */
+	/* Must write in multiples of 32 cycles (i.e. (32*pads)/8 bytes) */
 	data_pads = ((seq->seq_cfg >> 16) & 0x3) + 1;
 	write_mask = (data_pads << 2) - 1;
 
@@ -1907,7 +1971,7 @@ static int fsm_init(struct stm_spi_fsm *fsm)
 	 */
 	writel(0x000001, fsm->base + SPI_PROGRAM_ERASE_TIME);
 
-	/* Clear FIFO, just in case */
+	/* Clear the data FIFO */
 	fsm_clear_fifo(fsm);
 
 	return 0;

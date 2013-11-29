@@ -1779,8 +1779,11 @@ static int clkgenc_xable_fsyn(clk_t *clk_p, unsigned long enable)
 
 	switch (clk_p->id) {
 	case CLK_C_REF:
-	case CLK_C_FS_VCO:
 		return CLK_ERR_FEATURE_NOT_SUPPORTED;
+	case CLK_C_FS_VCO:
+		/* PLL power up/down */
+		SYSCONF_WRITE(0, 406, 14, 14, enable ? 1 : 0);
+		return clkgenc_recalc(clk_p);
 	default:
 		break;
 	}

@@ -496,7 +496,10 @@ struct flash_info {
 	unsigned	sector_size;
 	u16		n_sectors;
 
-	/* FLASH device capabilities */
+	/* FLASH device capabilities.  Note, in contrast to the other
+	 * capabilities, 'FLASH_CAPS_32BITADDR' is set at probe time, based on
+	 * the size of the device found.
+	 */
 	u32		capabilities;
 
 	/* Maximum operating frequency.  Note, where FAST_READ is supported,
@@ -547,11 +550,9 @@ static struct flash_info __devinitdata flash_types[] = {
 	{ "mx25l3255e",  0xc29e16, 0, 64 * 1024, 64,
 	  (MX25_CAPS | FLASH_CAPS_WRITE_1_4_4), 86, mx25_config},
 	{ "mx25l25635e", 0xc22019, 0, 64*1024, 512,
-	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
-	  70, mx25_config},
+	  (MX25_CAPS | FLASH_CAPS_RESET), 70, mx25_config},
 	{ "mx25l25655e", 0xc22619, 0, 64*1024, 512,
-	  (MX25_CAPS | FLASH_CAPS_32BITADDR | FLASH_CAPS_RESET),
-	  70, mx25_config},
+	  (MX25_CAPS | FLASH_CAPS_RESET), 70, mx25_config},
 
 /* Micron N25Qxxx */
 #define N25Q_CAPS (FLASH_CAPS_READ_WRITE	| \
@@ -579,7 +580,6 @@ static struct flash_info __devinitdata flash_types[] = {
 	 * Tree property "reset-signal".
 	 */
 #define N25Q_32BITADDR_CAPS	((N25Q_CAPS		| \
-				  FLASH_CAPS_32BITADDR	| \
 				  FLASH_CAPS_RESET)	& \
 				 ~FLASH_CAPS_WRITE_1_4_4)
 	{ "n25q256", 0x20ba19,      0, 64 * 1024,   512,
@@ -622,10 +622,10 @@ static struct flash_info __devinitdata flash_types[] = {
 	  s25fl_config},
 	{ "s25fl128s1", 0x012018, 0x0301,  64 * 1024, 256, S25FLXXXS_CAPS, 80,
 	  s25fl_config},
-	{ "s25fl256s0", 0x010219, 0x4d00, 256 * 1024, 128,
-	  S25FLXXXS_CAPS | FLASH_CAPS_32BITADDR, 80, s25fl_config},
-	{ "s25fl256s1", 0x010219, 0x4d01,  64 * 1024, 512,
-	  S25FLXXXS_CAPS | FLASH_CAPS_32BITADDR, 80, s25fl_config},
+	{ "s25fl256s0", 0x010219, 0x4d00, 256 * 1024, 128, S25FLXXXS_CAPS, 80,
+	  s25fl_config},
+	{ "s25fl256s1", 0x010219, 0x4d01,  64 * 1024, 512, S25FLXXXS_CAPS, 80,
+	  s25fl_config},
 
 	/* Winbond -- w25x "blocks" are 64K, "sectors" are 4KiB */
 #define W25X_CAPS (FLASH_CAPS_READ_WRITE	| \
@@ -675,12 +675,11 @@ static struct flash_info __devinitdata flash_types[] = {
  *
  */
 static int can_handle_soc_reset(struct stm_spi_fsm *fsm,
-				      struct flash_info *info)
+				struct flash_info *info)
 {
 	/* Reset signal is available on the board and supported by the device */
 	if (fsm->capabilities.reset_signal &&
-	    (fsm->capabilities.reset_signal &&
-	     (info->capabilities & FLASH_CAPS_RESET)))
+	    (info->capabilities & FLASH_CAPS_RESET))
 		return 1;
 
 	/* Board-level logic forces a power-on-reset */
@@ -839,37 +838,29 @@ static int fsm_search_configure_rw_seq(struct stm_spi_fsm *fsm,
 
 /* [DEFAULT] Configure READ/WRITE/ERASE sequences */
 static int fsm_config_rwe_seqs_default(struct stm_spi_fsm *fsm,
-				      struct flash_info *info)
+				       struct flash_info *info)
 {
-	uint32_t capabilities = info->capabilities;
-
-	/* Mask-out capabilities not supported by platform */
-	if (fsm->capabilities.quad_mode == 0)
-		capabilities &= ~FLASH_CAPS_QUAD;
-	if (fsm->capabilities.dual_mode == 0)
-		capabilities &= ~FLASH_CAPS_DUAL;
-
 	/* Configure 'READ' sequence */
 	if (fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
 					default_read_configs,
-					capabilities) != 0) {
-		dev_err(fsm->dev, "failed to configure READ sequence "
-			"according to capabilities [0x%08x]\n", capabilities);
+					info->capabilities) != 0) {
+		dev_err(fsm->dev, "failed to configure READ sequence according to capabilities [0x%08x]\n",
+			info->capabilities);
 		return 1;
 	}
 
 	/* Configure 'WRITE' sequence */
 	if (fsm_search_configure_rw_seq(fsm, &fsm_seq_write,
 					default_write_configs,
-					capabilities) != 0) {
-		dev_err(fsm->dev, "failed to configure WRITE sequence "
-			"according to capabilities [0x%08x]\n", capabilities);
+					info->capabilities) != 0) {
+		dev_err(fsm->dev, "failed to configure WRITE sequence according to capabilities [0x%08x]\n",
+			info->capabilities);
 		return 1;
 	}
 
 	/* Configure 'ERASE_SECTOR' sequence */
 	configure_erasesec_seq(&fsm_seq_erase_sector,
-			       capabilities & FLASH_CAPS_32BITADDR);
+			       info->capabilities & FLASH_CAPS_32BITADDR);
 
 	return 0;
 }
@@ -1082,29 +1073,22 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	uint32_t data_pads;
 	uint8_t sr1, cr1, dyb;
 	uint16_t sta_wr;
-	uint32_t capabilities = info->capabilities;
 	uint32_t offs;
 	int update_sr;
 
-	/* Mask out-capabilities not supported by platform */
-	if (fsm->capabilities.quad_mode == 0)
-		capabilities &= ~FLASH_CAPS_QUAD;
-	if (fsm->capabilities.dual_mode == 0)
-		capabilities &= ~FLASH_CAPS_DUAL;
-
-	if (capabilities & FLASH_CAPS_32BITADDR) {
+	if (info->capabilities & FLASH_CAPS_32BITADDR) {
 		/*
 		 * Configure Read/Write/Erase sequences according to S25FLxxx
 		 * 32-bit address command set
 		 */
 		if (fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
 						s25fl_read4_configs,
-						capabilities) != 0)
+						info->capabilities) != 0)
 			return 1;
 
 		if (fsm_search_configure_rw_seq(fsm, &fsm_seq_write,
 						s25fl_write4_configs,
-						capabilities) != 0)
+						info->capabilities) != 0)
 			return 1;
 		if (s25fl_configure_erasesec_seq_32(&fsm_seq_erase_sector) != 0)
 			return 1;
@@ -1120,16 +1104,16 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 * unlock sectors if necessary (some variants power-on with sectors
 	 * locked by default)
 	 */
-	if (capabilities & FLASH_CAPS_DYB_LOCKING) {
+	if (info->capabilities & FLASH_CAPS_DYB_LOCKING) {
 		offs = 0;
 		for (offs = 0; offs < info->sector_size * info->n_sectors;) {
 			s25fl_read_dyb(fsm, offs, &dyb);
+
 			if (dyb == 0x00)
 				s25fl_write_dyb(fsm, offs, 0xff);
 
-			/* Handle bottom/top 4KiB parameter sectors */
 			if ((offs < info->sector_size * 2) ||
-			    (offs >= (info->sector_size - info->n_sectors * 4)))
+			    (offs >= info->sector_size * (info->n_sectors - 2)))
 				offs += 0x1000;
 			else
 				offs += 0x10000;
@@ -1348,31 +1332,24 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
 	uint8_t vcr, sta;
 	int ret = 0;
-	uint32_t capabilities = info->capabilities;
-
-	/* Mask out-capabilities not supported by platform */
-	if (fsm->capabilities.quad_mode == 0)
-		capabilities &= ~FLASH_CAPS_QUAD;
-	if (fsm->capabilities.dual_mode == 0)
-		capabilities &= ~FLASH_CAPS_DUAL;
 
 	/*
 	 * Configure 'READ' sequence
 	 */
-	if (capabilities & FLASH_CAPS_32BITADDR)
+	if (info->capabilities & FLASH_CAPS_32BITADDR)
 		/* 32-bit addressing supported by N25Q 'READ4' commands */
 		ret = fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
 						  n25q_read4_configs,
-						  capabilities);
+						  info->capabilities);
 	else
 		/* 24-bit addressing with 8 dummy cycles */
 		ret = fsm_search_configure_rw_seq(fsm, &fsm_seq_read,
 						  n25q_read3_configs,
-						  capabilities);
+						  info->capabilities);
 
 	if (ret != 0) {
-		dev_err(fsm->dev, "failed to configure READ sequence "
-			"according to capabilities [0x%08x]\n", capabilities);
+		dev_err(fsm->dev, "failed to configure READ sequence according to capabilities [0x%08x]\n",
+			info->capabilities);
 		return 1;
 	}
 
@@ -1382,10 +1359,10 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 */
 	ret = fsm_search_configure_rw_seq(fsm, &fsm_seq_write,
 					  default_write_configs,
-					  capabilities);
+					  info->capabilities);
 	if (ret != 0) {
-		dev_err(fsm->dev, "failed to configure WRITE sequence "
-			"according to capabilities [0x%08x]\n", capabilities);
+		dev_err(fsm->dev, "failed to configure WRITE sequence according to capabilities [0x%08x]\n",
+			info->capabilities);
 		return 1;
 	}
 
@@ -1393,12 +1370,12 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 * Configure 'ERASE_SECTOR' sequence
 	 */
 	configure_erasesec_seq(&fsm_seq_erase_sector,
-			       capabilities & FLASH_CAPS_32BITADDR);
+			       info->capabilities & FLASH_CAPS_32BITADDR);
 
 	/*
 	 * Configure 32-bit address support
 	 */
-	if (capabilities & FLASH_CAPS_32BITADDR) {
+	if (info->capabilities & FLASH_CAPS_32BITADDR) {
 		/* Configure 'enter_32bitaddr' FSM sequence */
 		n25q_configure_en32bitaddr_seq(&fsm_seq_en32bitaddr);
 
@@ -1655,6 +1632,8 @@ static int fsm_read_jedec(struct stm_spi_fsm *fsm, uint8_t *const jedec)
 	fsm_read_fifo(fsm, tmp, 8);
 
 	memcpy(jedec, tmp, 5);
+
+	fsm_wait_seq(fsm);
 
 	return 0;
 }
@@ -2045,7 +2024,7 @@ static int fsm_init(struct stm_spi_fsm *fsm)
 	       SPI_CFG_MIN_CS_HIGH(0x0AA) |
 	       SPI_CFG_CS_SETUPHOLD(0xa0) |
 	       SPI_CFG_DATA_HOLD(0x00), fsm->base + SPI_CONFIGDATA);
-	writel(0x0016e360, fsm->base + SPI_STATUS_WR_TIME_REG);
+	writel(0x00000001, fsm->base + SPI_STATUS_WR_TIME_REG);
 
 	/*
 	 * Set the FSM 'WAIT' delay to the minimum workable value.  Note, for
@@ -2276,6 +2255,7 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	struct resource *resource;
 	int ret = 0;
 	struct flash_info *info;
+	uint64_t size;
 	unsigned i;
 
 	/* Allocate memory for the driver structure (and zero it) */
@@ -2350,6 +2330,17 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "WARNING: expecting '%s', found '%s'\n",
 			 data->name, info->name);
 
+	/* Mask-out capabilities not supported by the platform */
+	if (fsm->capabilities.quad_mode == 0)
+		info->capabilities &= ~FLASH_CAPS_QUAD;
+	if (fsm->capabilities.dual_mode == 0)
+		info->capabilities &= ~FLASH_CAPS_DUAL;
+
+	/* Determine 32-bit addressing requirement */
+	size = info->sector_size * info->n_sectors;
+	if (size > 0x1000000)
+		info->capabilities |= FLASH_CAPS_32BITADDR;
+
 	/* Configure READ/WRITE/ERASE sequences according to platform and device
 	 * capabilities.
 	 */
@@ -2396,7 +2387,7 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	fsm->mtd.type = MTD_NORFLASH;
 	fsm->mtd.writesize = 4;
 	fsm->mtd.flags = MTD_CAP_NORFLASH;
-	fsm->mtd.size = info->sector_size * info->n_sectors;
+	fsm->mtd.size = size;
 	fsm->mtd.erasesize = info->sector_size;
 
 	fsm->mtd.read = mtd_read;
@@ -2408,15 +2399,6 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 		 info->name,
 		 (long long)fsm->mtd.size, (long long)(fsm->mtd.size >> 20),
 		 fsm->mtd.erasesize, (fsm->mtd.erasesize >> 10));
-
-	/* Cap size to 16MiB if 32-bit addressing is not supported/implemented
-	 * on specific device */
-	if ((fsm->mtd.size > 16 * 1024 * 1024)  &&
-	    ((info->capabilities & FLASH_CAPS_32BITADDR) == 0)) {
-		dev_info(&pdev->dev, "reducing visibility to 16MiB "
-			 "(32-bit address mode not supported on device)\n");
-		fsm->mtd.size = 16 * 1024 * 1024;
-	}
 
 	/* Add partitions */
 	if (mtd_has_partitions()) {

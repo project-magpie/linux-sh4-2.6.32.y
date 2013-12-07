@@ -353,11 +353,11 @@ static int stxh205_temp_init(struct stm_device_state *device_state)
 	struct clk *clk = clk_get(NULL, "CLK_A0_THNS");
 	struct clk *osc;
 
-	if (!IS_ERR(clk))
+	if (IS_ERR(clk))
 		return -ENODEV;
 
 	osc = clk_get(NULL, "CLK_A0_REF");
-	if (!IS_ERR(osc)) {
+	if (IS_ERR(osc)) {
 		clk_put(clk);
 		return -ENODEV;
 	}

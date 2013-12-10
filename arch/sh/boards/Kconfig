@@ -407,6 +407,14 @@ config SH_ST_B2076
 	  STMicroelectronics STxH207-HVK processor module board
 	  for a STxH207xKx (FPBGA).
 
+config SH_ST_B2141
+	bool "B2141: STxH273 Reference board"
+	depends on CPU_SUBTYPE_STXH205
+	default n
+	help
+	  Select SH_ST_B2141 if configuring for a
+	  STMicroelectronics STxH273 Reference Board.
+
 config SH_ST_CAB5197
 	bool "CAB5197: STx5197 CAB reference board"
 	depends on CPU_SUBTYPE_STX5197

@@ -806,7 +806,7 @@ iic_xfer_retry:
 
 	iic_state_machine(0, adap);
 
-	timeout = wait_event_interruptible_timeout(adap->wait_queue,
+	timeout = wait_event_timeout(adap->wait_queue,
 						   (transaction.waitcondition ==
 						    0), i2c_adap->timeout);
 

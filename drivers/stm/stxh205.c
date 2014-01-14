@@ -282,6 +282,7 @@ void __init stxh205_early_device_init(void)
 	struct sysconf_field *sc;
 	unsigned long devid;
 	unsigned long chip_revision;
+	const char* variant;
 
 	/* Initialise PIO and sysconf drivers */
 
@@ -298,8 +299,28 @@ void __init stxh205_early_device_init(void)
 	devid = sysconf_read(sc);
 	chip_revision = (devid >> 28) + 1;
 	boot_cpu_data.cut_major = chip_revision;
+	switch ((devid >> 12) & 0x3ff) {
+	case 0x04a:
+		/* STxH205 (Lille): devid 0x0d44a041 */
+		variant = "205";
+		break;
+	case 0x057:
+		/* STxH273 (Palma 2): devid 0x0d457041 */
+		boot_cpu_data.type = CPU_STXH273;
+		variant = "273";
+		break;
+	case 0x58:
+		/* STxH237 (Cardiff 2): devid 0x0d458041 */
+		boot_cpu_data.type = CPU_STXH237;
+		variant = "237";
+		break;
+	default:
+		printk(KERN_WARNING "Unknown STxH205 variant: %08lx\n", devid);
+		variant = "???";
+		break;
+	}
 
-	printk(KERN_INFO "STxH205/7 version %ld.x\n", chip_revision);
+	printk(KERN_INFO "STxH%s version %ld.x\n", variant, chip_revision);
 
 	/* We haven't configured the LPC, so the sleep instruction may
 	 * do bad things. Thus we disable it here. */

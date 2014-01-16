@@ -28,7 +28,13 @@
 
 #define FLASH_PROBE_FREQ	10		/* Probe freq. (MHz) */
 #define FLASH_PAGESIZE		256
-#define FLASH_MAX_BUSY_WAIT	(300 * HZ)	/* Maximum 'CHIPERASE' time */
+
+/* Maximum operation times (in ms) */
+#define FLASH_MAX_CHIP_ERASE_MS	500000		/* Chip Erase time */
+#define FLASH_MAX_SEC_ERASE_MS	30000		/* Sector Erase time */
+#define FLASH_MAX_PAGE_WRITE_MS 100		/* Write Page time */
+#define FLASH_MAX_STA_WRITE_MS	4000		/* Write status reg time */
+#define FSM_MAX_WAIT_SEQ_MS	1000		/* FSM execution time */
 
 
 /*
@@ -916,7 +922,7 @@ static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 			    uint16_t status, int bytes, int wait_busy);
 static int fsm_enter_32bitaddr(struct stm_spi_fsm *fsm, int enter);
-static uint8_t fsm_wait_busy(struct stm_spi_fsm *fsm);
+static uint8_t fsm_wait_busy(struct stm_spi_fsm *fsm, unsigned int max_time_ms);
 static int fsm_write_fifo(struct stm_spi_fsm *fsm,
 			  const uint32_t *buf, const uint32_t size);
 static int fsm_read_fifo(struct stm_spi_fsm *fsm,
@@ -1078,7 +1084,7 @@ static int s25fl_write_dyb(struct stm_spi_fsm *fsm, uint32_t offs, uint8_t dby)
 	fsm_load_seq(fsm, &seq);
 	fsm_wait_seq(fsm);
 
-	fsm_wait_busy(fsm);
+	fsm_wait_busy(fsm, FLASH_MAX_STA_WRITE_MS);
 
 	return 0;
 }
@@ -1490,9 +1496,14 @@ static inline void fsm_load_seq(struct stm_spi_fsm *fsm,
 
 static int fsm_wait_seq(struct stm_spi_fsm *fsm)
 {
-	unsigned long timeo = jiffies + HZ;
+	unsigned long deadline = jiffies +
+		msecs_to_jiffies(FSM_MAX_WAIT_SEQ_MS);
+	int timeout = 0;
 
-	while (time_before(jiffies, timeo)) {
+	while (!timeout) {
+		if (time_after_eq(jiffies, deadline))
+			timeout = 1;
+
 		if (fsm_is_idle(fsm))
 			return 0;
 
@@ -1627,11 +1638,12 @@ static int fsm_write_fifo(struct stm_spi_fsm *fsm,
 /*
  * Serial Flash operations
  */
-static uint8_t fsm_wait_busy(struct stm_spi_fsm *fsm)
+static uint8_t fsm_wait_busy(struct stm_spi_fsm *fsm, unsigned int max_time_ms)
 {
 	struct fsm_seq *seq = &fsm_seq_read_status_fifo;
 	unsigned long deadline;
-	uint8_t status[4] = {0x00, 0x00, 0x00, 0x00};
+	uint32_t status;
+	int timeout = 0;
 
 	/* Use RDRS1 */
 	seq->seq_opc[0] = (SEQ_OPC_PADS_1 |
@@ -1641,27 +1653,32 @@ static uint8_t fsm_wait_busy(struct stm_spi_fsm *fsm)
 	/* Load read_status sequence */
 	fsm_load_seq(fsm, seq);
 
-	/* Repeat until busy bit is deasserted, or timeout */
-	deadline = jiffies + FLASH_MAX_BUSY_WAIT;
-	do {
+	/*
+	 * Repeat until busy bit is deasserted, or timeout, or error (S25FLxxxS)
+	 */
+	deadline = jiffies + msecs_to_jiffies(max_time_ms);
+	while (!timeout) {
 		cond_resched();
+
+		if (time_after_eq(jiffies, deadline))
+			timeout = 1;
 
 		fsm_wait_seq(fsm);
 
-		fsm_read_fifo(fsm, (uint32_t *)status, 4);
+		fsm_read_fifo(fsm, &status, 4);
 
-		if ((status[3] & FLASH_STATUS_BUSY) == 0)
+		if ((status & FLASH_STATUS_BUSY) == 0)
 			return 0;
 
 		if ((fsm->configuration & CFG_S25FL_CHECK_ERROR_FLAGS) &&
-		    ((status[3] & S25FL_STATUS_P_ERR) ||
-		     (status[3] & S25FL_STATUS_E_ERR)))
-			return status[3];
+		    ((status & S25FL_STATUS_P_ERR) ||
+		     (status & S25FL_STATUS_E_ERR)))
+			return (uint8_t)(status & 0xff);
 
-		/* Restart */
-		writel(seq->seq_cfg, fsm->base + SPI_FAST_SEQ_CFG);
-
-	} while (!time_after_eq(jiffies, deadline));
+		if (!timeout)
+			/* Restart */
+			writel(seq->seq_cfg, fsm->base + SPI_FAST_SEQ_CFG);
+	}
 
 	dev_err(fsm->dev, "timeout on wait_busy\n");
 
@@ -1734,7 +1751,7 @@ static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 	fsm_wait_seq(fsm);
 
 	if (wait_busy)
-		fsm_wait_busy(fsm);
+		fsm_wait_busy(fsm, FLASH_MAX_STA_WRITE_MS);
 
 	return 0;
 }
@@ -1776,7 +1793,7 @@ static int fsm_erase_sector(struct stm_spi_fsm *fsm, const uint32_t offset)
 	fsm_wait_seq(fsm);
 
 	/* Wait for completion */
-	sta = fsm_wait_busy(fsm);
+	sta = fsm_wait_busy(fsm, FLASH_MAX_STA_WRITE_MS);
 	if (sta != 0) {
 		ret = 1;
 		if (fsm->configuration & CFG_S25FL_CHECK_ERROR_FLAGS)
@@ -1809,7 +1826,7 @@ static int fsm_erase_chip(struct stm_spi_fsm *fsm)
 
 	fsm_wait_seq(fsm);
 
-	fsm_wait_busy(fsm);
+	fsm_wait_busy(fsm, FLASH_MAX_CHIP_ERASE_MS);
 
 	return 0;
 }
@@ -1958,7 +1975,7 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 	fsm_wait_seq(fsm);
 
 	/* Wait for completion */
-	sta = fsm_wait_busy(fsm);
+	sta = fsm_wait_busy(fsm, FLASH_MAX_PAGE_WRITE_MS);
 	if (sta != 0) {
 		ret = 1;
 		if (fsm->configuration & CFG_S25FL_CHECK_ERROR_FLAGS)

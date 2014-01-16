@@ -779,7 +779,7 @@ static struct seq_rw_config
 {
 	struct seq_rw_config *config;
 
-	for (config = configs; configs->cmd != 0; config++)
+	for (config = configs; config->cmd != 0; config++)
 		if ((config->capabilities & capabilities) ==
 		    config->capabilities)
 			return config;
@@ -2018,7 +2018,7 @@ static int fsm_set_freq(struct stm_spi_fsm *fsm, uint32_t freq)
 
 	/* Calculate clk_div: multiple of 2, round up, 2 -> 128. Note, clk_div =
 	 * 4 is not supported on some SoCs, use 6 instead */
-	clk_div = 2*((emi_freq + (2*freq - 1))/(2*freq));
+	clk_div = 2 * DIV_ROUND_UP(emi_freq, 2 * freq);
 	if (clk_div < 2)
 		clk_div = 2;
 	else if (clk_div == 4 && fsm->capabilities.no_clk_div_4)
@@ -2037,7 +2037,7 @@ static int fsm_set_freq(struct stm_spi_fsm *fsm, uint32_t freq)
 	else if (clk_div <= 10)
 		fsm->fifo_dir_delay = 1;
 	else
-		fsm->fifo_dir_delay = (clk_div + 9) / 10;
+		fsm->fifo_dir_delay = DIV_ROUND_UP(clk_div, 10);
 
 	dev_dbg(fsm->dev, "emi_clk = %uHZ, spi_freq = %uHZ, clock_div = %u\n",
 		emi_freq, freq, clk_div);
@@ -2388,16 +2388,14 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	/* Configure READ/WRITE/ERASE sequences according to platform and device
 	 * capabilities.
 	 */
-	if (info->config) {
-		if (info->config(fsm, info) != 0) {
-			ret = -EINVAL;
-			goto out5;
-		}
-	} else {
-		if (fsm_config_rwe_seqs_default(fsm, info) != 0) {
-			ret = -EINVAL;
-			goto out5;
-		}
+	if (info->config)
+		ret = info->config(fsm, info);
+	else
+		ret = fsm_config_rwe_seqs_default(fsm, info);
+
+	if (ret != 0) {
+		ret = -EINVAL;
+		goto out5;
 	}
 
 	if (fsm->capabilities.boot_from_spi &&

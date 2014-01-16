@@ -38,10 +38,11 @@
 
 
 /*
- * Flags to tweak operation of default read/write/erase routines
+ * Flags to tweak operation of default read/write/erase/lock routines
  */
 #define CFG_READ_TOGGLE32BITADDR		0x00000001
 #define CFG_WRITE_TOGGLE32BITADDR		0x00000002
+#define CFG_LOCK_TOGGLE32BITADDR		0x00000004
 #define CFG_ERASESEC_TOGGLE32BITADDR		0x00000008
 #define CFG_S25FL_CHECK_ERROR_FLAGS		0x00000010
 #define CFG_N25Q_CHECK_ERROR_FLAGS		0x00000020
@@ -58,6 +59,14 @@ struct stm_spi_fsm {
 	struct stm_spifsm_caps	capabilities;
 	uint32_t		configuration;
 	uint32_t		fifo_dir_delay;
+
+	/* Block locking support */
+	uint8_t			lock_mask;
+	uint8_t			lock_val[2];
+
+	/* 4KiB Parameter Sector boundaries */
+	uint64_t		p4k_bot_end;
+	uint64_t		p4k_top_start;
 
 	void __iomem		*base;
 	struct mutex		lock;
@@ -115,6 +124,9 @@ struct stm_spi_fsm {
 #define N25Q_CMD_RDVECR		0x65
 #define N25Q_CMD_RDNVCR		0xb5
 #define N25Q_CMD_WRNVCR		0xb1
+#define N25Q_CMD_RDLOCK		0xe8
+#define N25Q_CMD_WRLOCK		0xe5
+
 
 /* N25Q Flags Status Register: Error Flags */
 #define N25Q_FLAGS_ERR_ERASE	(1 << 5)
@@ -169,7 +181,10 @@ struct stm_spi_fsm {
 #define FLASH_CAPS_CE		0x00000010
 #define FLASH_CAPS_32BITADDR	0x00000020
 #define FLASH_CAPS_RESET	0x00000040
-#define FLASH_CAPS_DYB_LOCKING	0x00000080
+/* Device supports some form of volatile, individual block locking scheme
+ * (e.g. Spansion's "DYB" scheme, or Micron's "Sector Lock Register").
+ */
+#define FLASH_CAPS_BLK_LOCKING	0x00000080
 
 #define FLASH_CAPS_DUAL		0x0000ff00
 #define FLASH_CAPS_READ_1_1_2	0x00000100
@@ -186,6 +201,9 @@ struct stm_spi_fsm {
 #define FLASH_CAPS_WRITE_1_1_4	0x00100000
 #define FLASH_CAPS_WRITE_1_4_4	0x00200000
 #define FLASH_CAPS_WRITE_4_4_4	0x00400000
+
+#define FSM_BLOCK_UNLOCKED	0
+#define FSM_BLOCK_LOCKED	1
 
 /*
  * FSM template sequences (Note, various fields are modified on-the-fly)
@@ -326,6 +344,8 @@ static int configure_erasesec_seq(struct fsm_seq *seq, int use_32bit_addr)
 static struct fsm_seq fsm_seq_read;
 static struct fsm_seq fsm_seq_write;
 static struct fsm_seq fsm_seq_en32bitaddr;
+static struct fsm_seq fsm_seq_rd_lock_reg;
+static struct fsm_seq fsm_seq_wr_lock_reg;
 
 /*
  * Debug code for examining FSM sequences
@@ -604,7 +624,8 @@ static struct flash_info __devinitdata flash_types[] = {
 		   FLASH_CAPS_WRITE_1_1_2	| \
 		   FLASH_CAPS_WRITE_1_2_2	| \
 		   FLASH_CAPS_WRITE_1_1_4	| \
-		   FLASH_CAPS_WRITE_1_4_4)
+		   FLASH_CAPS_WRITE_1_4_4	| \
+		   FLASH_CAPS_BLK_LOCKING)
 	JEDEC_INFO("n25q128", 0x20ba18, 64 * 1024,  256,
 		   N25Q_CAPS, 108, n25q_config),
 
@@ -665,7 +686,7 @@ static struct flash_info __devinitdata flash_types[] = {
 	 */
 #define S25FLXXXS_CAPS (S25FLXXXP_CAPS		| \
 			FLASH_CAPS_RESET	| \
-			FLASH_CAPS_DYB_LOCKING)
+			FLASH_CAPS_BLK_LOCKING)
 	RDID_INFO("s25fl128s0", RDID({0x01, 0x20, 0x18, 0x4d, 0x00, 0x80}), 6,
 		  256 * 1024, 64, S25FLXXXS_CAPS, 80, s25fl_config),
 	RDID_INFO("s25fl128s1", RDID({0x01, 0x20, 0x18, 0x4d, 0x01, 0x80}), 6,
@@ -917,6 +938,67 @@ static int fsm_config_rwe_seqs_default(struct stm_spi_fsm *fsm,
 	return 0;
 }
 
+/* Configure Block Lock Reg Read/Write sequences */
+static int configure_block_lock_seqs(struct fsm_seq *rd_lock_seq,
+				     uint8_t rd_lock_opcode,
+				     struct fsm_seq *wr_lock_seq,
+				     uint8_t wr_lock_opcode,
+				     int use_32bit_addr)
+{
+	int addr1_cycles = use_32bit_addr ? 16 : 8;
+
+	/* Read Block Lock status */
+	*rd_lock_seq = (struct fsm_seq) {
+		.data_size = TRANSFER_SIZE(4),
+		.seq_opc[0] = (SEQ_OPC_PADS_1 |
+			       SEQ_OPC_CYCLES(8) |
+			       SEQ_OPC_OPCODE(rd_lock_opcode)),
+		.addr_cfg = (ADR_CFG_CYCLES_ADD1(addr1_cycles) |
+			     ADR_CFG_PADS_1_ADD1 |
+			     ADR_CFG_CYCLES_ADD2(16) |
+			     ADR_CFG_PADS_1_ADD2),
+		.seq = {
+			FSM_INST_CMD1,
+			FSM_INST_ADD1,
+			FSM_INST_ADD2,
+			FSM_INST_DATA_READ,
+			FSM_INST_STOP,
+		},
+		.seq_cfg = (SEQ_CFG_PADS_1 |
+			    SEQ_CFG_READNOTWRITE |
+			    SEQ_CFG_CSDEASSERT |
+			    SEQ_CFG_STARTSEQ),
+	};
+
+	/* Write Block Lock status */
+	*wr_lock_seq = (struct fsm_seq) {
+		.seq_opc[0] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
+			       SEQ_OPC_OPCODE(FLASH_CMD_WREN) |
+			       SEQ_OPC_CSDEASSERT),
+		.seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
+			       SEQ_OPC_OPCODE(wr_lock_opcode)),
+		.addr_cfg = (ADR_CFG_CYCLES_ADD1(addr1_cycles) |
+			     ADR_CFG_PADS_1_ADD1 |
+			     ADR_CFG_CYCLES_ADD2(16) |
+			     ADR_CFG_PADS_1_ADD2),
+		.seq = {
+			FSM_INST_CMD1,
+			FSM_INST_CMD2,
+			FSM_INST_ADD1,
+			FSM_INST_ADD2,
+			FSM_INST_STA_WR1,
+			FSM_INST_STOP,
+		},
+		.seq_cfg = (SEQ_CFG_PADS_1 |
+			    SEQ_CFG_READNOTWRITE |
+			    SEQ_CFG_CSDEASSERT |
+			    SEQ_CFG_STARTSEQ),
+	};
+
+	return 0;
+}
+
+
 static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 			   uint8_t *data, int bytes);
 static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
@@ -1014,81 +1096,6 @@ static int s25fl_configure_erasesec_seq_32(struct fsm_seq *seq)
 	return 0;
 }
 
-static int s25fl_read_dyb(struct stm_spi_fsm *fsm, uint32_t offs, uint8_t *dby)
-{
-	struct fsm_seq seq = {
-		.data_size = TRANSFER_SIZE(4),
-		.seq_opc[0] = (SEQ_OPC_PADS_1 |
-			       SEQ_OPC_CYCLES(8) |
-			       SEQ_OPC_OPCODE(S25FL_CMD_DYBRD)),
-		.addr_cfg = (ADR_CFG_CYCLES_ADD1(16) |
-			     ADR_CFG_PADS_1_ADD1 |
-			     ADR_CFG_CYCLES_ADD2(16) |
-			     ADR_CFG_PADS_1_ADD2),
-		.addr1 = (offs >> 16) & 0xffff,
-		.addr2 = offs & 0xffff,
-		.seq = {
-			FSM_INST_CMD1,
-			FSM_INST_ADD1,
-			FSM_INST_ADD2,
-			FSM_INST_DATA_READ,
-			FSM_INST_STOP,
-		},
-		.seq_cfg = (SEQ_CFG_PADS_1 |
-			    SEQ_CFG_READNOTWRITE |
-			    SEQ_CFG_CSDEASSERT |
-			    SEQ_CFG_STARTSEQ),
-	};
-	uint32_t tmp;
-
-	fsm_load_seq(fsm, &seq);
-
-	fsm_read_fifo(fsm, &tmp, 4);
-
-	*dby = (uint8_t)(tmp >> 24);
-
-	fsm_wait_seq(fsm);
-
-	return 0;
-}
-
-static int s25fl_write_dyb(struct stm_spi_fsm *fsm, uint32_t offs, uint8_t dby)
-{
-	struct fsm_seq seq = {
-		.seq_opc[0] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
-			       SEQ_OPC_OPCODE(FLASH_CMD_WREN) |
-			       SEQ_OPC_CSDEASSERT),
-		.seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
-			       SEQ_OPC_OPCODE(S25FL_CMD_DYBWR)),
-		.addr_cfg = (ADR_CFG_CYCLES_ADD1(16) |
-			     ADR_CFG_PADS_1_ADD1 |
-			     ADR_CFG_CYCLES_ADD2(16) |
-			     ADR_CFG_PADS_1_ADD2),
-		.status = (uint32_t)dby | STA_PADS_1 | STA_CSDEASSERT,
-		.addr1 = (offs >> 16) & 0xffff,
-		.addr2 = offs & 0xffff,
-		.seq = {
-			FSM_INST_CMD1,
-			FSM_INST_CMD2,
-			FSM_INST_ADD1,
-			FSM_INST_ADD2,
-			FSM_INST_STA_WR1,
-			FSM_INST_STOP,
-		},
-		.seq_cfg = (SEQ_CFG_PADS_1 |
-			    SEQ_CFG_READNOTWRITE |
-			    SEQ_CFG_CSDEASSERT |
-			    SEQ_CFG_STARTSEQ),
-	};
-
-	fsm_load_seq(fsm, &seq);
-	fsm_wait_seq(fsm);
-
-	fsm_wait_busy(fsm, FLASH_MAX_STA_WRITE_MS);
-
-	return 0;
-}
-
 static int s25fl_clear_status_reg(struct stm_spi_fsm *fsm)
 {
 	struct fsm_seq seq = {
@@ -1123,9 +1130,8 @@ static int s25fl_clear_status_reg(struct stm_spi_fsm *fsm)
 static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
 	uint32_t data_pads;
-	uint8_t sr1, cr1, dyb;
+	uint8_t sr1, cr1;
 	uint16_t sta_wr;
-	uint32_t offs;
 	int update_sr;
 
 	if (info->capabilities & FLASH_CAPS_32BITADDR) {
@@ -1151,26 +1157,25 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 			return 1;
 	}
 
-	/*
-	 * For devices that support 'DYB' sector locking, check lock status and
-	 * unlock sectors if necessary (some variants power-on with sectors
-	 * locked by default)
-	 */
-	if (info->capabilities & FLASH_CAPS_DYB_LOCKING) {
-		offs = 0;
-		for (offs = 0; offs < info->sector_size * info->n_sectors;) {
-			s25fl_read_dyb(fsm, offs, &dyb);
+	/* Configure block locking support */
+	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
+		configure_block_lock_seqs(&fsm_seq_rd_lock_reg, S25FL_CMD_DYBRD,
+					  &fsm_seq_wr_lock_reg, S25FL_CMD_DYBWR,
+					  1);
 
-			if (dyb == 0x00)
-				s25fl_write_dyb(fsm, offs, 0xff);
+		/* Handle 4KiB parameter sectors: catch-all approach to
+		 * accommodate all variants (e.g. top vs. bottom and 16 vs. 32
+		 * parameter sectors).
+		 */
+		fsm->p4k_bot_end = 32 * 0x1000;
+		fsm->p4k_top_start = (info->sector_size * info->n_sectors) -
+			(32 * 0x1000);
 
-			if ((offs < info->sector_size * 2) ||
-			    (offs >= info->sector_size * (info->n_sectors - 2)))
-				offs += 0x1000;
-			else
-				offs += 0x10000;
-		}
+		fsm->lock_mask = 0xff;
+		fsm->lock_val[FSM_BLOCK_UNLOCKED] = 0xff;
+		fsm->lock_val[FSM_BLOCK_LOCKED] = 0x00;
 	}
+
 
 	/* Check status of 'QE' bit, update if required. */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
@@ -1425,6 +1430,22 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 			       info->capabilities & FLASH_CAPS_32BITADDR);
 
 	/*
+	 * Configure block locking
+	 */
+	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
+		configure_block_lock_seqs(&fsm_seq_rd_lock_reg, N25Q_CMD_RDLOCK,
+					  &fsm_seq_wr_lock_reg, N25Q_CMD_WRLOCK,
+					  1);
+
+		fsm->p4k_bot_end = 0;
+		fsm->p4k_top_start = info->sector_size * info->n_sectors;
+
+		fsm->lock_mask = 0x1;
+		fsm->lock_val[FSM_BLOCK_UNLOCKED] = 0x0;
+		fsm->lock_val[FSM_BLOCK_LOCKED] = 0x1;
+	}
+
+	/*
 	 * Configure 32-bit address support
 	 */
 	if (info->capabilities & FLASH_CAPS_32BITADDR) {
@@ -1440,7 +1461,8 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 			/* Else, enable/disable for WRITE and ERASE operations
 			 * (READ uses special commands) */
 			fsm->configuration = (CFG_WRITE_TOGGLE32BITADDR |
-					      CFG_ERASESEC_TOGGLE32BITADDR);
+					      CFG_ERASESEC_TOGGLE32BITADDR |
+					      CFG_LOCK_TOGGLE32BITADDR);
 		}
 	}
 
@@ -1468,6 +1490,8 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	flash_cmd_strs[N25Q_CMD_WRVCR]	= "WRVCR";
 	flash_cmd_strs[N25Q_CMD_RDNVCR]	= "RDNVCR";
 	flash_cmd_strs[N25Q_CMD_WRNVCR]	= "WRNVCR";
+	flash_cmd_strs[N25Q_CMD_RDLOCK] = "RDLOCK";
+	flash_cmd_strs[N25Q_CMD_WRLOCK] = "WRLOCK";
 #endif
 
 	return ret;
@@ -1769,6 +1793,41 @@ static int fsm_enter_32bitaddr(struct stm_spi_fsm *fsm, int enter)
 	fsm_load_seq(fsm, seq);
 
 	fsm_wait_seq(fsm);
+
+	return 0;
+}
+
+static uint8_t fsm_read_lock_reg(struct stm_spi_fsm *fsm, uint32_t offs)
+{
+	struct fsm_seq *seq = &fsm_seq_rd_lock_reg;
+	uint32_t tmp;
+
+	seq->addr1 = (offs >> 16) & 0xffff,
+		seq->addr2 = offs & 0xffff,
+
+	fsm_load_seq(fsm, seq);
+
+	fsm_read_fifo(fsm, &tmp, 4);
+
+	fsm_wait_seq(fsm);
+
+	return (uint8_t)(tmp & 0xff);
+}
+
+static int fsm_write_lock_reg(struct stm_spi_fsm *fsm, uint32_t offs,
+			      uint8_t val)
+{
+	struct fsm_seq *seq = &fsm_seq_wr_lock_reg;
+
+	seq->addr1 = (offs >> 16) & 0xffff;
+	seq->addr2 = offs & 0xffff;
+	seq->status = val | STA_PADS_1 | STA_CSDEASSERT;
+
+	fsm_load_seq(fsm, seq);
+
+	fsm_wait_seq(fsm);
+
+	fsm_wait_busy(fsm, FLASH_MAX_STA_WRITE_MS);
 
 	return 0;
 }
@@ -2266,6 +2325,100 @@ static int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 	return 0;
 }
 
+static int fsm_xxlock_oneblock(struct stm_spi_fsm *fsm, loff_t offs, int lock)
+{
+	uint8_t msk;
+	uint8_t val;
+	uint8_t reg;
+
+	msk = fsm->lock_mask;
+	val = lock ? fsm->lock_val[FSM_BLOCK_LOCKED] :
+		fsm->lock_val[FSM_BLOCK_UNLOCKED];
+
+	reg = fsm_read_lock_reg(fsm, offs);
+	if ((reg & msk) != val) {
+		reg = (reg & ~msk) | (val & msk);
+		fsm_write_lock_reg(fsm, offs, reg);
+		reg = fsm_read_lock_reg(fsm, offs);
+		if ((reg & msk) != val) {
+			dev_err(fsm->dev, "Failed to %s sector at 0x%012llx\n",
+				lock ? "lock" : "unlock", offs);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int fsm_xxlock_blocks(struct stm_spi_fsm *fsm, loff_t offs, uint64_t len,
+			     int lock)
+{
+	struct mtd_info *mtd = &fsm->mtd;
+	uint64_t offs_end = offs + len;
+	uint64_t p4k_bot_end = fsm->p4k_bot_end;
+	uint64_t p4k_top_start = fsm->p4k_top_start;
+
+	if (fsm->configuration & CFG_LOCK_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 1);
+
+	while (offs < offs_end) {
+		fsm_xxlock_oneblock(fsm, offs, lock);
+
+		/* Parameter sectors have 4KiB locking granularity */
+		if (offs < p4k_bot_end || offs >= p4k_top_start)
+			offs += 0x1000;
+		else
+			offs += mtd->erasesize;
+	}
+
+	if (fsm->configuration & CFG_LOCK_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 0);
+
+	return 0;
+}
+
+static int fsm_mtd_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
+{
+	struct stm_spi_fsm *fsm = mtd->priv;
+	uint32_t block_mask = mtd->erasesize - 1;
+	int ret = 0;
+
+	dev_dbg(fsm->dev, "%s %s 0x%llx, len %lld\n", __func__,
+		"at", ofs, len);
+
+	if (ofs & block_mask || len & block_mask)
+		return -EINVAL;
+
+	mutex_lock(&fsm->lock);
+
+	ret = fsm_xxlock_blocks(fsm, ofs, len, 1);
+
+	mutex_unlock(&fsm->lock);
+
+	return ret;
+}
+
+static int fsm_mtd_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
+{
+	struct stm_spi_fsm *fsm = mtd->priv;
+	uint32_t block_mask = mtd->erasesize - 1;
+	int ret = 0;
+
+	dev_dbg(fsm->dev, "%s %s 0x%llx, len %lld\n", __func__,
+		"at", ofs, len);
+
+	if (ofs & block_mask || len & block_mask)
+		return -EINVAL;
+
+	mutex_lock(&fsm->lock);
+
+	ret = fsm_xxlock_blocks(fsm, ofs, len, 0);
+
+	mutex_unlock(&fsm->lock);
+
+	return ret;
+}
+
 static int cmp_flash_info_readid_len(const void *a, const void *b)
 {
 	return ((struct flash_info *)b)->readid_len -
@@ -2452,6 +2605,11 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	fsm->mtd.read = mtd_read;
 	fsm->mtd.write = mtd_write;
 	fsm->mtd.erase = mtd_erase;
+
+	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
+		fsm->mtd.lock = fsm_mtd_lock;
+		fsm->mtd.unlock = fsm_mtd_unlock;
+	}
 
 	dev_info(&pdev->dev, "found device: %s, size = %llx (%lldMiB) "
 		 "erasesize = 0x%08x (%uKiB)\n",

@@ -99,6 +99,31 @@ synopsys_ddr32_out_of_self_refresh(DDR3SS_REG),
 END_MARKER
 };
 
+static unsigned long palma_mem_table[] __cacheline_aligned = {
+synopsys_ddr32_in_self_refresh(DDR3SS_REG),
+synopsys_ddr32_uphy_standby_enter(DDR3SS_REG),
+
+OR32(CLK_A1_BASE + CKGA_POWER_CFG, 3),
+ /* END. */
+END_MARKER,
+
+/*
+ * Turn-on DDR clock:
+ * The DDR subsystem uses the channel coming from A1.HS_0
+ * this means there is _no_ ClockGen_D...
+ *
+ * - turn on the A1.PLLs
+ * - wait both the PLLs are locked
+ */
+UPDATE32(CLK_A1_BASE + CKGA_POWER_CFG, 0, ~0x3),
+WHILE_NE32(SYSTEM_STATUS_160, 3, 3),
+
+synopsys_ddr32_uphy_standby_exit(DDR3SS_REG),
+synopsys_ddr32_out_of_self_refresh(DDR3SS_REG),
+
+END_MARKER
+};
+
 static int stxh205_suspend_begin(suspend_state_t state)
 {
 	pr_info("[STM][PM] Analyzing the wakeup devices\n");
@@ -294,6 +319,15 @@ static int __init stxh205_suspend_setup(void)
 	cga0 = ioremap_nocache(0xfde98000, 0x1000);
 	cga1 = ioremap_nocache(0xfdab8000, 0x1000);
 
+	/*
+	 * In case of Palma-2 chip specific operations are required.
+	 */
+	if (boot_cpu_data.type == CPU_STXH273) {
+		stxh205_suspend.mem_tbl = (unsigned long) palma_mem_table;
+		stxh205_suspend.mem_size =
+			DIV_ROUND_UP(ARRAY_SIZE(palma_mem_table) *
+				sizeof(long), L1_CACHE_BYTES);
+	}
 	return stm_suspend_register(&stxh205_suspend);
 
 error:

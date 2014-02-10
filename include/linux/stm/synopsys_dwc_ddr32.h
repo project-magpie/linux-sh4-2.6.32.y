@@ -74,6 +74,41 @@
 
 
 /*
+ * Synopsys DWC SDram Phy Controller
+ * For registers description see:
+ * 'DesignWare Cores DDR3/2 SDRAM PHY - v3.11
+ *  Databook - April 28, 2012'
+ *
+ * - Table 3.2: PHY Register Address Mapping
+ */
+#define DDR_uPHY_PGCR_0			DDR_PHY_REG(2)
+#define DDR_uPHY_PGCR_1			DDR_PHY_REG(3)
+#define DDR_uPHY_PGCR_2			DDR_PHY_REG(35)
+#define DDR_uPHY_PGSR_0			DDR_PHY_REG(4)
+# define DDR_uPHY_PGSR0_IDONE			(1 << 0)
+# define DDR_uPHY_PGSR0_PLDONE			(1 << 1)
+# define DDR_uPHY_PGSR0_DCDONE			(1 << 2)
+# define DDR_uPHY_PGSR0_ZCDONE			(1 << 3)
+# define DDR_uPHY_PGSR0_APLOCK			(1 << 31)
+# define DDR_uPHY_READY			(DDR_uPHY_PGSR0_IDONE	|	\
+					DDR_uPHY_PGSR0_PLDONE	|	\
+					DDR_uPHY_PGSR0_DCDONE	|	\
+					DDR_uPHY_PGSR0_ZCDONE	|	\
+					DDR_uPHY_PGSR0_APLOCK)
+
+
+#define DDR_uPHY_PGSR_1			DDR_PHY_REG(5)
+
+#define DDR_uPHY_PLLCR			DDR_PHY_REG(6)
+# define DDR_uPHY_PLLCR_PLLPD			(1 << 29)
+# define DDR_uPHY_PLLCR_PLLRST			(1 << 30)
+# define DDR_uPHY_PLLCR_BYP			(1 << 31)
+
+#define DDR_uPHY_DXCCR			DDR_PHY_REG(15)
+# define DDR_uPHY_DXCCR_DXODT			(1 << 0)
+
+
+/*
  * Synopsys DDR32: in Self-Refresh
  */
 #define synopsys_ddr32_in_self_refresh(_ddr_base)			\
@@ -98,16 +133,13 @@
   WHILE_NE32((_ddr_base) + DDR_STAT, DDR_STAT_MASK, DDR_STAT_ACCESS)
 
 /*
- * Synopsys DDR Phy: moving in Standby
+ * Synopsys DDR Phy: enter/exit Standby
  */
 #define synopsys_ddr32_phy_standby_enter(_ddr_base)			\
   OR32((_ddr_base) + DDR_PHY_DXCCR, DDR_PHY_DXCCR_DXODT),		\
   /* DDR_Phy Pll in reset */						\
   OR32((_ddr_base) + DDR_PHY_PIR, DDR_PHY_PIR_PLL_RESET)
 
-/*
- * Synopsys DDR Phy: moving out Standby
- */
 #define synopsys_ddr32_phy_standby_exit(_ddr_base)			\
   /* DDR_Phy Pll out of reset */					\
   UPDATE32((_ddr_base) + DDR_PHY_PIR, ~DDR_PHY_PIR_PLL_RESET, 0),	\
@@ -115,6 +147,19 @@
   WHILE_NE32((_ddr_base) + DDR_PHY_PGSR0, DDR_PHY_PLLREADY,		\
 						DDR_PHY_PLLREADY),	\
   UPDATE32((_ddr_base) + DDR_PHY_DXCCR, ~DDR_PHY_DXCCR_DXODT, 0)
+
+/*
+ * Synopsys DDR uPhy: enter/exit Standby
+ */
+#define synopsys_ddr32_uphy_standby_enter(_ddr_base)			\
+  OR32((_ddr_base) + DDR_uPHY_DXCCR, DDR_uPHY_DXCCR_DXODT),		\
+  OR32((_ddr_base) + DDR_uPHY_PLLCR, DDR_uPHY_PLLCR_PLLRST)
+
+#define synopsys_ddr32_uphy_standby_exit(_ddr_base)			\
+  UPDATE32((_ddr_base) + DDR_uPHY_PLLCR, ~DDR_uPHY_PLLCR_PLLRST, 0),	\
+  WHILE_NE32((_ddr_base) + DDR_uPHY_PGSR_0, DDR_uPHY_READY,		\
+	DDR_uPHY_READY),						\
+  UPDATE32((_ddr_base) + DDR_uPHY_DXCCR, ~DDR_uPHY_DXCCR_DXODT, 0)
 
 /*
  * Synopsys DDR Phy: moving in HoM

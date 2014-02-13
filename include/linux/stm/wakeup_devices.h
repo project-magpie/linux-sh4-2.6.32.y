@@ -37,6 +37,7 @@ struct stm_wakeup_devices {
 	unsigned int kscan:1;
 	unsigned int asc:1;
 	unsigned int rtc:1;
+	unsigned int rtc_sbc:1;
 };
 
 int stm_check_wakeup_devices(struct stm_wakeup_devices *dev_wk);

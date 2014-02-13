@@ -865,6 +865,17 @@ config RTC_DRV_STM_LPC
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-stm-lpc.
 
+config RTC_DRV_STM_SBC
+	tristate "STMicroelectronics SBC RTC device driver"
+	depends on CPU_SUBTYPE_ST40 && STM_LPM
+	default n
+	help
+	  If you say yes here you get support for the
+	  STMicroelectronics Standby Controller (SBC) based RTC.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called rtc-stm-sbc.
+
 config RTC_DRV_STM_SYS
 	tristate "STMicroelectronics system services RTC device driver"
 	depends on CPU_SUBTYPE_ST40 && CPU_SUBTYPE_STX5197

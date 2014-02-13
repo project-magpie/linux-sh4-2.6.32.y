@@ -31,6 +31,16 @@
 #define lpm_debug(fmt, ...)
 #endif
 
+enum stm_lpm_pio_level {
+	STM_LPM_PIO_LOW		= 0,
+	STM_LPM_PIO_HIGH	= 1 << 7
+};
+
+enum stm_lpm_pio_direction {
+	STM_LPM_PIO_INPUT	= 0,
+	STM_LPM_PIO_OUTPUT	= 1 << 5
+};
+
 /**
  * stm_lpm_driver_data - Local struct of driver
  * @lpm_mem_base[3]:	memory region mapped by driver
@@ -647,6 +657,32 @@ static int lpm_load_segment(struct stm_lpm_driver_data *lpm_drv_p,
 	return 0;
 }
 
+static int lpm_config_power_pio(void)
+{
+#ifdef CONFIG_STM_LPM_POWER_PIO
+	/* now firmware is loaded inform SBC about wake up PIO */
+	int gpio_power = CONFIG_STM_LPM_POWER_PIO;
+	struct stm_lpm_pio_setting configurepio = {0};
+	int port, pin;
+
+	port = (gpio_power & 0xFF00) >> 0x8;
+	pin = (gpio_power & 0xF0) >> 0x4;
+
+	pr_info("stm lpm: configuring gpio_power: GPIO[%d][%d]\n",
+		port, pin);
+	if (gpio_power & 1)
+		configurepio.pio_level = STM_LPM_PIO_HIGH;
+	configurepio.interrupt_enabled = 0;
+	configurepio.pio_direction = STM_LPM_PIO_OUTPUT;
+	configurepio.pio_use = STM_LPM_PIO_POWER;
+	configurepio.pio_bank = port;
+	configurepio.pio_pin = pin;
+	return stm_lpm_setup_pio(&configurepio);
+#else
+	return 0;
+#endif
+}
+
 /**
  * lpm_load_fw() - Load sbc firmware
  * @fw:	pointer to firmware
@@ -697,7 +733,9 @@ static int lpm_load_fw(const struct firmware *fw,
 		err = stm_lpm_get_version(&driver_ver, &fw_ver);
 		if (likely(err == 0))
 			lpm_drv_p->fw_major_ver = fw_ver.major_comm_protocol;
-
+		err = lpm_config_power_pio();
+		if (err)
+			pr_err("stm_lpm: Error while configuring gpio_power\n");
 		platform_device_register_data(&lpm_drv_p->pdev->dev,
 			"stm-rtc-sbc", 0, NULL, 0);
 	}

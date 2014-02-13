@@ -274,6 +274,20 @@ config STM_LPM_RD_MONITOR
 	 Application can track powerkey in sysfs to check if power key on front panel
 	 is pressed or not.
 
+config STM_LPM_POWER_PIO
+	hex "STM Low Power GPIO Power-on/off"
+	depends on STM_LPM
+	default "0x370"
+	help
+	  This option is to select power on PIO .
+	  This information will be used by SBC to do power off SOC/board
+	  Format is encoded as "0xnnpe" where:
+		nn is GPIO port number;
+		p is GPIO pin number;
+		e is pio edge on which power will be off
+		- 1 means pio high will do power off
+		- 0 means pio low will do power off
+
 config STM_LPM_DEBUG
 	bool "STM Low Power Monitor debug"
 	depends on STM_LPM

@@ -23,6 +23,7 @@
 #include <linux/stm/sysconf.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/gpio.h>
+#include <linux/stm/lpm.h>
 
 #include <asm/irq-ilc.h>
 
@@ -99,7 +100,9 @@ static int stxh205_hom_begin(void)
 static int stxh205_hom_prepare(void)
 {
 	stm_freeze_board(&stxh205_wkd);
-
+#ifdef CONFIG_STM_LPM
+	stm_lpm_config_reboot(stm_lpm_reboot_with_ddr_self_refresh);
+#endif
 	return 0;
 }
 

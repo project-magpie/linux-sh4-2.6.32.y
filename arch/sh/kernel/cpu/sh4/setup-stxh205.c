@@ -11,9 +11,15 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/reboot.h>
+#include <linux/pm.h>
 #include <linux/stm/platform.h>
 #include <linux/stm/stxh205.h>
 #include <linux/stm/sysconf.h>
+#ifdef CONFIG_STM_LPM
+#include <linux/stm/lpm.h>
+#include <linux/stm/wakeup_devices.h>
+#endif
 #include <asm/irq-ilc.h>
 #include <asm/restart.h>
 
@@ -61,6 +67,39 @@ core_initcall(stxh205_sh4_devices_setup);
 
 /* Warm reboot --------------------------------------------------------- */
 
+#ifdef CONFIG_STM_LPM
+static void stxh205_lpm_poweroff(void)
+{
+	struct stm_wakeup_devices wkd;
+
+	stm_check_wakeup_devices(&wkd);
+
+	stm_lpm_config_reboot(stm_lpm_reboot_with_ddr_off);
+
+	stm_lpm_power_off();
+
+	machine_halt();
+}
+
+void stxh205_prepare_restart(void)
+{
+	stm_lpm_config_reboot(stm_lpm_reboot_with_ddr_off);
+
+	stm_lpm_reset(STM_LPM_SOC_RESET);
+
+	machine_halt();
+}
+
+static int __init stxh205_machine_init(void)
+{
+	register_prepare_restart_handler(stxh205_prepare_restart);
+
+	pm_power_off = stxh205_lpm_poweroff;
+
+	return 0;
+}
+arch_initcall(stxh205_machine_init);
+#else
 void stxh205_prepare_restart(void)
 {
 	struct sysconf_field *sc;
@@ -79,6 +118,7 @@ static int __init stxh205_reset_init(void)
 	return 0;
 }
 arch_initcall(stxh205_reset_init);
+#endif
 
 /* Interrupt initialisation ----------------------------------------------- */
 

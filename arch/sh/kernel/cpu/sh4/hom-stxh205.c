@@ -42,8 +42,14 @@
 
 #define SBC_GPIO_PORT(_nr)		(0xfe610000 + (_nr) * 0x1000)
 
+#ifdef CONFIG_SH_ST_B2064C_BOARD
+#define LMI_RET_GPIO_PORT		3
+#define LMI_RET_GPIO_PIN		2
+#else
 #define LMI_RET_GPIO_PORT		3
 #define LMI_RET_GPIO_PIN		3
+#endif
+
 #define LMI_RETENTION_PIN	stm_gpio(LMI_RET_GPIO_PORT, LMI_RET_GPIO_PIN)
 
 static unsigned long stxh205_hom_table[] __cacheline_aligned = {

@@ -290,4 +290,12 @@ int stm_lpm_set_adv_feature(u8 enabled, struct stm_lpm_adv_feature *feature);
 int stm_lpm_get_adv_feature(unsigned char all_features,
 				struct stm_lpm_adv_feature *feature);
 
+enum stm_lpm_config_reboot_type {
+	stm_lpm_reboot_with_ddr_self_refresh,
+	stm_lpm_reboot_with_ddr_off
+};
+
+void stm_lpm_config_reboot(enum stm_lpm_config_reboot_type type);
+
+void stm_lpm_power_off(void);
 #endif /*__LPM_H*/

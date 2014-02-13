@@ -683,6 +683,30 @@ static int lpm_config_power_pio(void)
 #endif
 }
 
+void stm_lpm_config_reboot(enum stm_lpm_config_reboot_type type)
+{
+	switch (type) {
+	case stm_lpm_reboot_with_ddr_self_refresh:
+		writel(0x9b, lpm_drv->lpm_mem_base[2] + 0x20);
+		break;
+	case stm_lpm_reboot_with_ddr_off:
+		writel(0x30, lpm_drv->lpm_mem_base[2] + 0x20);
+		break;
+	default:
+		pr_err("%s: configuration NOT supported!\n",
+			__func__);
+	}
+}
+
+void stm_lpm_power_off(void)
+{
+	/*
+	 * Raise the command 'ENTER_PASSIVE' (i.e.: 0x5)
+	 * on the mail-box; on that the SBC will remove the power
+	 */
+	writel(0x5, lpm_drv->lpm_mem_base[1] + MBX_WRITE_STATUS1);
+}
+
 /**
  * lpm_load_fw() - Load sbc firmware
  * @fw:	pointer to firmware

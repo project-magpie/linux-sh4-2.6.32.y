@@ -48,6 +48,9 @@
 #define CFG_N25Q_CHECK_ERROR_FLAGS		0x00000020
 #define CFG_S25FL_WRSR_INC_CFG			0x00000040
 
+/* Block Protect Bits (BPx) */
+#define BPX_MAX_BITS		4			/* Max BPx bits */
+#define BPX_MAX_N_BNDS		(1 << BPX_MAX_BITS)	/* Max BPx boundaries */
 
 /*
  * SPI FSM Controller data
@@ -68,6 +71,13 @@ struct stm_spi_fsm {
 	/* 4KiB Parameter Sector boundaries */
 	uint64_t		p4k_bot_end;
 	uint64_t		p4k_top_start;
+
+	/* 'BPx' Block Protection scheme */
+	int			bpx_tbprot;
+	int			bpx_n_bnds;
+	int			bpx_n_bits;
+	uint8_t			bpx_sr_masks[BPX_MAX_BITS];
+	uint64_t		bpx_bnds[BPX_MAX_N_BNDS];
 
 	void __iomem		*base;
 	struct mutex		lock;
@@ -162,6 +172,7 @@ struct stm_spi_fsm {
 #define FLASH_STATUS_BP0	0x04
 #define FLASH_STATUS_BP1	0x08
 #define FLASH_STATUS_BP2	0x10
+#define FLASH_STATUS_BP3	0x20
 #define FLASH_STATUS_SRWP0	0x80
 /*	- S25FL Error Flags */
 #define S25FL_STATUS_E_ERR	0x20
@@ -186,6 +197,8 @@ struct stm_spi_fsm {
  * (e.g. Spansion's "DYB" scheme, or Micron's "Sector Lock Register").
  */
 #define FLASH_CAPS_BLK_LOCKING	0x00000080
+/* 'BPx' Block Protection scheme */
+#define FLASH_CAPS_BPX_LOCKING	0x00000100
 
 #define FLASH_CAPS_DUAL		0x00ff0000
 #define FLASH_CAPS_READ_1_1_2	0x00010000
@@ -654,7 +667,8 @@ static struct flash_info __devinitdata flash_types[] = {
 
 	/* Spansion S25FLxxxP
 	 *     - 256KiB and 64KiB sector variants (identified by ext. JEDEC)
-	 *     - S25FL128Px do not support DUAL or QUAD I/O
+	 *     - S25FL128Px does not support DUAL or QUAD I/O and has
+	 *       non-standard BPx locking scheme.
 	 */
 #define S25FLXXXP_CAPS (FLASH_CAPS_READ_WRITE	| \
 			FLASH_CAPS_READ_1_1_2	| \
@@ -662,7 +676,8 @@ static struct flash_info __devinitdata flash_types[] = {
 			FLASH_CAPS_READ_1_1_4	| \
 			FLASH_CAPS_READ_1_4_4	| \
 			FLASH_CAPS_WRITE_1_1_4	| \
-			FLASH_CAPS_READ_FAST)
+			FLASH_CAPS_READ_FAST	| \
+			FLASH_CAPS_BPX_LOCKING)
 	RDID_INFO("s25fl032p", RDID({0x01, 0x02, 0x15, 0x4d, 0x00}), 5,
 		  64 * 1024,  64, S25FLXXXP_CAPS, 80, s25fl_config),
 	RDID_INFO("s25fl128p1", RDID({0x01, 0x20, 0x18, 0x03, 0x00}), 5,
@@ -687,7 +702,8 @@ static struct flash_info __devinitdata flash_types[] = {
 	 */
 #define S25FLXXXS_CAPS (S25FLXXXP_CAPS		| \
 			FLASH_CAPS_RESET	| \
-			FLASH_CAPS_BLK_LOCKING)
+			FLASH_CAPS_BLK_LOCKING	| \
+			FLASH_CAPS_BPX_LOCKING)
 	RDID_INFO("s25fl128s0", RDID({0x01, 0x20, 0x18, 0x4d, 0x00, 0x80}), 6,
 		  256 * 1024, 64, S25FLXXXS_CAPS, 80, s25fl_config),
 	RDID_INFO("s25fl128s1", RDID({0x01, 0x20, 0x18, 0x4d, 0x01, 0x80}), 6,
@@ -999,6 +1015,102 @@ static int configure_block_lock_seqs(struct fsm_seq *rd_lock_seq,
 	return 0;
 }
 
+/*
+ * Configure the "BPx" Block Protection Boundaries
+ *
+ * The BPx Block Protection scheme allows an area of Flash to be protected from
+ * Write and Erase operations.  The protected area is determined by the BPx bits
+ * which define an address boundary, and the TBPROT bit which selects whether
+ * protection is active below or above the boundary.  The permissible boundary
+ * addresses are determined by the size of the device, the state of TBPROT, and
+ * the number of boundaries supported by the device.
+ *
+ * Example: BP[2-0], 8 boundaries, TBPROT = 1:
+ *                   __________________________________________________________
+ *          Device: | |  |   |     |        |             |                    |
+ *                  |_|__|___|_____|________|_____________|____________________|
+ *      Protection
+ *     from bottom: |--....->
+ *                NONE                                                       ALL
+ *                  ^ ^  ^   ^     ^        ^             ^                    ^
+ * BP[2-0]:         | |  |   |     |        |             |                    |
+ *   0 0 0 ( 0/64) -  |  |   |     |        |             |                    |
+ *   0 0 1 ( 1/64) ---   |   |     |        |             |                    |
+ *   0 1 0 ( 2/64) ------    |     |        |             |                    |
+ *   0 1 1 ( 4/64) ----------      |        |             |                    |
+ *   1 0 0 ( 8/64) ----------------         |             |                    |
+ *   1 0 1 (16/64) -------------------------              |                    |
+ *   1 1 0 (32/64) ---------------------------------------                     |
+ *   1 1 1 (64/64) ------------------------------------------------------------
+ *
+ */
+static void configure_bpx_boundaries(struct stm_spi_fsm *fsm, int tbprot,
+				     uint64_t size, int n_bnds)
+{
+	int i;
+	uint64_t bpx_size;
+
+	BUG_ON(n_bnds > BPX_MAX_N_BNDS);
+
+	fsm->bpx_tbprot = tbprot;
+	fsm->bpx_n_bnds = n_bnds;
+
+	fsm->bpx_bnds[0] = tbprot ? 0 : size;
+	bpx_size = size / (1 << (n_bnds - 2));
+	for (i = 1; i < n_bnds; i++) {
+		fsm->bpx_bnds[i] = tbprot  ? bpx_size : size - bpx_size;
+		bpx_size *= 2;
+	}
+}
+
+/* Print the protected region for a particular value of PBx */
+static void dump_bpx_region(struct stm_spi_fsm *fsm, uint8_t bpx)
+{
+	char bpx_str[BPX_MAX_BITS*2+1];
+	uint8_t mask = 1 << (fsm->bpx_n_bits - 1);
+	char *p;
+	int i;
+
+	p = bpx_str;
+	for (i = 0; i < fsm->bpx_n_bits; i++) {
+		*p++ = ' ';
+		*p++ = (bpx & mask) ? '1' : '0';
+		mask >>= 1;
+	}
+	*p = '\0';
+
+	pr_info("\t%s: 0x%08llx -> 0x%08llx\n", bpx_str,
+		fsm->bpx_tbprot ? 0UL : fsm->bpx_bnds[bpx],
+		fsm->bpx_tbprot ? fsm->bpx_bnds[bpx] : fsm->mtd.size);
+}
+
+/* Print the lockable regions supported by the BPx scheme */
+static void dump_bpx_regions(struct stm_spi_fsm *fsm)
+{
+	int i;
+
+	dev_info(fsm->dev, "BP[%d-0] Lockable Regions (TBPROT = %d):\n",
+		 fsm->bpx_n_bits - 1, fsm->bpx_tbprot);
+
+	for (i = 0; i < fsm->bpx_n_bnds; i++)
+		dump_bpx_region(fsm, i);
+}
+
+/* Extract BPx from the value of the status register */
+static uint8_t status_to_bpx(struct stm_spi_fsm *fsm, uint8_t status)
+{
+	uint8_t bpx = 0;
+	uint8_t mask = 1;
+	int i;
+
+	for (i = 0; i < fsm->bpx_n_bits; i++) {
+		if (status & fsm->bpx_sr_masks[i])
+			bpx |= mask;
+		mask <<= 1;
+	}
+
+	return bpx;
+}
 
 static int fsm_read_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 			   uint8_t *data, int bytes);
@@ -1060,6 +1172,7 @@ static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
  *[S25FLxxx] Configuration
  */
 #define S25FL_CONFIG_QE			(0x1 << 1)
+#define S25FL_CONFIG_TBPROT		(0x1 << 5)
 
 /*
  * S25FLxxxS devices provide three ways of supporting 32-bit addressing: Bank
@@ -1134,6 +1247,7 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	uint8_t sr1, cr1;
 	uint16_t sta_wr;
 	int update_sr;
+	uint64_t size = info->sector_size * info->n_sectors;
 
 	if (info->capabilities & FLASH_CAPS_32BITADDR) {
 		/*
@@ -1174,14 +1288,28 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 		 * parameter sectors).
 		 */
 		fsm->p4k_bot_end = 32 * 0x1000;
-		fsm->p4k_top_start = (info->sector_size * info->n_sectors) -
-			(32 * 0x1000);
+		fsm->p4k_top_start = size - (32 * 0x1000);
 
 		fsm->lock_mask = 0xff;
 		fsm->lock_val[FSM_BLOCK_UNLOCKED] = 0xff;
 		fsm->lock_val[FSM_BLOCK_LOCKED] = 0x00;
-	}
 
+	} else if (info->capabilities & FLASH_CAPS_BPX_LOCKING) {
+		int tbprot;
+
+		/* Get 'TBPROT' bit */
+		fsm_read_status(fsm, FLASH_CMD_RDSR2, &cr1, 1);
+		tbprot = (cr1 & S25FL_CONFIG_TBPROT) ? 1 : 0;
+
+		/* Configure BPx bits */
+		fsm->bpx_n_bits = 3;
+		fsm->bpx_sr_masks[0] = FLASH_STATUS_BP0;
+		fsm->bpx_sr_masks[1] = FLASH_STATUS_BP1;
+		fsm->bpx_sr_masks[2] = FLASH_STATUS_BP2;
+
+		/* Configure BPx boundaries: 8 levels from top/bottom */
+		configure_bpx_boundaries(fsm, tbprot, size, 8);
+	}
 
 	/* Check status of 'QE' bit, update if required. */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
@@ -2136,6 +2264,119 @@ static int fsm_xxlock_blocks(struct stm_spi_fsm *fsm, loff_t offs, uint64_t len,
 	return 0;
 }
 
+static void fsm_dump_bpx_state(struct stm_spi_fsm *fsm)
+{
+	uint8_t sr;
+	uint8_t bpx;
+
+	dev_info(fsm->dev, "BP[%d-0] Locked Region:\n", fsm->bpx_n_bits - 1);
+
+	fsm_read_status(fsm, FLASH_CMD_RDSR, &sr, 1);
+	bpx = status_to_bpx(fsm, sr);
+
+	dump_bpx_region(fsm, bpx);
+}
+
+/*
+ * BPx Block Protection scheme: Lock/Unlock
+ *
+ * Lock/Unlock requests involve moving the BPx boundary up or down:
+ *
+ *	Lock (TBPROT = 1): Move boundary down
+ *    Unlock (TBPROT = 0)        <-------|
+ *                   ____________________|____________________
+ *          Device: |                    |                    |
+ *                  |____________________|____________________|
+ *                                       |
+ *    Unlock (TBPROT = 1)                |------>
+ *      Lock (TBPROT = 0): Move boundary up
+ *
+ * Returns an error if the new boundary is not supported by the BPx scheme, or
+ * if the request is not contiguous with the existing BPx state.
+ */
+static int fsm_bpx_xxlock(struct stm_spi_fsm *fsm, loff_t offs, uint64_t len,
+			  int lock)
+{
+	const char *const opstr = lock ? "lock" : "unlock";
+	uint64_t old_boundary, new_boundary;
+	int i;
+
+	uint8_t sr, bpx;
+
+	/* Get current BPx state */
+	fsm_read_status(fsm, FLASH_CMD_RDSR, &sr, 1);
+	bpx = status_to_bpx(fsm, sr);
+	old_boundary = fsm->bpx_bnds[bpx];
+
+	if ((lock && fsm->bpx_tbprot) ||
+	    (!lock && !fsm->bpx_tbprot)) {
+		/*
+		 * Lock/TBPROT=1 and Unlock/TBPROT=0: Move lock boundary up
+		 */
+
+		/* Set new boundary according to request */
+		new_boundary = offs + len;
+
+		/* Boundary already higher than new request */
+		if (new_boundary <= old_boundary)
+			goto out1;
+
+		/* Request is non-contiguous with current boundary */
+		if (offs > old_boundary)
+			goto err1;
+	} else {
+		/*
+		 * Unlock/TBPROT=1 and Lock/TBPROT=0: Move lock boundary down
+		 */
+
+		/* Set new boundary according to request */
+		new_boundary = offs;
+
+		/* Boundary already lower than new request */
+		if (new_boundary >= old_boundary)
+			goto out1;
+
+		/* Request is non-contiguous with current boundary */
+		if (offs + len < old_boundary)
+			goto err1;
+	}
+
+	/* Find a valid PBx boundary */
+	for (i = 0; i < fsm->bpx_n_bnds; i++) {
+		if (new_boundary == fsm->bpx_bnds[i]) {
+			bpx = i;
+			break;
+		}
+	}
+
+	/* Request does not match a BPx boundary */
+	if (i == fsm->bpx_n_bnds)
+		goto err2;
+
+	/* Update Status register with new BPx */
+	for (i = 0; i < fsm->bpx_n_bits; i++) {
+		if (bpx & (1 << i))
+			sr |= fsm->bpx_sr_masks[i];
+		else
+			sr &= ~fsm->bpx_sr_masks[i];
+	}
+	fsm_write_status(fsm, FLASH_CMD_WRSR, sr, 1, 1);
+
+	return 0;
+
+ err2:
+	dev_err(fsm->dev, "%s 0x%08llx -> 0x%08llx: request not compatible with BPx boundaries\n",
+		opstr, offs, offs + len);
+	return 1;
+ err1:
+	dev_err(fsm->dev, "%s 0x%08llx -> 0x%08llx: request not compatible BPx state\n",
+		opstr, offs, offs + len);
+	return -EINVAL;
+ out1:
+	dev_info(fsm->dev, "%s 0x%08llx -> 0x%08llx: already within %sed region\n",
+		 opstr, offs, offs + len, opstr);
+	return 0;
+}
 
 /*
  * FSM Configuration
@@ -2404,6 +2645,9 @@ static int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 	return 0;
 }
 
+/*
+ * Individual Block Locking Support
+ */
 static int fsm_mtd_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct stm_spi_fsm *fsm = mtd->priv;
@@ -2440,6 +2684,48 @@ static int fsm_mtd_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	mutex_lock(&fsm->lock);
 
 	ret = fsm_xxlock_blocks(fsm, ofs, len, 0);
+
+	mutex_unlock(&fsm->lock);
+
+	return ret;
+}
+
+/*
+ * PBx Block Protection Support
+ */
+static int fsm_mtd_bpx_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
+{
+	struct stm_spi_fsm *fsm = mtd->priv;
+	int ret = 0;
+
+	dev_dbg(fsm->dev, "%s %s 0x%llx, len %lld\n", __func__,
+		"at", ofs, len);
+
+	mutex_lock(&fsm->lock);
+
+	ret = fsm_bpx_xxlock(fsm, ofs, len, 1);
+
+	fsm_dump_bpx_state(fsm);
+
+	mutex_unlock(&fsm->lock);
+
+	return ret;
+
+}
+
+static int fsm_mtd_bpx_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
+{
+	struct stm_spi_fsm *fsm = mtd->priv;
+	int ret = 0;
+
+	dev_dbg(fsm->dev, "%s %s 0x%llx, len %lld\n", __func__,
+		"at", ofs, len);
+
+	mutex_lock(&fsm->lock);
+
+	ret = fsm_bpx_xxlock(fsm, ofs, len, 0);
+
+	fsm_dump_bpx_state(fsm);
 
 	mutex_unlock(&fsm->lock);
 
@@ -2633,9 +2919,18 @@ static int __init stm_spi_fsm_probe(struct platform_device *pdev)
 	fsm->mtd.write = mtd_write;
 	fsm->mtd.erase = mtd_erase;
 
+	/* Block Locking Support: */
 	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
+		/* - Individual Block Locking scheme */
 		fsm->mtd.lock = fsm_mtd_lock;
 		fsm->mtd.unlock = fsm_mtd_unlock;
+	} else if (info->capabilities & FLASH_CAPS_BPX_LOCKING) {
+		/* - PBx Block Protection Scheme */
+		fsm->mtd.lock = fsm_mtd_bpx_lock;
+		fsm->mtd.unlock = fsm_mtd_bpx_unlock;
+
+		dump_bpx_regions(fsm);
+		fsm_dump_bpx_state(fsm);
 	}
 
 	dev_info(&pdev->dev, "found device: %s, size = %llx (%lldMiB) "

@@ -46,6 +46,7 @@
 #define CFG_ERASESEC_TOGGLE32BITADDR		0x00000008
 #define CFG_S25FL_CHECK_ERROR_FLAGS		0x00000010
 #define CFG_N25Q_CHECK_ERROR_FLAGS		0x00000020
+#define CFG_S25FL_WRSR_INC_CFG			0x00000040
 
 
 /*
@@ -1157,6 +1158,11 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 			return 1;
 	}
 
+	/* WRSR must always cover CONFIG register to prevent loss of QUAD bit
+	 * state
+	 */
+	fsm->configuration |= CFG_S25FL_WRSR_INC_CFG;
+
 	/* Configure block locking support */
 	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
 		configure_block_lock_seqs(&fsm_seq_rd_lock_reg, S25FL_CMD_DYBRD,
@@ -1763,6 +1769,27 @@ static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 		cmd, bytes, data, wait_busy ? "with" : "no");
 
 	BUG_ON(bytes != 1 && bytes != 2);
+
+	/*
+	 * S25FLxxxX: auto-clearing QUAD bit issue
+	 *
+	 * A Write Status operation is achieved by a 1-byte WRSR command.
+	 * However, this seems to have the effect of clearing the QUAD bit in
+	 * the Config register (other bits in the Config register are not
+	 * affected).  As a workaround, we first read the Config register,
+	 * combine with the new Status data, and then promote to a 2-byte WRSR
+	 * command.
+	 */
+	if (cmd == FLASH_CMD_WRSR &&
+	    bytes == 1 &&
+	    (fsm->configuration & CFG_S25FL_WRSR_INC_CFG)) {
+		uint8_t cr;
+
+		fsm_read_status(fsm, FLASH_CMD_RDSR2, &cr, 1);
+
+		data = (data & 0xff) | ((uint16_t)cr << 8);
+		bytes = 2;
+	}
 
 	seq->seq_opc[1] = (SEQ_OPC_PADS_1 | SEQ_OPC_CYCLES(8) |
 			   SEQ_OPC_OPCODE(cmd));

@@ -713,6 +713,20 @@ static struct flash_info __devinitdata flash_types[] = {
 	RDID_INFO("s25fl256s1", RDID({0x01, 0x02, 0x19, 0x4d, 0x01, 0x80}), 6,
 		  64 * 1024, 512, S25FLXXXS_CAPS, 80, s25fl_config),
 
+	/* Spansion S25FL1xxK */
+#define S25FL1XXK_CAPS (FLASH_CAPS_READ_WRITE	| \
+			FLASH_CAPS_READ_1_1_2	| \
+			FLASH_CAPS_READ_1_2_2	| \
+			FLASH_CAPS_READ_1_1_4	| \
+			FLASH_CAPS_READ_1_4_4	| \
+			FLASH_CAPS_READ_FAST)
+	JEDEC_INFO("s25fl116k", 0x014015, 64 * 1024,  32, S25FL1XXK_CAPS,
+		   108, s25fl_config),
+	JEDEC_INFO("s25fl132k", 0x014016, 64 * 1024,  64, S25FL1XXK_CAPS,
+		   108, s25fl_config),
+	JEDEC_INFO("s25fl164k", 0x014017, 64 * 1024, 128, S25FL1XXK_CAPS,
+		   108, s25fl_config),
+
 	/* Winbond -- w25x "blocks" are 64K, "sectors" are 4KiB */
 #define W25X_CAPS (FLASH_CAPS_READ_WRITE	| \
 		   FLASH_CAPS_READ_FAST		| \
@@ -1173,6 +1187,7 @@ static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
  */
 #define S25FL_CONFIG_QE			(0x1 << 1)
 #define S25FL_CONFIG_TBPROT		(0x1 << 5)
+#define S25FL1XXK_DEVICE_TYPE		0x40
 
 /*
  * S25FLxxxS devices provide three ways of supporting 32-bit addressing: Bank
@@ -1277,6 +1292,13 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 */
 	fsm->configuration |= CFG_S25FL_WRSR_INC_CFG;
 
+	/*
+	 * S25FLxxx devices support Program and Error error flags, with the
+	 * exception of the S25FL1xxK family.
+	 */
+	if (info->readid[1] != S25FL1XXK_DEVICE_TYPE)
+		fsm->configuration |= CFG_S25FL_CHECK_ERROR_FLAGS;
+
 	/* Configure block locking support */
 	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
 		configure_block_lock_seqs(&fsm_seq_rd_lock_reg, S25FL_CMD_DYBRD,
@@ -1333,11 +1355,6 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 		sta_wr = ((uint16_t)cr1  << 8) | sr1;
 		fsm_write_status(fsm, FLASH_CMD_WRSR, sta_wr, 2, 1);
 	}
-
-	/* S25FLxxx devices support Program and Error error flags.  Configure
-	 * driver to check flags and clear if necessary.
-	 */
-	fsm->configuration |= CFG_S25FL_CHECK_ERROR_FLAGS;
 
 #ifdef CONFIG_STM_SPI_FSM_DEBUG
 	/* Debug strings for S25FLxxx specific commands */

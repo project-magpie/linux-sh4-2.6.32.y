@@ -2084,6 +2084,58 @@ static int fsm_write(struct stm_spi_fsm *fsm, const uint8_t *const buf,
 	return ret;
 }
 
+static int fsm_xxlock_oneblock(struct stm_spi_fsm *fsm, loff_t offs, int lock)
+{
+	uint8_t msk;
+	uint8_t val;
+	uint8_t reg;
+
+	msk = fsm->lock_mask;
+	val = lock ? fsm->lock_val[FSM_BLOCK_LOCKED] :
+		fsm->lock_val[FSM_BLOCK_UNLOCKED];
+
+	reg = fsm_read_lock_reg(fsm, offs);
+	if ((reg & msk) != val) {
+		reg = (reg & ~msk) | (val & msk);
+		fsm_write_lock_reg(fsm, offs, reg);
+		reg = fsm_read_lock_reg(fsm, offs);
+		if ((reg & msk) != val) {
+			dev_err(fsm->dev, "Failed to %s sector at 0x%012llx\n",
+				lock ? "lock" : "unlock", offs);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int fsm_xxlock_blocks(struct stm_spi_fsm *fsm, loff_t offs, uint64_t len,
+			     int lock)
+{
+	struct mtd_info *mtd = &fsm->mtd;
+	uint64_t offs_end = offs + len;
+	uint64_t p4k_bot_end = fsm->p4k_bot_end;
+	uint64_t p4k_top_start = fsm->p4k_top_start;
+
+	if (fsm->configuration & CFG_LOCK_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 1);
+
+	while (offs < offs_end) {
+		fsm_xxlock_oneblock(fsm, offs, lock);
+
+		/* Parameter sectors have 4KiB locking granularity */
+		if (offs < p4k_bot_end || offs >= p4k_top_start)
+			offs += 0x1000;
+		else
+			offs += mtd->erasesize;
+	}
+
+	if (fsm->configuration & CFG_LOCK_TOGGLE32BITADDR)
+		fsm_enter_32bitaddr(fsm, 0);
+
+	return 0;
+}
+
 
 /*
  * FSM Configuration
@@ -2348,58 +2400,6 @@ static int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	instr->state = MTD_ERASE_DONE;
 	mtd_erase_callback(instr);
-
-	return 0;
-}
-
-static int fsm_xxlock_oneblock(struct stm_spi_fsm *fsm, loff_t offs, int lock)
-{
-	uint8_t msk;
-	uint8_t val;
-	uint8_t reg;
-
-	msk = fsm->lock_mask;
-	val = lock ? fsm->lock_val[FSM_BLOCK_LOCKED] :
-		fsm->lock_val[FSM_BLOCK_UNLOCKED];
-
-	reg = fsm_read_lock_reg(fsm, offs);
-	if ((reg & msk) != val) {
-		reg = (reg & ~msk) | (val & msk);
-		fsm_write_lock_reg(fsm, offs, reg);
-		reg = fsm_read_lock_reg(fsm, offs);
-		if ((reg & msk) != val) {
-			dev_err(fsm->dev, "Failed to %s sector at 0x%012llx\n",
-				lock ? "lock" : "unlock", offs);
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-static int fsm_xxlock_blocks(struct stm_spi_fsm *fsm, loff_t offs, uint64_t len,
-			     int lock)
-{
-	struct mtd_info *mtd = &fsm->mtd;
-	uint64_t offs_end = offs + len;
-	uint64_t p4k_bot_end = fsm->p4k_bot_end;
-	uint64_t p4k_top_start = fsm->p4k_top_start;
-
-	if (fsm->configuration & CFG_LOCK_TOGGLE32BITADDR)
-		fsm_enter_32bitaddr(fsm, 1);
-
-	while (offs < offs_end) {
-		fsm_xxlock_oneblock(fsm, offs, lock);
-
-		/* Parameter sectors have 4KiB locking granularity */
-		if (offs < p4k_bot_end || offs >= p4k_top_start)
-			offs += 0x1000;
-		else
-			offs += mtd->erasesize;
-	}
-
-	if (fsm->configuration & CFG_LOCK_TOGGLE32BITADDR)
-		fsm_enter_32bitaddr(fsm, 0);
 
 	return 0;
 }

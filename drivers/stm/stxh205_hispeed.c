@@ -277,6 +277,12 @@ static struct platform_device stxh205_ethernet_device = {
 	},
 };
 
+#define GMAC_AHB_CONFIG         0x7000
+static void stxh205_ethernet_bus_setup(void __iomem *ioaddr)
+{
+	writel(0x26c209, ioaddr + GMAC_AHB_CONFIG);
+}
+
 void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 {
 	static int configured;
@@ -332,6 +338,8 @@ void __init stxh205_configure_ethernet(struct stxh205_ethernet_config *config)
 		BUG();
 		return;
 	}
+
+	stxh205_ethernet_platform_data.bus_setup = stxh205_ethernet_bus_setup;
 
 	plat_data->custom_cfg = (void *) pad_config;
 	plat_data->interface = interface;

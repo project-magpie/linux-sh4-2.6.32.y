@@ -60,7 +60,7 @@ static int find_pr(struct task_struct *task,
 		unsigned long addr, unsigned long *fp,
 		unsigned long **r_val)
 {
-	unsigned long size, off, arg, i, *ptr;
+	unsigned long size, off, arg, i, *ptr, r1;
 	int found, have_pr;
 	uint8_t *opc;
 	*r_val = NULL;
@@ -72,6 +72,7 @@ static int find_pr(struct task_struct *task,
 	opc = (int8_t *)(addr - off);
 	arg = 0;
 	have_pr = 0;
+	r1 = 0;
 	for (i = 0; i < size - 1; i += 2) {
 		/* look for 'add #-X,r15' */
 		if (opc[i + 1] == 0x7f && (opc[i] & 0x80) && !(opc[i] & 3))
@@ -81,6 +82,15 @@ static int find_pr(struct task_struct *task,
 			have_pr = 1;
 			arg = 0;
 		}
+		/* look for 'mov.w XX,r1' */
+		if (opc[i + 1] == 0x91) {
+			uint16_t r1_off = i + opc[i] * 2 + 4;
+			if (r1_off < size - 1)
+				r1 = opc[r1_off] | (opc[r1_off + 1] << 8);
+		}
+		/* look for 'sub r1,r15' */
+		if (opc[i] == 0x18 && opc[i + 1] == 0x3f)
+			arg += r1 / sizeof(long);
 		/* look for 'mov r15,r14' */
 		if (opc[i] == 0xf3 && opc[i + 1] == 0x6e)
 			break;

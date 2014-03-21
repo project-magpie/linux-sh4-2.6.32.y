@@ -84,6 +84,7 @@ user_backtrace(unsigned long *stackaddr, struct pt_regs *regs)
 void sh_backtrace(struct pt_regs * const regs, unsigned int depth)
 {
 	unsigned long *stackaddr;
+	unsigned long *fp = NULL;
 
 	/*
 	 * Paranoia - clip max depth as we could get lost in the weeds.
@@ -92,10 +93,14 @@ void sh_backtrace(struct pt_regs * const regs, unsigned int depth)
 		depth = backtrace_limit;
 
 	stackaddr = (unsigned long *)regs->regs[15];
+#ifdef CONFIG_FRAME_POINTER
+	fp = (unsigned long *)regs->regs[14];
+#endif
 	if (!user_mode(regs)) {
 		if (depth)
-			unwind_stack(NULL, regs, stackaddr,
-				     &backtrace_ops, &depth);
+			unwind_stack(NULL, regs, stackaddr, fp,
+				(unsigned long) sh_backtrace,
+				&backtrace_ops, &depth);
 		return;
 	}
 

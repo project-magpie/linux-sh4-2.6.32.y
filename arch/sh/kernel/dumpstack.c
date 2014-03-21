@@ -52,6 +52,8 @@ enum { FOUND_NONE, FOUND_PR, FOUND_FP };
 static int is_on_stack(struct task_struct *task, unsigned long *ptr)
 {
 	unsigned long *stack;
+	if (!task)
+		task = current;
 	stack = task_stack_page(task);
 	return ((ptr >= stack) && (ptr < (stack + THREAD_SIZE)));
 }

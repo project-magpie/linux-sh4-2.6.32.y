@@ -57,11 +57,11 @@ static int is_on_stack(struct task_struct *task, unsigned long *ptr)
 }
 
 static int find_pr(struct task_struct *task,
-		unsigned long addr, unsigned long *fp,
-		unsigned long **r_val)
+		unsigned long addr, unsigned long *sp,
+		unsigned long *fp, unsigned long **r_val)
 {
 	unsigned long size, off, arg, i, *ptr, r1;
-	int found, have_pr;
+	int found, have_pr, have_fp, valid_fp;
 	uint8_t *opc;
 	*r_val = NULL;
 	if (!addr || !fp)
@@ -72,8 +72,16 @@ static int find_pr(struct task_struct *task,
 	opc = (int8_t *)(addr - off);
 	arg = 0;
 	have_pr = 0;
+	have_fp = 0;
+	valid_fp = 0;
 	r1 = 0;
 	for (i = 0; i < size - 1; i += 2) {
+		/* off==0 means not from exception, aka dump_stack() */
+		if (off && i >= off)
+			break;
+		/* look for 'mov.l r14,@-r15' */
+		if (opc[i] == 0xe6 && opc[i + 1] == 0x2f)
+			have_fp = 1;
 		/* look for 'add #-X,r15' */
 		if (opc[i + 1] == 0x7f && (opc[i] & 0x80) && !(opc[i] & 3))
 			arg += (-(int8_t)opc[i]) / sizeof(long);
@@ -92,12 +100,17 @@ static int find_pr(struct task_struct *task,
 		if (opc[i] == 0x18 && opc[i + 1] == 0x3f)
 			arg += r1 / sizeof(long);
 		/* look for 'mov r15,r14' */
-		if (opc[i] == 0xf3 && opc[i + 1] == 0x6e)
+		if (opc[i] == 0xf3 && opc[i + 1] == 0x6e) {
+			valid_fp = 1;
 			break;
+		}
 	}
-	if (i >= size - 1)
+	if (!have_pr && !have_fp)
 		return FOUND_NONE;
-	ptr = fp + arg;
+	if (valid_fp)
+		ptr = fp + arg;
+	else
+		ptr = sp + arg;
 	if (!is_on_stack(task, ptr))
 		return FOUND_NONE;
 	if (have_pr) {
@@ -128,13 +141,13 @@ stack_reader_dump(struct task_struct *task, struct pt_regs *regs,
 	unsigned long regs_pr = regs ? regs->pr : 0;
 	unsigned long *pr;
 	int f_pr;
-	f_pr = find_pr(task, faddr, fp, &pr);
+	f_pr = find_pr(task, faddr, sp, fp, &pr);
 	if (f_pr != FOUND_PR && regs_pr) {
 		/* from exception */
 		ops->address(data, regs_pr, 1);
 		if (f_pr == FOUND_FP) {
 			fp = (unsigned long *)pr[0];
-			f_pr = find_pr(task, regs_pr, fp, &pr);
+			f_pr = find_pr(task, regs_pr, sp, fp, &pr);
 		}
 	}
 #endif
@@ -152,7 +165,7 @@ stack_reader_dump(struct task_struct *task, struct pt_regs *regs,
 			} else if (sp == pr) {
 				ops->address(data, addr, 1);
 				fp = (unsigned long *)sp[1];
-				f_pr = find_pr(task, addr, fp, &pr);
+				f_pr = find_pr(task, addr, sp, fp, &pr);
 				if (f_pr != FOUND_PR)
 					pr = NULL;
 			}

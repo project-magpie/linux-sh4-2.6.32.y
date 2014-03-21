@@ -189,7 +189,7 @@ static __inline__ void enable_fpu(void)
 #define thread_saved_pc(tsk)	(tsk->thread.pc)
 
 void show_trace(struct task_struct *tsk, unsigned long *sp,
-		struct pt_regs *regs);
+		unsigned long *fp, unsigned long faddr, struct pt_regs *regs);
 
 #ifdef CONFIG_DUMP_CODE
 void show_code(struct pt_regs *regs);

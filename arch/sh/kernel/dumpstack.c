@@ -46,26 +46,115 @@ print_ftrace_graph_addr(unsigned long addr, void *data,
 { }
 #endif
 
+#ifdef CONFIG_FRAME_POINTER
+enum { FOUND_NONE, FOUND_PR, FOUND_FP };
+
+static int is_on_stack(struct task_struct *task, unsigned long *ptr)
+{
+	unsigned long *stack;
+	stack = task_stack_page(task);
+	return ((ptr >= stack) && (ptr < (stack + THREAD_SIZE)));
+}
+
+static int find_pr(struct task_struct *task,
+		unsigned long addr, unsigned long *fp,
+		unsigned long **r_val)
+{
+	unsigned long size, off, arg, i, *ptr;
+	int found, have_pr;
+	uint8_t *opc;
+	*r_val = NULL;
+	if (!addr || !fp)
+		return FOUND_NONE;
+	found = kallsyms_lookup_size_offset(addr, &size, &off);
+	if (!found)
+		return FOUND_NONE;
+	opc = (int8_t *)(addr - off);
+	arg = 0;
+	have_pr = 0;
+	for (i = 0; i < size - 1; i += 2) {
+		/* look for 'add #-X,r15' */
+		if (opc[i + 1] == 0x7f && (opc[i] & 0x80) && !(opc[i] & 3))
+			arg += (-(int8_t)opc[i]) / sizeof(long);
+		/* look for 'sts.l pr,@-r15' */
+		if (opc[i] == 0x22 && opc[i + 1] == 0x4f) {
+			have_pr = 1;
+			arg = 0;
+		}
+		/* look for 'mov r15,r14' */
+		if (opc[i] == 0xf3 && opc[i + 1] == 0x6e)
+			break;
+	}
+	if (i >= size - 1)
+		return FOUND_NONE;
+	ptr = fp + arg;
+	if (!is_on_stack(task, ptr))
+		return FOUND_NONE;
+	if (have_pr) {
+		/* pr points to kernel code */
+		if (!__kernel_text_address(*ptr))
+			return FOUND_NONE;
+	} else {
+		/* fp points to stack */
+		if (!is_on_stack(task, *(unsigned long **)ptr))
+			return FOUND_NONE;
+	}
+	*r_val = ptr;
+	if (have_pr)
+		return FOUND_PR;
+	return FOUND_FP;
+}
+#endif
+
 void
 stack_reader_dump(struct task_struct *task, struct pt_regs *regs,
-		  unsigned long *sp, const struct stacktrace_ops *ops,
-		  void *data)
+		  unsigned long *sp, unsigned long *fp,
+		  unsigned long faddr,
+		  const struct stacktrace_ops *ops, void *data)
 {
 	struct thread_info *context;
 	int graph = 0;
+#ifdef CONFIG_FRAME_POINTER
+	unsigned long regs_pr = regs ? regs->pr : 0;
+	unsigned long *pr;
+	int f_pr;
+	f_pr = find_pr(task, faddr, fp, &pr);
+	if (f_pr != FOUND_PR && regs_pr) {
+		/* from exception */
+		ops->address(data, regs_pr, 1);
+		if (f_pr == FOUND_FP) {
+			fp = (unsigned long *)pr[0];
+			f_pr = find_pr(task, regs_pr, fp, &pr);
+		}
+	}
+#endif
 
 	context = (struct thread_info *)
 		((unsigned long)sp & (~(THREAD_SIZE - 1)));
 
 	while (!kstack_end(sp)) {
-		unsigned long addr = *sp++;
+		unsigned long addr = sp[0];
 
 		if (__kernel_text_address(addr)) {
+#ifdef CONFIG_FRAME_POINTER
+			if (!pr) {
+				ops->address(data, addr, 0);
+			} else if (sp == pr) {
+				ops->address(data, addr, 1);
+				fp = (unsigned long *)sp[1];
+				f_pr = find_pr(task, addr, fp, &pr);
+				if (f_pr != FOUND_PR)
+					pr = NULL;
+			}
+#else
 			ops->address(data, addr, 1);
+#endif
 
 			print_ftrace_graph_addr(addr, data, ops,
 						context, &graph);
 		}
+
+		sp++;
 	}
 }
 
@@ -105,14 +194,14 @@ static const struct stacktrace_ops print_trace_ops = {
 };
 
 void show_trace(struct task_struct *tsk, unsigned long *sp,
-		struct pt_regs *regs)
+		unsigned long *fp, unsigned long faddr, struct pt_regs *regs)
 {
 	if (regs && user_mode(regs))
 		return;
 
 	printk("\nCall trace:\n");
 
-	unwind_stack(tsk, regs, sp, &print_trace_ops, "");
+	unwind_stack(tsk, regs, sp, fp, faddr, &print_trace_ops, "");
 
 	printk("\n");
 

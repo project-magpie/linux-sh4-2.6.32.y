@@ -1018,26 +1018,36 @@ void get_stack(char *buf, unsigned long *sp, size_t size, size_t depth)
 }
 EXPORT_SYMBOL_GPL(get_stack);
 
-void show_stack(struct task_struct *tsk, unsigned long *sp)
+void show_stack(struct task_struct *tsk, unsigned long *sp_dummy)
 {
 	unsigned long stack;
+	unsigned long *sp, *fp, pc;
 
 	if (!tsk)
 		tsk = current;
-	if (tsk == current)
+	if (tsk == current) {
 		sp = (unsigned long *)current_stack_pointer;
-	else
+		fp = (unsigned long *)current_frame_pointer;
+		pc = (unsigned long)show_stack;
+	} else {
 		sp = (unsigned long *)tsk->thread.sp;
+#ifdef CONFIG_FRAME_POINTER
+		fp = (unsigned long *)sp[0];
+#else
+		fp = 0;
+#endif
+		pc = tsk->thread.pc;
+	}
 
 	stack = (unsigned long)sp;
 	dump_mem("Stack: ", stack, THREAD_SIZE +
 		 (unsigned long)task_stack_page(tsk));
-	show_trace(tsk, sp, NULL);
+	show_trace(tsk, sp, fp, pc, NULL);
 }
 
 void dump_stack(void)
 {
-	show_stack(NULL, NULL);
+	show_stack(current, NULL);
 }
 EXPORT_SYMBOL(dump_stack);
 

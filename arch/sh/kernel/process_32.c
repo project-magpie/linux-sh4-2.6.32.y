@@ -132,7 +132,13 @@ void show_regs(struct pt_regs * regs)
 	printk("MACH: %08lx MACL: %08lx GBR : %08lx PR  : %08lx\n",
 	       regs->mach, regs->macl, regs->gbr, regs->pr);
 
-	show_trace(NULL, (unsigned long *)regs->regs[15], regs);
+	show_trace(current, (unsigned long *)regs->regs[15],
+#ifdef CONFIG_FRAME_POINTER
+	       (unsigned long *)regs->regs[14],
+#else
+	       0,
+#endif
+	       regs->pc, regs);
 	show_code(regs);
 }
 

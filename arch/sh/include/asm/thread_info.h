@@ -65,6 +65,13 @@ struct thread_info {
 
 /* how to get the current stack pointer from C */
 register unsigned long current_stack_pointer asm("r15") __used;
+#ifdef CONFIG_FRAME_POINTER
+#define current_frame_pointer ({ unsigned long __r14; \
+	asm("mov r14,%0" : "=r"(__r14)); \
+	__r14; })
+#else
+#define current_frame_pointer 0
+#endif
 
 /* how to get the thread information struct from C */
 static inline struct thread_info *current_thread_info(void)

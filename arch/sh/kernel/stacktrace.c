@@ -60,8 +60,10 @@ static const struct stacktrace_ops save_stack_ops = {
 void save_stack_trace(struct stack_trace *trace)
 {
 	unsigned long *sp = (unsigned long *)current_stack_pointer;
+	unsigned long *fp = (unsigned long *)current_frame_pointer;
 
-	unwind_stack(current, NULL, sp,  &save_stack_ops, trace);
+	unwind_stack(current, NULL, sp,  fp, (unsigned long)save_stack_trace,
+			&save_stack_ops, trace);
 	if (trace->nr_entries < trace->max_entries)
 		trace->entries[trace->nr_entries++] = ULONG_MAX;
 }
@@ -97,8 +99,15 @@ static const struct stacktrace_ops save_stack_ops_nosched = {
 void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 {
 	unsigned long *sp = (unsigned long *)tsk->thread.sp;
+	unsigned long *fp;
+#ifdef CONFIG_FRAME_POINTER
+	fp = (unsigned long *)sp[0];
+#else
+	fp = 0;
+#endif
 
-	unwind_stack(current, NULL, sp,  &save_stack_ops_nosched, trace);
+	unwind_stack(current, NULL, sp, fp, tsk->thread.pc,
+			&save_stack_ops_nosched, trace);
 	if (trace->nr_entries < trace->max_entries)
 		trace->entries[trace->nr_entries++] = ULONG_MAX;
 }

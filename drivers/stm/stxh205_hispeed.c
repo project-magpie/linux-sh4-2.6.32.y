@@ -277,7 +277,7 @@ static struct platform_device stxh205_ethernet_device = {
 	},
 };
 
-#define GMAC_AHB_CONFIG         0x7000
+#define GMAC_AHB_CONFIG         0x2000
 static void stxh205_ethernet_bus_setup(void __iomem *ioaddr)
 {
 	writel(0x26c209, ioaddr + GMAC_AHB_CONFIG);

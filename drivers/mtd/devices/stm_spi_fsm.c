@@ -1773,10 +1773,11 @@ static int n25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	 * Configure block locking
 	 */
 	if (info->capabilities & FLASH_CAPS_BLK_LOCKING) {
+		int use_32bit_addr = info->capabilities & FLASH_CAPS_32BITADDR;
 		configure_block_rd_lock_seq(&fsm_seq_rd_lock_reg,
-					    N25Q_CMD_RDLOCK, 1);
+					    N25Q_CMD_RDLOCK, use_32bit_addr);
 		configure_block_wr_lock_seq(&fsm_seq_wr_lock_reg,
-					    N25Q_CMD_WRLOCK, 1);
+					    N25Q_CMD_WRLOCK, use_32bit_addr);
 
 		/* N25Qxxx are using a read register and write register command
 		 * to lock/unlock blocks.

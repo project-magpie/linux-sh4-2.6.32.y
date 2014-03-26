@@ -22,6 +22,8 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 
+#include <asm/div64.h>
+
 #include "stm_spi_fsm.h"
 
 #define NAME		"stm-spi-fsm"
@@ -46,7 +48,7 @@
 #define CFG_ERASESEC_TOGGLE32BITADDR		0x00000008
 #define CFG_S25FL_CHECK_ERROR_FLAGS		0x00000010
 #define CFG_N25Q_CHECK_ERROR_FLAGS		0x00000020
-#define CFG_S25FL_WRSR_INC_CFG			0x00000040
+#define CFG_WRSR_FORCE_16BITS			0x00000040
 
 /* Block Protect Bits (BPx) */
 #define BPX_MAX_BITS		4			/* Max BPx bits */
@@ -745,7 +747,8 @@ static struct flash_info __devinitdata flash_types[] = {
 		   FLASH_CAPS_READ_1_2_2	| \
 		   FLASH_CAPS_READ_1_1_4	| \
 		   FLASH_CAPS_READ_1_4_4	| \
-		   FLASH_CAPS_WRITE_1_1_4)
+		   FLASH_CAPS_WRITE_1_1_4       | \
+		   FLASH_CAPS_BPX_LOCKING)
 	JEDEC_INFO("w25q80", 0xef4014, 64 * 1024,  16,
 		   W25Q_CAPS, 80, w25q_config),
 	JEDEC_INFO("w25q16", 0xef4015, 64 * 1024,  32,
@@ -1062,7 +1065,7 @@ static void configure_bpx_boundaries(struct stm_spi_fsm *fsm, int tbprot,
 				     uint64_t size, int n_bnds)
 {
 	int i;
-	uint64_t bpx_size;
+	uint64_t bpx_size = size;
 
 	BUG_ON(n_bnds > BPX_MAX_N_BNDS);
 
@@ -1070,9 +1073,10 @@ static void configure_bpx_boundaries(struct stm_spi_fsm *fsm, int tbprot,
 	fsm->bpx_n_bnds = n_bnds;
 
 	fsm->bpx_bnds[0] = tbprot ? 0 : size;
-	bpx_size = size / (1 << (n_bnds - 2));
+	do_div(bpx_size, (1 << (n_bnds - 2)));
+
 	for (i = 1; i < n_bnds; i++) {
-		fsm->bpx_bnds[i] = tbprot  ? bpx_size : size - bpx_size;
+		fsm->bpx_bnds[i] = tbprot ? bpx_size : size - bpx_size;
 		bpx_size *= 2;
 	}
 }
@@ -1143,7 +1147,13 @@ static int fsm_wait_seq(struct stm_spi_fsm *fsm);
 /*
  * [W25Qxxx] Configuration
  */
-#define W25Q_STATUS_QE			(0x1 << 1)
+#define W25Q_STATUS1_TB			(0x1 << 5)
+#define W25Q_STATUS1_SEC		(0x1 << 6)
+#define W25Q_STATUS2_QE			(0x1 << 1)
+#define W25Q_STATUS2_CMP		(0x1 << 6)
+
+#define W25Q16_DEVICE_ID		0x15
+#define W25Q80_DEVICE_ID		0x14
 
 static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 {
@@ -1155,20 +1165,70 @@ static int w25q_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	if (fsm_config_rwe_seqs_default(fsm, info) != 0)
 		return 1;
 
+	/* WRSR must always cover STATUS register 2 to prevent loss of QUAD bit
+	 * and CMP bit state
+	 */
+	fsm->configuration |= CFG_WRSR_FORCE_16BITS;
+
+	/* Configure block locking support */
+	if (info->capabilities & FLASH_CAPS_BPX_LOCKING) {
+		uint64_t size = info->sector_size * info->n_sectors;
+		int tbprot;
+		int secprot;
+		int cmpprot;
+
+		/* Get 'TB' and 'SEC' bits */
+		fsm_read_status(fsm, FLASH_CMD_RDSR, &sr1, 1);
+		tbprot = (sr1 & W25Q_STATUS1_TB) ? 1 : 0;
+		secprot = (sr1 & W25Q_STATUS2_CMP) ? 1 : 0;
+
+		/* Get 'CMP' bit */
+		fsm_read_status(fsm, FLASH_CMD_RDSR2, &sr2, 1);
+		cmpprot = (sr2 & W25Q_STATUS2_CMP) ? 1 : 0;
+
+		if (cmpprot || secprot) {
+			/* This scheme is not supported */
+			dev_warn(fsm->dev,
+				"Lock/unlock scheme not supported."
+				"Only schemes whith CMP=0 and SEC=0 "
+				"is supported.\n");
+
+			/* disable BPx locking support */
+			info->capabilities &= ~FLASH_CAPS_BPX_LOCKING;
+		} else {
+			/* Configure BPx bits */
+			fsm->bpx_n_bits = 3;
+			fsm->bpx_sr_masks[0] = FLASH_STATUS_BP0;
+			fsm->bpx_sr_masks[1] = FLASH_STATUS_BP1;
+			fsm->bpx_sr_masks[2] = FLASH_STATUS_BP2;
+
+			/* Configure BPx boundaries: 8 levels from top/bottom */
+			if (info->readid[2] == W25Q16_DEVICE_ID) {
+				configure_bpx_boundaries(fsm, tbprot, size, 7);
+				fsm->bpx_bnds[7] = fsm->bpx_bnds[6];
+			} else if (info->readid[2] == W25Q80_DEVICE_ID) {
+				configure_bpx_boundaries(fsm, tbprot, size, 6);
+				fsm->bpx_bnds[7] = fsm->bpx_bnds[5];
+				fsm->bpx_bnds[6] = fsm->bpx_bnds[5];
+			} else
+				configure_bpx_boundaries(fsm, tbprot, size, 8);
+		}
+	}
+
 	/* Check status of 'QE' bit, update if required. */
 	data_pads = ((fsm_seq_read.seq_cfg >> 16) & 0x3) + 1;
 	fsm_read_status(fsm, FLASH_CMD_RDSR2, &sr2, 1);
 	update_sr = 0;
 	if (data_pads == 4) {
-		if (!(sr2 & W25Q_STATUS_QE)) {
+		if (!(sr2 & W25Q_STATUS2_QE)) {
 			/* Set 'QE' */
-			sr2 |= W25Q_STATUS_QE;
+			sr2 |= W25Q_STATUS2_QE;
 			update_sr = 1;
 		}
 	} else {
-		if (sr2 & W25Q_STATUS_QE) {
+		if (sr2 &  W25Q_STATUS2_QE) {
 			/* Clear 'QE' */
-			sr2 &= ~W25Q_STATUS_QE;
+			sr2 &= ~W25Q_STATUS2_QE;
 			update_sr = 1;
 		}
 	}
@@ -1290,7 +1350,7 @@ static int s25fl_config(struct stm_spi_fsm *fsm, struct flash_info *info)
 	/* WRSR must always cover CONFIG register to prevent loss of QUAD bit
 	 * state
 	 */
-	fsm->configuration |= CFG_S25FL_WRSR_INC_CFG;
+	fsm->configuration |= CFG_WRSR_FORCE_16BITS;
 
 	/*
 	 * S25FLxxx devices support Program and Error error flags, with the
@@ -1924,10 +1984,14 @@ static int fsm_write_status(struct stm_spi_fsm *fsm, uint8_t cmd,
 	 * affected).  As a workaround, we first read the Config register,
 	 * combine with the new Status data, and then promote to a 2-byte WRSR
 	 * command.
+	 *
+	 * W25QxxxX: auto-clearing QUAD bit and CMP bit issue
+	 *
+	 * Same workaround as S25FLxxxX
 	 */
 	if (cmd == FLASH_CMD_WRSR &&
 	    bytes == 1 &&
-	    (fsm->configuration & CFG_S25FL_WRSR_INC_CFG)) {
+	    (fsm->configuration & CFG_WRSR_FORCE_16BITS)) {
 		uint8_t cr;
 
 		fsm_read_status(fsm, FLASH_CMD_RDSR2, &cr, 1);

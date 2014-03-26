@@ -637,6 +637,8 @@ static struct flash_info __devinitdata flash_types[] = {
 		   FLASH_CAPS_SE_32K)
 	JEDEC_INFO("mx25l3255e",  0xc29e16, 64 * 1024, 64,
 		   (MX25_CAPS | FLASH_CAPS_WRITE_1_4_4), 86, mx25_config),
+	JEDEC_INFO("mx25l12835f", 0xc22018, 64 * 1024, 256,
+		   (MX25_CAPS | FLASH_CAPS_RESET), 70, mx25_config),
 	JEDEC_INFO("mx25l25635e", 0xc22019, 64 * 1024, 512,
 		   (MX25_CAPS | FLASH_CAPS_RESET), 70, mx25_config),
 	JEDEC_INFO("mx25l25655e", 0xc22619, 64 * 1024, 512,

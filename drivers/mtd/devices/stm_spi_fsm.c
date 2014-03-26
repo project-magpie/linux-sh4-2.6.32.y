@@ -694,6 +694,8 @@ static struct flash_info __devinitdata flash_types[] = {
 			FLASH_CAPS_BPX_LOCKING)
 	RDID_INFO("s25fl032p", RDID({0x01, 0x02, 0x15, 0x4d, 0x00}), 5,
 		  64 * 1024,  64, S25FLXXXP_CAPS, 80, s25fl_config),
+	RDID_INFO("s25fl064p", RDID({0x01, 0x02, 0x16, 0x4d, 0x00}), 5,
+		  64 * 1024,  128, S25FLXXXP_CAPS, 80, s25fl_config),
 	RDID_INFO("s25fl128p1", RDID({0x01, 0x20, 0x18, 0x03, 0x00}), 5,
 		  256 * 1024, 64,
 		 (FLASH_CAPS_READ_WRITE | FLASH_CAPS_READ_FAST), 104, NULL),

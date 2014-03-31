@@ -135,7 +135,7 @@ static int blktrans_open(struct block_device *bdev, fmode_t mode)
 	struct mtd_blktrans_ops *tr = dev->tr;
 	int ret = -ENODEV;
 
-	if (!get_mtd_device(NULL, dev->mtd->index))
+	if (IS_ERR(get_mtd_device(NULL, dev->mtd->index)))
 		goto out;
 
 	if (!try_module_get(tr->owner))

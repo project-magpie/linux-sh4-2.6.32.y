@@ -572,16 +572,28 @@ EXPORT_SYMBOL_GPL(usbnet_purge_paused_rxq);
 static int unlink_urbs (struct usbnet *dev, struct sk_buff_head *q)
 {
 	unsigned long		flags;
-	struct sk_buff		*skb, *skbnext;
+	struct sk_buff		*skb;
 	int			count = 0;
 
 	spin_lock_irqsave (&q->lock, flags);
-	skb_queue_walk_safe(q, skb, skbnext) {
+	while (!skb_queue_empty(q)) {
 		struct skb_data		*entry;
 		struct urb		*urb;
 		int			retval;
 
-		entry = (struct skb_data *) skb->cb;
+		skb_queue_walk(q, skb) {
+			entry = (struct skb_data *)skb->cb;
+			if (entry->state == rx_done ||
+				entry->state == tx_done ||
+				entry->state == rx_cleanup)
+				continue;
+			else
+				break;
+		}
+
+		if (skb == (struct sk_buff *)(q))
+			break;
+
 		urb = entry->urb;
 
 		/*

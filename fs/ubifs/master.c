@@ -148,7 +148,7 @@ static int validate_master(const struct ubifs_info *c)
 	}
 
 	main_sz = (long long)c->main_lebs * c->leb_size;
-	if (c->old_idx_sz & 7 || c->old_idx_sz >= main_sz) {
+	if (c->bi.old_idx_sz & 7 || c->bi.old_idx_sz >= main_sz) {
 		err = 9;
 		goto out;
 	}
@@ -218,7 +218,7 @@ static int validate_master(const struct ubifs_info *c)
 	}
 
 	if (c->lst.total_dead + c->lst.total_dark +
-	    c->lst.total_used + c->old_idx_sz > main_sz) {
+	    c->lst.total_used + c->bi.old_idx_sz > main_sz) {
 		err = 21;
 		goto out;
 	}
@@ -241,7 +241,7 @@ static int validate_master(const struct ubifs_info *c)
 
 out:
 	ubifs_err("bad master node at offset %d error %d", c->mst_offs, err);
-	dbg_dump_node(c, c->mst_node);
+	ubifs_dump_node(c, c->mst_node);
 	return -EINVAL;
 }
 
@@ -286,7 +286,7 @@ int ubifs_read_master(struct ubifs_info *c)
 	c->gc_lnum         = le32_to_cpu(c->mst_node->gc_lnum);
 	c->ihead_lnum      = le32_to_cpu(c->mst_node->ihead_lnum);
 	c->ihead_offs      = le32_to_cpu(c->mst_node->ihead_offs);
-	c->old_idx_sz      = le64_to_cpu(c->mst_node->index_size);
+	c->bi.old_idx_sz   = le64_to_cpu(c->mst_node->index_size);
 	c->lpt_lnum        = le32_to_cpu(c->mst_node->lpt_lnum);
 	c->lpt_offs        = le32_to_cpu(c->mst_node->lpt_offs);
 	c->nhead_lnum      = le32_to_cpu(c->mst_node->nhead_lnum);
@@ -305,7 +305,7 @@ int ubifs_read_master(struct ubifs_info *c)
 	c->lst.total_dead  = le64_to_cpu(c->mst_node->total_dead);
 	c->lst.total_dark  = le64_to_cpu(c->mst_node->total_dark);
 
-	c->calc_idx_sz = c->old_idx_sz;
+	c->calc_idx_sz = c->bi.old_idx_sz;
 
 	if (c->mst_node->flags & cpu_to_le32(UBIFS_MST_NO_ORPHS))
 		c->no_orphs = 1;
@@ -317,7 +317,7 @@ int ubifs_read_master(struct ubifs_info *c)
 		if (c->leb_cnt < old_leb_cnt ||
 		    c->leb_cnt < UBIFS_MIN_LEB_CNT) {
 			ubifs_err("bad leb_cnt on master node");
-			dbg_dump_node(c, c->mst_node);
+			ubifs_dump_node(c, c->mst_node);
 			return -EINVAL;
 		}
 
@@ -361,7 +361,8 @@ int ubifs_write_master(struct ubifs_info *c)
 {
 	int err, lnum, offs, len;
 
-	if (c->ro_media)
+	ubifs_assert(!c->ro_media && !c->ro_mount);
+	if (c->ro_error)
 		return -EROFS;
 
 	lnum = UBIFS_MST_LNUM;
@@ -378,7 +379,7 @@ int ubifs_write_master(struct ubifs_info *c)
 	c->mst_offs = offs;
 	c->mst_node->highest_inum = cpu_to_le64(c->highest_inum);
 
-	err = ubifs_write_node(c, c->mst_node, len, lnum, offs, UBI_SHORTTERM);
+	err = ubifs_write_node(c, c->mst_node, len, lnum, offs);
 	if (err)
 		return err;
 
@@ -389,7 +390,7 @@ int ubifs_write_master(struct ubifs_info *c)
 		if (err)
 			return err;
 	}
-	err = ubifs_write_node(c, c->mst_node, len, lnum, offs, UBI_SHORTTERM);
+	err = ubifs_write_node(c, c->mst_node, len, lnum, offs);
 
 	return err;
 }

@@ -336,6 +336,7 @@ typedef enum fe_delivery_system {
 	SYS_DMBTH,
 	SYS_CMMB,
 	SYS_DAB,
+	SYS_DVBT2,
 } fe_delivery_system_t;
 
 struct dtv_cmds_h {

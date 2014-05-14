@@ -127,6 +127,8 @@ static int buf_sz = DMA_BUFFER_SIZE;
 module_param(buf_sz, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(buf_sz, "DMA buffer size");
 
+static char g_env_mac[] = "00:00:00:00:00:00";
+
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
@@ -978,7 +980,7 @@ static void stmmac_check_ether_addr(struct stmmac_priv *priv)
 	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
 		priv->hw->mac->get_umac_addr((void __iomem *)
 					     priv->dev->base_addr,
-					     priv->dev->dev_addr, 0);
+					     priv->dev->dev_addr, 0, g_env_mac);
 		if  (!is_valid_ether_addr(priv->dev->dev_addr))
 			random_ether_addr(priv->dev->dev_addr);
 	}
@@ -2261,6 +2263,8 @@ static int __init stmmac_cmdline_opt(char *str)
 					   (unsigned long *)&tmrate))
 				goto err;
 #endif
+		} else if( !strncmp(opt,"ethaddr:", 8)) {
+			memcpy(g_env_mac, opt + 8, 17);
 		}
 	}
 	return 0;

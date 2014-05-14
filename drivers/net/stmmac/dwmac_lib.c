@@ -210,7 +210,7 @@ int dwmac_dma_interrupt(void __iomem *ioaddr,
 	}
 	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
-		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
+		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)) && printk_ratelimit())
 		pr_info("%s: unexpected status %08x\n", __func__, intr_status);
 	/* Clear the interrupt by writing a logic 1 to the CSR5[15-0] */
 	writel((intr_status & 0x1ffff), ioaddr + DMA_STATUS);
@@ -251,21 +251,27 @@ void stmmac_set_mac(void __iomem *ioaddr, bool enable)
 	writel(value, ioaddr + MAC_CTRL_REG);
 }
 
-void stmmac_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
-			 unsigned int high, unsigned int low)
+static inline unsigned char hex(char ch)
 {
-	unsigned int hi_addr, lo_addr;
+	if (ch >= 'a' && ch <= 'f')
+		return ch-'a'+10;
+	if (ch >= 'A' && ch <= 'F')
+		return ch-'A'+10;
+	if (ch >= '0' && ch <= '9')
+		return ch-'0';
+	return -1;
+}
 
-	/* Read the MAC address from the hardware */
-	hi_addr = readl(ioaddr + high);
-	lo_addr = readl(ioaddr + low);
-
-	/* Extract the MAC address from the high and low words */
-	addr[0] = lo_addr & 0xff;
-	addr[1] = (lo_addr >> 8) & 0xff;
-	addr[2] = (lo_addr >> 16) & 0xff;
-	addr[3] = (lo_addr >> 24) & 0xff;
-	addr[4] = hi_addr & 0xff;
-	addr[5] = (hi_addr >> 8) & 0xff;
+void stmmac_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
+			 unsigned int high, unsigned int low, char* ethaddr)
+{
+	int i, j;
+	for(i = 0, j = 0; i < 6; i++)
+	{
+		addr[i] = (hex(ethaddr[j])<<4) + hex(ethaddr[j + 1]);
+		j += 3;
+	}
+	printk("PARSE CMDLINE: %s\n", ethaddr);
+	printk("ETHADDR: %02X:%02X:%02X:%02X:%02X:%02X\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
 }
 

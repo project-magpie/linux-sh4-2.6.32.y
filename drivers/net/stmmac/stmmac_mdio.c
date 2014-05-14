@@ -170,6 +170,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 	priv->mii = new_bus;
 
 	found = 0;
+
 	for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
 		struct phy_device *phydev = new_bus->phy_map[addr];
 		if (phydev) {
@@ -194,12 +195,23 @@ int stmmac_mdio_register(struct net_device *ndev)
 			 * and no PHY number was provided to the MAC,
 			 * use the one probed here.
 			 */
-			if ((priv->plat->bus_id == mdio_bus_data->bus_id) &&
-			    (priv->plat->phy_addr == -1))
-				priv->plat->phy_addr = addr;
 
-			act = (priv->plat->bus_id == mdio_bus_data->bus_id) &&
-				(priv->plat->phy_addr == addr);
+			act = 0;
+
+			if ((priv->plat->bus_id == mdio_bus_data->bus_id) && (/*(priv->plat->phy_addr == -1) ||*/
+					(phydev->phy_id == 0x0181b880) || // Davicom DM9161E
+					(phydev->phy_id == 0x0181b8a0) || // Davicom DM9161A
+					(phydev->phy_id == 0x00181b80) || // Davicom DM9131
+					(phydev->phy_id == 0x1c040011) || // STe100p
+					(phydev->phy_id == 0x00061c50) || // STe101p
+					(phydev->phy_id == 0x00008201) || //
+					(phydev->phy_id == 0x0007c0f1) || // Pingulux
+					(phydev->phy_id == 0x001cc912)))  // RTL821x
+			{
+				priv->plat->phy_addr = addr;
+				act=1;
+			}
+
 			switch (phydev->irq) {
 			case PHY_POLL:
 				irq_str = "POLL";

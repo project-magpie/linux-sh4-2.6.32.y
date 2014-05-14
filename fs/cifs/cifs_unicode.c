@@ -191,6 +191,7 @@ cifs_strtoUCS(__le16 *to, const char *from, int len,
 	      const struct nls_table *codepage)
 {
 	int charlen;
+	__le16 temp;
 	int i;
 	wchar_t *wchar_to = (wchar_t *)to; /* needed to quiet sparse */
 
@@ -203,14 +204,18 @@ cifs_strtoUCS(__le16 *to, const char *from, int len,
 			       ("strtoUCS: char2uni of %d returned %d",
 				(int)*from, charlen));
 			/* A question mark */
-			to[i] = cpu_to_le16(0x003f);
+			temp = cpu_to_le16(0x003f);
+			memcpy(&to[i], &temp, sizeof(temp));
 			charlen = 1;
-		} else
-			to[i] = cpu_to_le16(wchar_to[i]);
-
+		} else {
+			memcpy(&temp, &wchar_to[i], sizeof(temp));
+			temp = cpu_to_le16(temp); 
+			memcpy(&to[i], &temp, sizeof(temp)); 
 	}
 
-	to[i] = 0;
+	}
+	temp = 0x0000;
+	memcpy(&to[i], &temp, sizeof(temp));
 	return i;
 }
 

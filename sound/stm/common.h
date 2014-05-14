@@ -173,9 +173,23 @@ void snd_stm_iec958_dump(const struct snd_aes_iec958 *vuc);
 						__FILE__, __LINE__, ##args); \
 		} while (0)
 
+#define snd_stm_assert(expr, args...) \
+		do { \
+			if (unlikely(!(expr))) { \
+				printk(KERN_ERR "snd-stm:%s:%d: BUG? " \
+						"(%s)\n", \
+						__snd_stm_component, \
+						__LINE__, \
+						__stringify(expr)); \
+				dump_stack(); \
+				args; \
+			} \
+		} while (0)
+
 #else
 
 #define snd_stm_printd(...) /* nothing */
+#define snd_stm_assert snd_assert
 
 #endif
 

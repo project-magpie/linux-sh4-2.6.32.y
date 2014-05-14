@@ -92,7 +92,30 @@ int ubi_check_volume(struct ubi_device *ubi, int vol_id)
 }
 
 /**
- * ubi_calculate_rsvd_pool - calculate how many PEBs must be reserved for bad
+ * ubi_update_reserved - update bad eraseblock handling accounting data.
+ * @ubi: UBI device description object
+ *
+ * This function calculates the gap between current number of PEBs reserved for
+ * bad eraseblock handling and the required level of PEBs that must be
+ * reserved, and if necessary, reserves more PEBs to fill that gap, according
+ * to availability. Should be called with ubi->volumes_lock held.
+ */
+void ubi_update_reserved(struct ubi_device *ubi)
+{
+	int need = ubi->beb_rsvd_level - ubi->beb_rsvd_pebs;
+
+	if (need <= 0 || ubi->avail_pebs == 0)
+		return;
+
+	need = min_t(int, need, ubi->avail_pebs);
+	ubi->avail_pebs -= need;
+	ubi->rsvd_pebs += need;
+	ubi->beb_rsvd_pebs += need;
+	ubi_msg("reserved more %d PEBs for bad PEB handling", need);
+}
+
+/**
+ * ubi_calculate_reserved - calculate how many PEBs must be reserved for bad
  * eraseblock handling.
  * @ubi: UBI device description object
  */
@@ -102,4 +125,23 @@ void ubi_calculate_reserved(struct ubi_device *ubi)
 	ubi->beb_rsvd_level *= CONFIG_MTD_UBI_BEB_RESERVE;
 	if (ubi->beb_rsvd_level < MIN_RESEVED_PEBS)
 		ubi->beb_rsvd_level = MIN_RESEVED_PEBS;
+}
+
+/**
+ * ubi_check_pattern - check if buffer contains only a certain byte pattern.
+ * @buf: buffer to check
+ * @patt: the pattern to check
+ * @size: buffer size in bytes
+ *
+ * This function returns %1 in there are only @patt bytes in @buf, and %0 if
+ * something else was also found.
+ */
+int ubi_check_pattern(const void *buf, uint8_t patt, int size)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+		if (((const uint8_t *)buf)[i] != patt)
+			return 0;
+	return 1;
 }

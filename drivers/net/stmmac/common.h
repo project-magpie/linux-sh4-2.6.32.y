@@ -299,7 +299,7 @@ struct stmmac_ops {
 	void (*set_umac_addr) (void __iomem *ioaddr, unsigned char *addr,
 			       unsigned int reg_n);
 	void (*get_umac_addr) (void __iomem *ioaddr, unsigned char *addr,
-			       unsigned int reg_n);
+			       unsigned int reg_n, char* ethaddr);
 	void (*set_eee_mode) (void __iomem *ioaddr);
 	void (*reset_eee_mode) (void __iomem *ioaddr);
 	void (*set_eee_timer) (void __iomem *ioaddr, int ls, int tw);
@@ -344,7 +344,7 @@ struct mac_device_info *dwmac100_setup(void __iomem *ioaddr);
 extern void stmmac_set_mac_addr(void __iomem *ioaddr, u8 addr[6],
 				unsigned int high, unsigned int low);
 extern void stmmac_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
-				unsigned int high, unsigned int low);
+				unsigned int high, unsigned int low, char* ethaddr);
 
 extern void stmmac_set_mac(void __iomem *ioaddr, bool enable);
 

@@ -28,6 +28,7 @@
 #include "tda18271.h"
 #include "mxl5005s.h"
 #include "mc44s803.h"
+#include "tda18218.h"
 
 static int dvb_usb_af9015_debug;
 module_param_named(debug, dvb_usb_af9015_debug, int, 0644);
@@ -269,7 +270,8 @@ Due to that the only way to select correct tuner is use demodulator I2C-gate.
 
 	while (i < num) {
 		if (msg[i].addr == af9015_af9013_config[0].demod_address ||
-		    msg[i].addr == af9015_af9013_config[1].demod_address) {
+		    msg[i].addr == af9015_af9013_config[1].demod_address  ||
+		    msg[i].addr == 0x3a) {
 			addr = msg[i].buf[0] << 8;
 			addr += msg[i].buf[1];
 			mbox = msg[i].buf[2];
@@ -282,7 +284,8 @@ Due to that the only way to select correct tuner is use demodulator I2C-gate.
 
 		if (num > i + 1 && (msg[i+1].flags & I2C_M_RD)) {
 			if (msg[i].addr ==
-				af9015_af9013_config[0].demod_address)
+				af9015_af9013_config[0].demod_address ||
+			    msg[i].addr == 0x3a)
 				req.cmd = READ_MEMORY;
 			else
 				req.cmd = READ_I2C;
@@ -297,7 +300,8 @@ Due to that the only way to select correct tuner is use demodulator I2C-gate.
 		} else if (msg[i].flags & I2C_M_RD) {
 			ret = -EINVAL;
 			if (msg[i].addr ==
-				af9015_af9013_config[0].demod_address)
+				af9015_af9013_config[0].demod_address ||
+			    msg[i].addr == 0x3a)
 				goto error;
 			else
 				req.cmd = READ_I2C;
@@ -311,7 +315,8 @@ Due to that the only way to select correct tuner is use demodulator I2C-gate.
 			i += 1;
 		} else {
 			if (msg[i].addr ==
-				af9015_af9013_config[0].demod_address)
+				af9015_af9013_config[0].demod_address ||
+			    msg[i].addr == 0x3a)
 				req.cmd = WRITE_MEMORY;
 			else
 				req.cmd = WRITE_I2C;
@@ -980,6 +985,7 @@ static int af9015_read_config(struct usb_device *udev)
 		case AF9013_TUNER_MT2060_2:
 		case AF9013_TUNER_TDA18271:
 		case AF9013_TUNER_QT1010A:
+		case AF9013_TUNER_TDA18218:
 			af9015_af9013_config[i].rf_spec_inv = 1;
 			break;
 		case AF9013_TUNER_MXL5003D:
@@ -1198,6 +1204,10 @@ static struct mc44s803_config af9015_mc44s803_config = {
 	.dig_out = 1,
 };
 
+static struct tda18218_config af9015_tda18218_config = {
+	.i2c_address = 0xc0,
+};
+
 static int af9015_tuner_attach(struct dvb_usb_adapter *adap)
 {
 	struct af9015_state *state = adap->dev->priv;
@@ -1245,6 +1255,10 @@ static int af9015_tuner_attach(struct dvb_usb_adapter *adap)
 		ret = dvb_attach(mc44s803_attach, adap->fe, i2c_adap,
 			&af9015_mc44s803_config) == NULL ? -ENODEV : 0;
 		break;
+	case AF9013_TUNER_TDA18218:
+		ret = dvb_attach(tda18218_attach, adap->fe, i2c_adap,
+			&af9015_tda18218_config) == NULL ? -ENODEV : 0;
+		break;
 	case AF9013_TUNER_UNKNOWN:
 	default:
 		ret = -ENODEV;
@@ -1283,6 +1297,7 @@ static struct usb_device_id af9015_usb_table[] = {
 	{USB_DEVICE(USB_VID_KWORLD_2,  USB_PID_KWORLD_MC810)},
 	{USB_DEVICE(USB_VID_KYE,       USB_PID_GENIUS_TVGO_DVB_T03)},
 /* 25 */{USB_DEVICE(USB_VID_KWORLD_2,  USB_PID_KWORLD_399U_2)},
+	{USB_DEVICE(USB_VID_TERRATEC, USB_PID_TERRATEC_CINERGY_T_STICK_RC)},
 	{0},
 };
 MODULE_DEVICE_TABLE(usb, af9015_usb_table);

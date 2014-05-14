@@ -141,6 +141,8 @@ static inline s64 timekeeping_get_ns_raw(void)
  */
 __cacheline_aligned_in_smp DEFINE_SEQLOCK(xtime_lock);
 
+EXPORT_SYMBOL(xtime_lock);
+
 
 /*
  * The current time
@@ -160,6 +162,8 @@ __cacheline_aligned_in_smp DEFINE_SEQLOCK(xtime_lock);
 struct timespec xtime __attribute__ ((aligned (16)));
 struct timespec wall_to_monotonic __attribute__ ((aligned (16)));
 static struct timespec total_sleep_time;
+EXPORT_SYMBOL(xtime);
+EXPORT_SYMBOL_GPL(wall_to_monotonic);
 
 /* Offset clock monotonic -> clock realtime */
 static ktime_t offs_real;

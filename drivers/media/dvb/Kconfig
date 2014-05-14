@@ -47,6 +47,7 @@ source "drivers/media/dvb/dvb-usb/Kconfig"
 source "drivers/media/dvb/ttusb-budget/Kconfig"
 source "drivers/media/dvb/ttusb-dec/Kconfig"
 source "drivers/media/dvb/siano/Kconfig"
+source "drivers/media/dvb/as102/Kconfig"
 
 comment "Supported FlexCopII (B2C2) Adapters"
 	depends on DVB_CORE && (PCI || USB) && I2C

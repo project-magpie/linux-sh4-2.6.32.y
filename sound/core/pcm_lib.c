@@ -434,6 +434,8 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 	return snd_pcm_update_hw_ptr_post(substream, runtime);
 }
 
+EXPORT_SYMBOL(snd_pcm_update_hw_ptr);
+
 /**
  * snd_pcm_set_ops - set the PCM operators
  * @pcm: the pcm instance

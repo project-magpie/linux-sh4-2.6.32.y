@@ -344,11 +344,27 @@ static struct platform_device stx7105_ssc_devices[] = {
 			/* .pad_config_* set in stx7105_configure_ssc_*() */
 		},
 	},
+	[4] = {
+		/* .name & .id set in stx7105_configure_ssc_*() */
+		.num_resources = 2,
+		.resource = (struct resource[]) {
+			STM_PLAT_RESOURCE_MEM(0xfd041000, 0x110),
+			STM_PLAT_RESOURCE_IRQ(evt2irq(0x10c0), -1),
+		},
+		.dev.platform_data = &(struct stm_plat_ssc_data) {
+			/* .pad_config_* set in stx7105_configure_ssc_*() */
+		},
+	},
 };
 
-static int __initdata stx7105_ssc_configured[ARRAY_SIZE(stx7105_ssc_devices)];
+static int stx7105_ssc_configured[ARRAY_SIZE(stx7105_ssc_devices)];
 
-int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
+static void ssc_i2c_dev_release(struct device *dev)
+{
+	printk(KERN_INFO "ssc_i2c_dev_release...\n");
+}
+
+int stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 {
 	static int i2c_busnum;
 	struct stx7105_ssc_config default_config = {};
@@ -365,6 +381,7 @@ int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 
 	stx7105_ssc_devices[ssc].name = "i2c-stm";
 	stx7105_ssc_devices[ssc].id = i2c_busnum;
+	stx7105_ssc_devices[ssc].dev.release = ssc_i2c_dev_release;
 
 	plat_data = stx7105_ssc_devices[ssc].dev.platform_data;
 
@@ -514,12 +531,177 @@ int __init stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
 	return i2c_busnum++;
 }
 
-int __init stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config)
+int stx7105_unconfigure_ssc_i2c(int ssc, struct stx7105_ssc_config *config)
+{
+	static int i2c_busnum = 1;
+	struct stx7105_ssc_config default_config = {};
+	struct stm_plat_ssc_data *plat_data;
+	struct stm_pad_config *pad_config;
+
+	BUG_ON(ssc < 0 || ssc >= ARRAY_SIZE(stx7105_ssc_devices));
+
+	stx7105_ssc_configured[ssc] = 0;
+	if (!config)
+		config = &default_config;
+
+	stx7105_ssc_devices[ssc].name = "i2c-stm";
+	stx7105_ssc_devices[ssc].id = i2c_busnum;
+	stx7105_ssc_devices[ssc].dev.release = ssc_i2c_dev_release;
+
+	plat_data = stx7105_ssc_devices[ssc].dev.platform_data;
+
+	switch (ssc) {
+	case 0:
+	case 1:
+		pad_config = &stx7105_ssc_i2c_pad_configs[ssc];
+		break;
+	case 2:
+		pad_config = stm_pad_config_alloc(2, 2);
+
+		/* SCL */
+		switch (config->routing.ssc2.sclk) {
+		case stx7105_ssc2_sclk_pio2_4: /* 7106 only! */
+			BUG_ON(cpu_data->type != CPU_STX7106);
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					2, 4, 2, "SCL");
+			/* ssc2_sclk_in: 00 = PIO2.4 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 0);
+
+			break;
+		case stx7105_ssc2_sclk_pio3_4:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					3, 4, 2, "SCL");
+			/* ssc2_sclk_in: 01 = PIO3.4 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 1);
+			break;
+		case stx7105_ssc2_sclk_pio12_0:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					12, 0, 3, "SCL");
+			/* ssc2_sclk_in: 10 = PIO12.0 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 2);
+			break;
+		case stx7105_ssc2_sclk_pio13_4:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					13, 4, 2, "SCL");
+			/* ssc2_sclk_in: 11 = PIO13.4 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 11, 12, 3);
+			break;
+		}
+
+		/* SDA */
+		switch (config->routing.ssc2.mtsr) {
+		case stx7105_ssc2_mtsr_pio2_0:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					2, 0, 3, "SDA");
+			/* ssc2_mtsr_in: 00 = PIO2.0 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 9, 10, 0);
+			break;
+		case stx7105_ssc2_mtsr_pio3_5:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					3, 5, 2, "SDA");
+			/* ssc2_mtsr_in: 01 = PIO3.5 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 9, 10, 1);
+			break;
+		case stx7105_ssc2_mtsr_pio12_1:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					12, 1, 3, "SDA");
+			/* ssc2_mtsr_in: 10 = PIO12.1 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 9, 10, 2);
+			break;
+		case stx7105_ssc2_mtsr_pio13_5:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					13, 5, 2, "SDA");
+			/* ssc2_mtsr_in: 11 = PIO13.5 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 9, 10, 3);
+			break;
+		}
+
+		break;
+	case 3:
+		pad_config = stm_pad_config_alloc(2, 2);
+
+		/* SCL */
+		switch (config->routing.ssc3.sclk) {
+		case stx7105_ssc3_sclk_pio2_7: /* 7106 only! */
+			BUG_ON(cpu_data->type != CPU_STX7106);
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					2, 7, 2, "SCL");
+			/* ssc3_sclk_in: 00 = PIO2.7 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 0);
+			break;
+		case stx7105_ssc3_sclk_pio3_6:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					3, 6, 2, "SCL");
+			/* ssc3_sclk_in: 01 = PIO3.6 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 1);
+			break;
+		case stx7105_ssc3_sclk_pio13_2:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					13, 2, 4, "SCL");
+			/* ssc3_sclk_in: 10 = PIO13.2 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 2);
+			break;
+		case stx7105_ssc3_sclk_pio13_6:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					13, 6, 2, "SCL");
+			/* ssc3_sclk_in: 11 = PIO13.6 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 18, 19, 3);
+			break;
+		}
+
+		/* SDA */
+		switch (config->routing.ssc3.mtsr) {
+		case stx7105_ssc3_mtsr_pio2_1:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					2, 1, 3, "SDA");
+			/* ssc3_mtsr_in: 00 = PIO2.1 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 16, 17, 0);
+			break;
+		case stx7105_ssc3_mtsr_pio3_7:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					3, 7, 2, "SDA");
+			/* ssc3_mtsr_in: 01 = PIO3.7 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 16, 17, 1);
+			break;
+		case stx7105_ssc3_mtsr_pio13_3:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					13, 3, 4, "SDA");
+			/* ssc3_mtsr_in: 10 = PIO13.3 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 16, 17, 2);
+			break;
+		case stx7105_ssc3_mtsr_pio13_7:
+			stm_pad_config_add_pio_bidir_named(pad_config,
+					13, 7, 2, "SDA");
+			/* ssc3_mtsr_in: 11 = PIO13.7 */
+			stm_pad_config_add_sys_cfg(pad_config, 16, 16, 17, 3);
+			break;
+		}
+
+		break;
+	default:
+		BUG();
+		pad_config = NULL; /* Keep the compiler happy ;-) */
+		break;
+	}
+
+	plat_data->pad_config = pad_config;
+
+	/* I2C bus number reservation (to prevent any hot-plug device
+	 * from using it) */
+	//i2c_register_board_info(i2c_busnum, NULL, 0);
+
+	platform_device_unregister(&stx7105_ssc_devices[ssc]);
+
+	return i2c_busnum++;
+}
+
+int stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config)
 {
 	static int spi_busnum;
 	struct stx7105_ssc_config default_config = {};
 	struct stm_plat_ssc_data *plat_data;
 	struct stm_pad_config *pad_config;
+
 
 	BUG_ON(ssc < 0 || ssc >= ARRAY_SIZE(stx7105_ssc_devices));
 
@@ -531,13 +713,16 @@ int __init stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config)
 
 	stx7105_ssc_devices[ssc].name = "spi-stm";
 	stx7105_ssc_devices[ssc].id = spi_busnum;
-
+	stx7105_ssc_devices[ssc].dev.release = ssc_i2c_dev_release;
 	plat_data = stx7105_ssc_devices[ssc].dev.platform_data;
 
 	switch (ssc) {
 	case 0:
 	case 1:
 		pad_config = &stx7105_ssc_spi_pad_configs[ssc];
+		break;
+	case 4:
+		pad_config = &stx7105_ssc_spi_pad_configs[1];
 		break;
 	case 2:
 		pad_config = stm_pad_config_alloc(3, 2);

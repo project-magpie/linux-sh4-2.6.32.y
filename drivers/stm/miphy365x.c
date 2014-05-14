@@ -99,6 +99,7 @@ void stm_miphy_dump_registers(struct stm_miphy *miphy)
 
 static void miphy365x_tap_start_port0(const struct stm_miphy_device *miphy_dev)
 {
+	unsigned int regvalue;
 	int timeout;
 	void (*reg_write)(int port, u8 addr, u8 data);
 	u8 (*reg_read)(int port, u8 addr);
@@ -195,8 +196,14 @@ static void miphy365x_tap_start_port0(const struct stm_miphy_device *miphy_dev)
 	/*  Wait for phy_ready */
 	/*  When phy is in ready state ( register 0x01 of macro1 to 0x13) */
 
-	while ((reg_read(0, 0x01) & 0x03) != 0x03)
-		cpu_relax();
+	regvalue = reg_read(0, 0x01);
+	timeout = 50;
+	while (timeout-- && ((regvalue & 0x03) != 0x03)) {
+		regvalue = reg_read(0, 0x01);
+		udelay(2000);
+	}
+	if (timeout < 0)
+		pr_err("%s(): PHY NOT_READY timeout!\n", __func__);
 
 	/* Enable macro1 to use rx_lspd  & tx_lspd from link interface */
 	reg_write(0, 0x10, 0x00);

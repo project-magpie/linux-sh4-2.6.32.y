@@ -28,6 +28,14 @@
 
 #include <linux/spi/spi.h>
 #include <linux/spi/flash.h>
+/***** 2011-11-14 D26LF Add:
+    Description:spi flash
+*/
+#define SPI_FLASH_BOOT
+#ifdef SPI_FLASH_BOOT
+#include <linux/stm/pio.h>
+#endif  /* SPI_FLASH_BOOT */
+/***** 2011-11-14 D26LF Add end ****/
 
 
 #define FLASH_PAGESIZE		256
@@ -80,6 +88,14 @@ struct m25p {
 	unsigned		partitioned:1;
 	u8			erase_opcode;
 	u8			command[CMD_SIZE + FAST_READ_DUMMY_BYTE];
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	struct 		stpio_pin *pin;
+	u32			jedec_id;
+	#endif  /* SPI_FLASH_BOOT */
+	/***** 2011-11-14 D26LF Add end ****/
 };
 
 static inline struct m25p *mtd_to_m25p(struct mtd_info *mtd)
@@ -172,6 +188,61 @@ static int wait_till_ready(struct m25p *flash)
 	return 1;
 }
 
+/***** 2011-11-14 D26LF Add:
+    Description:spi flash
+*/
+#ifdef SPI_FLASH_BOOT
+static int write_open (struct m25p *flash)
+{
+	//printk("write_open 0x%x\n", read_sr(flash));
+	if (flash->pin)
+	{
+		stpio_set_pin(flash->pin, 1);
+	}
+	wait_till_ready(flash);
+	write_enable(flash);
+	write_sr(flash, 0);
+
+	if (flash->jedec_id >> 16 == 0x1f)
+	{
+		write_enable(flash);
+		write_sr(flash, 0);
+	}
+
+	wait_till_ready(flash);
+	//printk("write_open 0x%x\n", read_sr(flash));
+
+	return 0;
+}
+
+static int write_close (struct m25p *flash)
+{
+	//printk("write_close\n");
+	//printk("write_close 0x%x\n", read_sr(flash));
+	wait_till_ready(flash);
+	write_enable(flash);
+
+	if (flash->jedec_id >> 16 == 0x1f)
+	{
+		write_sr(flash, 0xBC);
+	}
+	else
+	{
+		write_sr(flash, 0x9C);
+	}
+
+	wait_till_ready(flash);
+	if (flash->pin)
+	{
+		stpio_set_pin(flash->pin, 0);
+	}
+	//printk("write_close 0x%x\n", read_sr(flash));
+
+	return 0;
+}
+#endif
+/***** 2011-11-14 D26LF Add end ****/
+
 /*
  * Erase the whole flash memory
  *
@@ -260,10 +331,27 @@ static int m25p80_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	mutex_lock(&flash->lock);
 
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	write_open(flash);
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
+
 	/* whole-chip erase? */
 	if (len == flash->mtd.size) {
 		if (erase_chip(flash)) {
 			instr->state = MTD_ERASE_FAILED;
+
+			/***** 2011-11-14 D26LF Add:
+			    Description:spi flash
+			*/
+			#ifdef SPI_FLASH_BOOT
+			write_close(flash);
+			#endif
+			/***** 2011-11-14 D26LF Add end ****/
+
 			mutex_unlock(&flash->lock);
 			return -EIO;
 		}
@@ -278,6 +366,15 @@ static int m25p80_erase(struct mtd_info *mtd, struct erase_info *instr)
 		while (len) {
 			if (erase_sector(flash, addr)) {
 				instr->state = MTD_ERASE_FAILED;
+
+				/***** 2011-11-14 D26LF Add:
+				    Description:spi flash
+				*/
+				#ifdef SPI_FLASH_BOOT
+				write_close(flash);
+				#endif
+				/***** 2011-11-14 D26LF Add end ****/
+
 				mutex_unlock(&flash->lock);
 				return -EIO;
 			}
@@ -286,6 +383,14 @@ static int m25p80_erase(struct mtd_info *mtd, struct erase_info *instr)
 			len -= mtd->erasesize;
 		}
 	}
+
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	write_close(flash);
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
 
 	mutex_unlock(&flash->lock);
 
@@ -410,6 +515,14 @@ static int m25p80_write(struct mtd_info *mtd, loff_t to, size_t len,
 		return 1;
 	}
 
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	write_open(flash);
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
+
 	write_enable(flash);
 
 	/* Set up the opcode in the write buffer. */
@@ -464,6 +577,14 @@ static int m25p80_write(struct mtd_info *mtd, loff_t to, size_t len,
 		}
 	}
 
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	write_close(flash);
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
+
 	mutex_unlock(&flash->lock);
 
 	return 0;
@@ -504,6 +625,14 @@ static int sst_write(struct mtd_info *mtd, loff_t to, size_t len,
 	ret = wait_till_ready(flash);
 	if (ret)
 		goto time_out;
+
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	write_open(flash);
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
 
 	write_enable(flash);
 
@@ -571,6 +700,15 @@ static int sst_write(struct mtd_info *mtd, loff_t to, size_t len,
 	}
 
 time_out:
+
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	write_close(flash);
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
+
 	mutex_unlock(&flash->lock);
 	return ret;
 }
@@ -618,6 +756,12 @@ static struct flash_info __devinitdata m25p_data [] = {
 	{ "at26f004",   0x1f0400, 0, 64 * 1024, 8, SECT_4K, },
 	{ "at26df081a", 0x1f4501, 0, 64 * 1024, 16, SECT_4K, },
 	{ "at26df161a", 0x1f4601, 0, 64 * 1024, 32, SECT_4K, },
+
+	/*****     2012-06-18     *****/
+	//YWDRIVER_MODI add by lf for atmel 25fd161 start
+	{ "at25df161", 0x1f4602, 0, 64 * 1024, 32, SECT_4K, },
+	//YWDRIVER_MODI add by lf end
+
 	{ "at26df321",  0x1f4701, 0, 64 * 1024, 64, SECT_4K, },
 
 	/* Macronix */
@@ -681,6 +825,17 @@ static struct flash_info __devinitdata m25p_data [] = {
 	{ "w25x16", 0xef3015, 0, 64 * 1024, 32, SECT_4K, },
 	{ "w25x32", 0xef3016, 0, 64 * 1024, 64, SECT_4K, },
 	{ "w25x64", 0xef3017, 0, 64 * 1024, 128, SECT_4K, },
+
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	/* EON */
+	{ "en25f16", 0x1c3115, 0, 64 * 1024, 32, },
+	{ "s25fl016k", 0xef4015, 0, 64 * 1024, 32, },
+	{ "en25qh16", 0x1c7015, 0 , 64 * 1024, 32, },
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
 };
 
 static struct flash_info *__devinit jedec_probe(struct spi_device *spi)
@@ -777,6 +932,19 @@ static int __devinit m25p_probe(struct spi_device *spi)
 	if (!flash)
 		return -ENOMEM;
 
+	/***** 2011-11-14 D26LF Add:
+	    Description:spi flash
+	*/
+	#ifdef SPI_FLASH_BOOT
+	flash->pin = stpio_request_pin(5, 4, "SPI_FLASH_PROTECT", STPIO_OUT);
+	if (flash->pin)
+	{
+		stpio_set_pin(flash->pin, 0);
+	}
+
+	flash->jedec_id = info->jedec_id;
+	#endif
+	/***** 2011-11-14 D26LF Add end ****/
 	flash->spi = spi;
 	mutex_init(&flash->lock);
 	dev_set_drvdata(&spi->dev, flash);

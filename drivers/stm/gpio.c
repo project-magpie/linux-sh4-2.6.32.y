@@ -28,12 +28,17 @@
 #include <linux/stm/pad.h>
 #include <linux/stm/pio.h>
 #include <linux/stm/pm_sys.h>
+#ifdef CONFIG_PROC_FS
+#include <linux/proc_fs.h>
+#include <linux/kallsyms.h>
+#endif
 #include "reg_pio.h"
 
 
 
 struct stpio_pin {
 #ifdef CONFIG_STPIO
+	const char *pin_name;
 	void (*func)(struct stpio_pin *pin, void *dev);
 	void* dev;
 	unsigned short port_no, pin_no;
@@ -42,16 +47,16 @@ struct stpio_pin {
 
 struct stm_gpio_pin {
 	unsigned char flags;
-#define PIN_FAKE_EDGE		4
+#define PIN_FAKE_EDGE			4
 #define PIN_IGNORE_EDGE_FLAG	2
 #define PIN_IGNORE_EDGE_VAL	1
 #define PIN_IGNORE_RISING_EDGE	(PIN_IGNORE_EDGE_FLAG | 0)
 #define PIN_IGNORE_FALLING_EDGE	(PIN_IGNORE_EDGE_FLAG | 1)
 #define PIN_IGNORE_EDGE_MASK	(PIN_IGNORE_EDGE_FLAG | PIN_IGNORE_EDGE_VAL)
 
-#ifdef CONFIG_HIBERNATION
+//#ifdef CONFIG_HIBERNATION
 	unsigned char pm_saved_data;
-#endif
+//#endif
 	struct stpio_pin stpio;
 };
 
@@ -111,7 +116,6 @@ struct stm_gpio_irqmux {
 	void *base;
 	int port_first;
 };
-
 
 
 
@@ -392,6 +396,9 @@ static inline void __stm_gpio_direction(struct stm_gpio_port *port,
 
 	gpio_pm_set_direction(&port->pins[offset], direction);
 	set__PIO_PCx(port->base, offset, direction);
+
+	if (!port->pins[offset].stpio.pin_name)
+		port->pins[offset].stpio.pin_name = "-----";
 }
 
 
@@ -424,7 +431,12 @@ static void stm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 
 static int stm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
+	struct stm_gpio_port *port = to_stm_gpio_port(chip);
+
 	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_IN);
+
+	if (!port->pins[offset].stpio.pin_name)
+		port->pins[offset].stpio.pin_name = "-----";
 
 	return 0;
 }
@@ -437,6 +449,9 @@ static int stm_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 	__stm_gpio_set(port, offset, value);
 
 	stm_pad_configure_gpio(chip->base + offset, STM_GPIO_DIRECTION_OUT);
+
+	if (!port->pins[offset].stpio.pin_name)
+		port->pins[offset].stpio.pin_name = "-----";
 
 	return 0;
 }
@@ -503,13 +518,17 @@ struct stpio_pin *__stpio_request_pin(unsigned int port_no,
 
 	gpio_pin->stpio.port_no = port_no;
 	gpio_pin->stpio.pin_no = pin_no;
-
+	gpio_pin->stpio.pin_name = (name==NULL)?"-----":name;
 	return &gpio_pin->stpio;
 }
 EXPORT_SYMBOL(__stpio_request_pin);
 
 void stpio_free_pin(struct stpio_pin *pin)
 {
+	stpio_configure_pin(pin, STPIO_IN);
+	pin->pin_name = NULL;
+	pin->func = 0;
+	pin->dev = 0;
 	stm_pad_release_gpio(stm_gpio(pin->port_no, pin->pin_no));
 }
 EXPORT_SYMBOL(stpio_free_pin);
@@ -624,6 +643,87 @@ void stpio_set_irq_type(struct stpio_pin* pin, int triggertype)
 	set_irq_type(irq, triggertype);
 }
 EXPORT_SYMBOL(stpio_set_irq_type);
+
+#ifdef CONFIG_PROC_FS
+
+static struct proc_dir_entry *proc_stpio;
+
+static inline const char *stpio_get_direction_name(unsigned int direction)
+{
+	switch (direction) {
+	case STPIO_NONPIO:		return "IN  (pull-up)      ";
+	case STPIO_BIDIR:		return "BI  (open-drain)   ";
+	case STPIO_OUT:			return "OUT (push-pull)    ";
+	case STPIO_IN:			return "IN  (Hi-Z)         ";
+	case STPIO_ALT_OUT:		return "Alt-OUT (push-pull)";
+	case STPIO_ALT_BIDIR:	return "Alt-BI (open-drain)";
+	default:				return "forbidden          ";
+	}
+};
+
+static inline const char *stpio_get_handler_name(void *func)
+{
+	static char sym_name[KSYM_NAME_LEN];
+	char *modname;
+	unsigned long symbolsize, offset;
+	const char *symb;
+
+	if (func == NULL)
+		return "";
+
+	symb = kallsyms_lookup((unsigned long)func, &symbolsize, &offset,
+			&modname, sym_name);
+
+	return symb ? symb : "???";
+}
+
+static int stpio_read_proc(char *page, char **start, off_t off, int count,
+		int *eof, void *data_unused)
+{
+	int len;
+	int port_no, pin_no;
+	off_t begin = 0;
+	int num_ports = stm_gpio_num / STM_GPIO_PINS_PER_PORT;
+	struct stm_gpio_port *port;
+	struct stm_gpio_pin *pin;
+
+	len = sprintf(page, "  port      name          direction\n");
+	for (port_no = 0; port_no < num_ports; port_no++)
+	{
+		for (pin_no = 0; pin_no < STM_GPIO_PINS_PER_PORT; pin_no++) {
+
+			port = &stm_gpio_ports[port_no];
+			if(!port) continue;
+
+			pin = &port->pins[pin_no];
+			if(!pin) continue;
+
+			char *name = pin->stpio.pin_name ? pin->stpio.pin_name : "";
+			len += sprintf(page + len,
+					"PIO %d.%d [%-10s] [%s] [%s]\n",
+					port_no, pin_no, name,
+					stpio_get_direction_name(pin->pm_saved_data),
+					stpio_get_handler_name(pin->stpio.func));
+
+			if (len + begin > off + count)
+				goto done;
+			if (len + begin < off) {
+				begin += len;
+				len = 0;
+			}
+		}
+	}
+
+	*eof = 1;
+
+done:
+	if (off >= len + begin)
+		return 0;
+	*start = page + (off - begin);
+	return ((count < begin + len - off) ? count : begin + len - off);
+}
+
+#endif /* CONFIG_PROC_FS */
 
 #endif /* CONFIG_STPIO */
 
@@ -1031,6 +1131,12 @@ module_init(stm_gpio_subsystem_init);
 static int __init stm_gpio_init(void)
 {
 	int ret;
+
+#ifdef CONFIG_PROC_FS
+	proc_stpio = create_proc_entry("stpio", 0, NULL);
+	if (proc_stpio)
+		proc_stpio->read_proc = stpio_read_proc;
+#endif
 
 	ret = platform_driver_register(&stm_gpio_driver);
 	if (ret)

@@ -1449,7 +1449,16 @@ static void __exit stm_nand_flex_exit(void)
 	platform_driver_unregister(&stm_nand_flex_driver);
 }
 
+/***** 2011-11-14 D26LF Modi:
+    Description:spi flash
+*/
+#define SPI_FLASH_BOOT
+#ifdef SPI_FLASH_BOOT
+late_initcall(stm_nand_flex_init);
+#else
 module_init(stm_nand_flex_init);
+#endif
+/***** 2011-11-14 D26LF Modi end ****/
 module_exit(stm_nand_flex_exit);
 
 MODULE_LICENSE("GPL");

@@ -1104,7 +1104,7 @@ int phy_driver_register(struct phy_driver *new_driver)
 		return retval;
 	}
 
-	pr_debug("%s: Registered new driver\n", new_driver->name);
+	pr_info("%s: Registered new driver (0x%08x)\n", new_driver->name, new_driver->phy_id);
 
 	return 0;
 }

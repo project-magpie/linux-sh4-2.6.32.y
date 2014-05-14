@@ -417,6 +417,30 @@ void __init setup_arch(char **cmdline_p)
 	}
 	}
 
+	{
+		/* spider: remove bigphysarea allocation from command line */
+		int i;
+		int command_line_len = strlen(command_line);
+
+		for(i = 0; i < (command_line_len-11); i++)
+		{
+			if(!strncmp(command_line + i + 1, "bigphysarea", 11))
+			{
+				// search for next pos
+				int k;
+				int pos=command_line_len;
+				for(k=i+1; k<command_line_len; k++)
+					if(command_line[k]==' ') {
+						pos=k;
+						break;
+					}
+				memmove(command_line+i, command_line+pos, command_line_len-pos);
+				memset(&command_line[command_line_len-(pos-i)], '\0', pos-i);
+				break;
+			}
+		}
+	}
+
 	/* Save unparsed command line copy for /proc/cmdline */
 	memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = command_line;

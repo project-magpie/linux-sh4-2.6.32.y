@@ -338,7 +338,7 @@ static int spi_stm_txrx_bufs(struct spi_device *spi, struct spi_transfer *t)
 
 }
 
-static int __init spi_stm_probe(struct platform_device *pdev)
+static int spi_stm_probe(struct platform_device *pdev)
 {
 	struct stm_plat_ssc_data *plat_data = pdev->dev.platform_data;
 	struct spi_master *master;

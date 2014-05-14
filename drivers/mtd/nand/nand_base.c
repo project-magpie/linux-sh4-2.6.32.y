@@ -2912,8 +2912,8 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	/* Decode ID string */
 	if (nand_decode_id(mtd, chip, type, id_data, 8) != 0) {
 		printk(KERN_INFO "Failed to decode NAND READID "
-		       "[%02x %02x %02x %02x]\n",
-		       id_data[0], id_data[1], id_data[2], id_data[3]);
+		       "[%02x %02x %02x %02x %02x]\n",
+		       id_data[0], id_data[1], id_data[2], id_data[3], id_data[4] );
 		return ERR_PTR(-EINVAL);
 	}
 

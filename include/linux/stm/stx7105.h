@@ -113,6 +113,7 @@ struct stx7105_ssc_config {
 };
 /* SSC configure functions return I2C/SPI bus number */
 int stx7105_configure_ssc_i2c(int ssc, struct stx7105_ssc_config *config);
+int stx7105_unconfigure_ssc_i2c(int ssc, struct stx7105_ssc_config *config);
 int stx7105_configure_ssc_spi(int ssc, struct stx7105_ssc_config *config);
 
 

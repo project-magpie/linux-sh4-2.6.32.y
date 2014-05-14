@@ -203,6 +203,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 					(phydev->phy_id == 0x0181b8a0) || // Davicom DM9161A
 					(phydev->phy_id == 0x00181b80) || // Davicom DM9131
 					(phydev->phy_id == 0x1c040011) || // STe100p
+					(phydev->phy_id == 0x0007c0f1) || //
 					(phydev->phy_id == 0x00061c50) || // STe101p
 					(phydev->phy_id == 0x00008201) || //
 					(phydev->phy_id == 0x0007c0f1) || // Pingulux

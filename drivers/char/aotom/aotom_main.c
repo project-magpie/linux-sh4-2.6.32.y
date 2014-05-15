@@ -45,6 +45,7 @@
 #include <linux/time.h>
 #include <linux/poll.h>
 #include <linux/workqueue.h>
+#include <linux/proc_fs.h>
 /* for rtc / reboot_notifier hooks */
 #include <linux/notifier.h>
 #include <linux/reboot.h>
@@ -70,6 +71,12 @@ if ((paramDebug) && (paramDebug > level)) printk(TAGDEBUG x); \
 #define KEY_PRESS_UP      0
 
 static char *gmt = "+0000";
+
+#define NAME_NODE "display_type"
+#define NAME_DIR "aotom"
+
+struct proc_dir_entry *own_proc_dir;
+struct proc_dir_entry *own_proc_node;
 
 typedef struct {
 	int minor;
@@ -1050,26 +1057,63 @@ static struct platform_driver aotom_rtc_driver = {
 	},
 };
 
+
+ssize_t proc_node_read(char *buffer, char **start, off_t off, int count, int *eof, void *data)
+{
+    int len;
+   *eof = 1;
+   len=sprintf(buffer, "%d\n", YWPANEL_width);
+   return len;
+}
+
+
+#define DEVICE_NAME "vfd"
+static struct cdev   aotom_cdev;
+static struct class *aotom_class = 0;
 static int __init aotom_init_module(void)
 {
-	int i;
-
-	dprintk(5, "%s >\n", __func__);
-
-	printk("Fulan front panel driver\n");
+	int i,result;
+	printk("[aotom] Fulan front panel driver\n");
 
 	if(YWPANEL_VFD_Init()) {
-		printk("unable to init module\n");
+		printk("[aotom] unable to init module\n");
 		return -1;
 	}
 
 	VFD_clr();
-	
+
 	if(button_dev_init() != 0)
 		return -1;
 
-	if (register_chrdev(VFD_MAJOR,"VFD",&vfd_fops))
-		printk("unable to get major %d for VFD\n",VFD_MAJOR);
+	result = register_chrdev_region(MKDEV(VFD_MAJOR, 0), 1, DEVICE_NAME);
+	if (result < 0) {
+		printk( KERN_ALERT "[aotom] Fulan front panel driver cannot register chrdev region (%d)\n", result);
+		return result;
+	}
+
+	if(NULL == (aotom_class = class_create(THIS_MODULE, DEVICE_NAME))) {
+		printk("[aotom] Fulan front panel driver couldn't create class '%s' driver\n", DEVICE_NAME);
+		unregister_chrdev_region(MKDEV(VFD_MAJOR, 0), 1);
+		return -1;
+	}
+
+	if(NULL == device_create(aotom_class, NULL, MKDEV(VFD_MAJOR, 0), NULL, "vfd")) {
+		printk("[aotom] Fulan front panel driver couldn't create device '%s' driver\n", DEVICE_NAME);
+		class_destroy(aotom_class);
+		unregister_chrdev_region(MKDEV(VFD_MAJOR, 0), 1);
+		return -1;
+	}
+
+	cdev_init(&aotom_cdev, &vfd_fops);
+	if (cdev_add(&aotom_cdev, MKDEV(VFD_MAJOR, 0), 1) < 0)
+	{
+		printk("[aotom] Fulan front panel driver couldn't register '%s' driver\n", DEVICE_NAME);
+		cdev_del(&aotom_cdev);
+		device_destroy(aotom_class, MKDEV(VFD_MAJOR, 0));
+		class_destroy(aotom_class);
+		unregister_chrdev_region(MKDEV(VFD_MAJOR, 0), 1);
+		return -1;
+	}
 
 	sema_init(&write_sem, 1);
 	sema_init(&receive_sem, 1);
@@ -1091,15 +1135,41 @@ static int __init aotom_init_module(void)
 	register_reboot_notifier(&aotom_reboot_block);
 	i = platform_driver_register(&aotom_rtc_driver);
 	if (i)
-		printk(KERN_ERR "%s platform_driver_register failed: %d\n", __func__, i);
+		printk(KERN_ERR "[aotom] %s platform_driver_register failed: %d\n", __func__, i);
 	else
 		rtc_pdev = platform_device_register_simple(RTC_NAME, -1, NULL, 0);
 
 	if (IS_ERR(rtc_pdev))
-		printk(KERN_ERR "%s platform_device_register_simple failed: %ld\n",
+		printk(KERN_ERR "[aotom] %s platform_device_register_simple failed: %ld\n",
 				__func__, PTR_ERR(rtc_pdev));
 
-	dprintk(5, "%s <\n", __func__);
+	/* proc file stuff */
+	own_proc_dir = create_proc_entry(NAME_DIR, S_IFDIR | S_IRWXUGO, NULL);
+	if (own_proc_dir == NULL ) {
+	    printk(KERN_ERR "[aotom] can't create /proc/%s\n", NAME_DIR);
+	    return -ENOMEM;
+	}
+	dprintk(5, "[aotom] Create /proc/%s\n", NAME_DIR);
+	own_proc_dir->gid =0 ;
+
+	own_proc_node=create_proc_entry(NAME_NODE, S_IFREG | S_IRUGO | S_IWUGO, own_proc_dir);
+	if (own_proc_node == NULL ) {
+	    printk(KERN_ERR "[aotom] can't create /proc/%s/%s\n", NAME_DIR, NAME_NODE);
+	    return -ENOMEM;
+	}
+	dprintk(5, "[aotom] Create /proc/%s/%s\n", NAME_DIR, NAME_NODE);
+	own_proc_node->uid = 0;
+	own_proc_node->gid =0 ;
+
+	own_proc_node->read_proc=proc_node_read;
+
+	if ( YWPANEL_width == 4 ) {
+		YWPANEL_VFD_ShowString("init");
+	} else {
+		YWPANEL_VFD_ShowString("  init  ");
+	}
+
+	dprintk(5, "[aotom] %s <\n", __func__);
 
 	return 0;
 }
@@ -1116,6 +1186,13 @@ static int led_thread_active(void) {
 static void __exit aotom_cleanup_module(void)
 {
 	int i;
+
+	/* proc file stuff */
+	remove_proc_entry(NAME_NODE, own_proc_dir);
+	dprintk(5, "[aotom] Remove .../proc/%s\n", NAME_DIR);
+	remove_proc_entry(NAME_DIR, NULL);
+	dprintk(5, "[aotom] Remove .../proc/%s/%s\n", NAME_DIR, NAME_NODE);
+
 
 	unregister_reboot_notifier(&aotom_reboot_block);
 	platform_driver_unregister(&aotom_rtc_driver);
@@ -1134,12 +1211,16 @@ static void __exit aotom_cleanup_module(void)
 	while(!draw_thread_stop && !led_thread_active())
 		msleep(1);
 
-	dprintk(5, "[BTN] unloading ...\n");
+	dprintk(5, "[aotom] [BTN] unloading ...\n");
 	button_dev_exit();
 
-	unregister_chrdev(VFD_MAJOR,"VFD");
+	cdev_del(&aotom_cdev);
+	device_destroy(aotom_class, MKDEV(VFD_MAJOR, 0));
+	class_destroy(aotom_class);
+	unregister_chrdev_region(MKDEV(VFD_MAJOR, 0), 1);
+
 	YWPANEL_VFD_Term();
-	printk("Fulan front panel module unloading\n");
+	printk("[aotom] Fulan front panel module unloading\n");
 }
 
 module_init(aotom_init_module);

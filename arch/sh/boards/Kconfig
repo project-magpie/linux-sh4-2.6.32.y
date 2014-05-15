@@ -619,7 +619,7 @@ config SH_ST_SAT7111
 	  Select this if configuring for an
 	  STMicroelectronics sat7111 Reference Board.
 
-config SH_FULAN_SPARK7111
+config SPARK7111
 	bool "spark7111: STx7111 spark7111 board"
 	depends on CPU_SUBTYPE_STX7111
 	select SH_ST_SAT7111 
@@ -628,7 +628,7 @@ config SH_FULAN_SPARK7111
 	  Select this if configuring for an
 	  Fulan Spark 7111 Board like the Golden Media GM 990.
 
-config SH_FULAN_SPARK7162
+config SPARK7162
 	bool "spark7162 : STx7105 spark7162 board"
 	depends on CPU_SUBTYPE_STX7105
 	select SH_ST_HDK7105

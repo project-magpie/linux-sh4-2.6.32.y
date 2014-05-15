@@ -11,9 +11,9 @@ aotom-objs += aotom_main.o
 
 obj-m += aotom.o
 
-ifeq ($(CONFIG_SH_FULAN_SPARK7111),y)
+ifeq ($(CONFIG_SPARK7111),y)
 EXTRA_CFLAGS += -DSPARK
 endif
-ifeq ($(CONFIG_SH_FULAN_SPARK7162),y)
+ifeq ($(CONFIG_SPARK7162),y)
 EXTRA_CFLAGS += -DSPARK7162
 endif

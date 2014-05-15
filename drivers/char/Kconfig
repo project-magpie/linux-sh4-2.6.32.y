@@ -991,7 +991,7 @@ config MWAVE
 
 config AOTOM
 	tristate "Spark 71xx Aotom frontpanel support"
-	depends on SH_FULAN_SPARK7111 || SH_FULAN_SPARK7162
+	depends on SPARK7111 || SPARK7162
 	---help---
 	  The Aotom frontpanel controler is composed of either
 	  a VFD (Vacuum Fluorescent Display) or an 7-segment display

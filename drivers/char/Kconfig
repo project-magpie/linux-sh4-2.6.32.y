@@ -989,6 +989,22 @@ config MWAVE
 	  To compile this driver as a module, choose M here: the
 	  module will be called mwave.
 
+config AOTOM
+	tristate "Spark 71xx Aotom frontpanel support"
+	depends on SH_FULAN_SPARK7111 || SH_FULAN_SPARK7162
+	---help---
+	  The Aotom frontpanel controler is composed of either
+	  a VFD (Vacuum Fluorescent Display) or an 7-segment display
+	  and some Buttons plus an IR receiver. The IR receiver is
+	  controlled by the LIRC driver.
+
+	  If you own one of the Fulan Spark 7111 or 7162 Set-Top-Box which has the
+	  aotom frontcontroler in it, say Y.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called aotom.
+
+
 config SCx200_GPIO
 	tristate "NatSemi SCx200 GPIO Support"
 	depends on SCx200

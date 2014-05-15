@@ -201,6 +201,7 @@ void clear_display(void)
 	YWPANEL_VFD_ShowString("        ");
 }
 
+#ifdef SPARK7162
 static void VFD_set_all_icons(void)
 {
 	int i;
@@ -208,6 +209,7 @@ static void VFD_set_all_icons(void)
 	for(i=1; i <= 45; i++)
 		aotomSetIcon(i, 1);
 }
+#endif
 
 static void VFD_clear_all_icons(void)
 {
@@ -231,7 +233,7 @@ static int draw_thread(void *arg)
 	int len = data->length;
 	int off = 0;
 	int doton3 = 0;
-	
+
 	if (YWPANEL_width == 4 && len == 5 && data->data[2] == '.')
 		doton3 = 1;
 
@@ -567,7 +569,7 @@ static struct vfd_ioctl_data vfd_data;
 
 static int AOTOMdev_ioctl(struct inode *Inode, struct file *File, unsigned int cmd, unsigned long arg)
 {
-	int icon_nr = 0;
+
 	static int mode = 0;
 	int res = -EINVAL;
 	dprintk(5, "%s > 0x%.8x\n", __func__, cmd);
@@ -628,6 +630,7 @@ static int AOTOMdev_ioctl(struct inode *Inode, struct file *File, unsigned int c
 		}
 #endif
 #if defined(SPARK7162)
+		int icon_nr = 0;
 		icon_nr = aotom_data.u.icon.icon_nr;
 		//e2 icons workarround
 		//printk("icon_nr = %d\n", icon_nr);
@@ -664,7 +667,7 @@ static int AOTOMdev_ioctl(struct inode *Inode, struct file *File, unsigned int c
 				icon_nr = 0; //no additional symbols at the moment
 				break;
 			}
-		}	  
+		}
 		if (aotom_data.u.icon.on != 0)
 			aotom_data.u.icon.on = 1;
 		if (icon_nr > 0 && icon_nr <= 45 )
@@ -683,7 +686,7 @@ static int AOTOMdev_ioctl(struct inode *Inode, struct file *File, unsigned int c
 				break;
 			}
 		}
-#endif		
+#endif
 		mode = 0;
 		break;
 	}

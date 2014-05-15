@@ -619,14 +619,23 @@ config SH_ST_SAT7111
 	  Select this if configuring for an
 	  STMicroelectronics sat7111 Reference Board.
 
-config SH_FULAN_SPARK
-	bool "spark7111: spark7111 board"
+config SH_FULAN_SPARK7111
+	bool "spark7111: STx7111 spark7111 board"
 	depends on CPU_SUBTYPE_STX7111
 	select SH_ST_SAT7111 
 	default n
 	help
 	  Select this if configuring for an
 	  Fulan Spark 7111 Board like the Golden Media GM 990.
+
+config SH_FULAN_SPARK7162
+	bool "spark7162 : STx7105 spark7162 board"
+	depends on CPU_SUBTYPE_STX7105
+	select SH_ST_HDK7105
+	default n
+	help
+	  Select this if configuring for an
+	  Fulan Spark 7162 Board like the Amiko Alien 2.
 
 config SH_ST_MB360
 	bool "mb360: ST40RA Eval"

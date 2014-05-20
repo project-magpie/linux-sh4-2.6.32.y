@@ -47,7 +47,7 @@ struct StreamContext_s;
 #include "pti.h"
 
 #if defined(PLAYER_179) || defined(PLAYER_191)
-#if (defined(HL101) || defined(VIP1_V2) || defined(VIP2_V1) || defined(CONFIG_SPARK) || defined(CONFIG_SPARK7162))
+#if (defined(HL101) || defined(VIP1_V2) || defined(VIP2_V1) || defined(CONFIG_SPARK7111) || defined(CONFIG_SPARK7162))
 static int waitMS=20;
 static int videoMem=4096;
 #endif
@@ -756,7 +756,7 @@ void pti_hal_init ( struct stpti *pti , struct dvb_demux* demux, void (*_demulti
      printk("error allocating back buffer !!!!!!!!!!!!!!!!!!!!!!!!\n");
 
   /* ioremap the pti address space */
-#if defined(UFS912) || defined(UFS913) || defined(CONFIG_SPARK) || defined(CONFIG_SPARK7162) || defined(ATEVIO7500) || defined(HS7810A) || defined(HS7110) || defined(ATEMIO520) || defined(ATEMIO530) || defined(VITAMIN_HD5000)
+#if defined(UFS912) || defined(UFS913) || defined(CONFIG_SPARK7111) || defined(CONFIG_SPARK7162) || defined(ATEVIO7500) || defined(HS7810A) || defined(HS7110) || defined(ATEMIO520) || defined(ATEMIO530) || defined(VITAMIN_HD5000)
   start = 0xfe230000;
 #else
   start = 0x19230000;
@@ -1120,7 +1120,7 @@ module_init             (pti_init);
 module_exit             (pti_exit);
 
 #if defined(PLAYER_179) || defined(PLAYER_191)
-#if (defined(HL101) || defined(VIP1_V2) || defined(VIP2_V1) || defined(CONFIG_SPARK) || defined(CONFIG_SPARK7162))
+#if (defined(HL101) || defined(VIP1_V2) || defined(VIP2_V1) || defined(CONFIG_SPARK7111) || defined(CONFIG_SPARK7162))
 module_param(waitMS, int, 0444);
 MODULE_PARM_DESC(waitMS, "waitMS");
 

@@ -35,6 +35,13 @@ menuconfig DVB_CAPTURE_DRIVERS
 	---help---
 	  Say Y to select Digital TV adapters
 
+config DVB_AVS
+        tristate "Set-Top-Box Audio Video switcher driver support"
+        depends on DVB_CORE
+	default m
+	---help---
+	  This driver supports audio/video switch of various STBs
+
 if DVB_CAPTURE_DRIVERS && DVB_CORE
 
 comment "Supported SAA7146 based PCI Adapters"

@@ -305,6 +305,16 @@ config STM_PTI
  	The PTI is responsible for DVB transport stream muxing and descrambling. This driver
  	only provides demuxing support and laks descrambling support.
 
+config STM_SCI
+        tristate "STMicroelectronics SCI Smartcard reader support"
+	default m
+	depends on (CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7105 \
+		|| CPU_SUBTYPE_STX7111 )
+        ---help---
+          Smartcard reader interface for various set-top box models
+
+          To compile this driver as a module, choose M here: the
+          module will be called aotom.
 
 
 endmenu

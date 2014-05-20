@@ -1004,15 +1004,6 @@ config AOTOM
 	  To compile this driver as a module, choose M here: the
 	  module will be called aotom.
 
-config SMARTCARD
-	tristate "Smartcard reader support"
-	depends on SPARK7111 || SPARK7162
-	---help---
-	  Smartcard reader interface for various set-top box models
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called aotom.
-
 config SCx200_GPIO
 	tristate "NatSemi SCx200 GPIO Support"
 	depends on SCx200

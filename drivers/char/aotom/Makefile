@@ -10,10 +10,3 @@ aotom-objs += aotom_vfd.o
 aotom-objs += aotom_main.o
 
 obj-m += aotom.o
-
-ifeq ($(CONFIG_SPARK7111),y)
-EXTRA_CFLAGS += -DSPARK
-endif
-ifeq ($(CONFIG_SPARK7162),y)
-EXTRA_CFLAGS += -DSPARK7162
-endif

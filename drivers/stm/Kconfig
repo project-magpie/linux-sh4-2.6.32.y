@@ -295,4 +295,16 @@ config STM_LPM_DEBUG
 	help
 	 Enable this option to print debug information.
 
+config STM_PTI
+	tristate "STMicroelectronics PTI (Programmable Transport Interface) support"
+	default m
+	depends on (CPU_SUBTYPE_STX7100 || CPU_SUBTYPE_STX7105 \
+		|| CPU_SUBTYPE_STX7111 )
+	---help---
+        Many of the ST system-on-chip devices have a PTI programmable transport interface.
+ 	The PTI is responsible for DVB transport stream muxing and descrambling. This driver
+ 	only provides demuxing support and laks descrambling support.
+
+
+
 endmenu

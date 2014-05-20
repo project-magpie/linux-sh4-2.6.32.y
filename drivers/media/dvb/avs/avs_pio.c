@@ -148,7 +148,7 @@ inline int avs_pio_set_mute(int type)
 	}
 
 
-#if defined(CONFIG_SPARK) || defined(CONFIG_SPARK7162)
+#if defined(CONFIG_SPARK7111) || defined(CONFIG_SPARK7162)
 	stpio_set_pin(avs_mute, t_mute);
 #endif
 
@@ -365,7 +365,7 @@ int avs_pio_init(void)
 	avs_standby	= stpio_request_pin (11, 3, "avs_standby", 	STPIO_OUT);
 	avs_mute	= stpio_request_pin (11, 2, "avs_mute", 	STPIO_OUT);
 	avs_src		= NULL;
-#elif defined(CONFIG_SPARK)
+#elif defined(CONFIG_SPARK7111)
 	avs_mode	= stpio_request_pin (6, 0, "avs_mode", 		STPIO_OUT);
 	avs_format	= stpio_request_pin (6, 2, "avs_format", 	STPIO_OUT);
 	avs_standby	= stpio_request_pin (6, 1, "avs_standby", 	STPIO_OUT);
@@ -400,7 +400,7 @@ int avs_pio_init(void)
 		return -1;
 	}
 
-#if defined(CONFIG_SPARK) || defined(CONFIG_SPARK7162)
+#if defined(CONFIG_SPARK7111) || defined(CONFIG_SPARK7162)
 	if (avs_mute == NULL)
 	{
 		dprintk("[AVS]: avs_mute error\n");

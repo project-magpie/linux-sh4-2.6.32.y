@@ -316,5 +316,17 @@ config STM_SCI
           To compile this driver as a module, choose M here: the
           module will be called smartcard.
 
+config STM_CEC
+        tristate "STMicroelectronics HDMI CEC support"
+	default m
+	depends on (CPU_SUBTYPE_STX7105 \
+		|| CPU_SUBTYPE_STX7111 )
+        ---help---
+          HDMI CEC interface support for various set-top box models
+
+          To compile this driver as a module, choose M here: the
+          module will be called cec.
+
+
 
 endmenu

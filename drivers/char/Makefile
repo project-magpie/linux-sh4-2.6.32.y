@@ -110,7 +110,6 @@ obj-$(CONFIG_LIRC_SUPPORT)	+= lirc/
 obj-$(CONFIG_IPMI_HANDLER)	+= ipmi/
 
 obj-$(CONFIG_AOTOM)		+= aotom/
-obj-$(CONFIG_SMARTCARD)		+= smartcard/
 
 obj-$(CONFIG_HANGCHECK_TIMER)	+= hangcheck-timer.o
 obj-$(CONFIG_TCG_TPM)		+= tpm/

@@ -25,6 +25,7 @@ obj-$(CONFIG_STM_MALI)			+= mali/
 obj-$(CONFIG_STM_PTI)			+= pti/
 obj-$(CONFIG_STM_SCI)			+= sci/
 obj-$(CONFIG_STM_CEC)			+= cec/
+obj-$(CONFIG_STM_STB_CPU_FREQ)		+= cpu_freq/
 
 obj-$(CONFIG_PM)			+= wakeup_devices.o
 obj-$(CONFIG_PM)			+= pm_notify.o

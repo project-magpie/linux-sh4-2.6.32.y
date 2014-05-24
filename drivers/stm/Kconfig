@@ -327,6 +327,17 @@ config STM_CEC
           To compile this driver as a module, choose M here: the
           module will be called cec.
 
+config STM_STB_CPU_FREQ
+        tristate "STMicroelectronics CPU Frequency adjustment support"
+	default m
+	depends on (STM_CPU_FREQ) && (CPU_SUBTYPE_STX7100 ||CPU_SUBTYPE_STX7105 \
+		|| CPU_SUBTYPE_STX7111 )
+        ---help---
+          CPU frequency adjustment interface support for various set-top box models
+
+          To compile this driver as a module, choose M here: the
+          module will be called cpu_freq.
+
 
 
 endmenu

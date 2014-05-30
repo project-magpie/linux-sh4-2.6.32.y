@@ -599,14 +599,14 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		return 0;
 
 	if (cpu == 0)
-		seq_printf(m, "machine\t\t: %s\n", get_system_type());
+		seq_printf(m, "system type\t: %s STB platform\n", get_cpu_subtype(c));
 	else
 		seq_printf(m, "\n");
 
 	seq_printf(m, "processor\t: %d\n", cpu);
 	seq_printf(m, "cpu family\t: %s\n", init_utsname()->machine);
 	seq_printf(m, "cpu variant\t: %s\n", get_cpu_variant(c));
-	seq_printf(m, "cpu type\t: %s\n", get_cpu_subtype(c));
+	seq_printf(m, "cpu model\t: %s\n", get_cpu_subtype(c));
 	if (c->cut_major == -1)
 		seq_printf(m, "cut\t\t: unknown\n");
 	else if (c->cut_minor == -1)

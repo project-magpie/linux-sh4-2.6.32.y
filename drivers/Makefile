@@ -114,3 +114,4 @@ obj-y				+= ieee802154/
 #common clk code
 obj-y				+= clk/
 obj-$(CONFIG_STM_DRIVERS)	+= stm/
+obj-$(CONFIG_E2_DRIVERS)	+= e2/

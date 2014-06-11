@@ -1,0 +1,25 @@
+#
+# Enigma2 specific procfs device 
+#
+
+config E2_DRIVERS
+	boolean
+	default y if CPU_SUBTYPE_ST40
+	default n
+
+menu "Enigma2 specific device driver support"
+        depends on E2_DRIVERS
+
+config E2_PROCFS
+        tristate "E2 proc file system support"
+        default m
+        depends on (CPU_SUBTYPE_STX7105 \
+                || CPU_SUBTYPE_STX7111 )
+        ---help---
+          Enigma2 proc file system interface support for various set-top box models.
+
+          To compile this driver as a module, choose M here: the
+          module will be called e2_procfs.
+
+
+endmenu

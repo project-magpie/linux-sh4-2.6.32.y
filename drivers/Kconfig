@@ -118,4 +118,6 @@ source "drivers/clk/Kconfig"
 
 source "drivers/stm/Kconfig"
 
+source "drivers/e2/Kconfig"
+
 endmenu

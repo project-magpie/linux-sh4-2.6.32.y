@@ -338,6 +338,32 @@ config STM_STB_CPU_FREQ
           To compile this driver as a module, choose M here: the
           module will be called cpu_freq.
 
+choice
+        prompt "Select STMicroelectronics multimedia framework"
+        depends on STM_COPROCESSOR_SUPPORT
+        default PLAYER_191
+        ---help---
+        This selects player2 version. The player2 framework is build seperate from Kernel,
+        but some drivers depend on the player2 version used so this becomes a config option.
+
+config  PLAYER_131
+        bool "Player2 version 131"
+        ---help---
+        This selects player2 version 131
+
+config  PLAYER_179
+        bool "Player2 version 179"
+        ---help---
+        This selects player2 version 179
+
+config  PLAYER_191
+        bool "Player2 version 191"
+        ---help---
+        This selects player2 version 179
+
+endchoice
+
+
 
 
 endmenu

@@ -166,6 +166,8 @@ config  COPROCESSOR_DEBUG
         Enable this option to print out information about the slave CPUs
         addresses and operations you are using for coprocessor.
 
+
+
 config STM_RNG
        bool "STM Random Number Generator Support"
        default y
@@ -318,7 +320,7 @@ config STM_SCI
 
 config STM_CEC
         tristate "STMicroelectronics HDMI CEC support"
-	default m
+	default n
 	depends on (CPU_SUBTYPE_STX7105 \
 		|| CPU_SUBTYPE_STX7111 )
         ---help---

@@ -194,25 +194,9 @@
 #include <linux/version.h>
 #include <linux/string.h>
 #include <linux/module.h>
+#include <linux/e2proc.h>
 
-typedef int (*proc_read_t) (char *page, char **start, off_t off, int count,
-		  int *eof, void *data_unused);
-typedef int (*proc_write_t) (struct file *file, const char __user *buf,
-		   unsigned long count, void *data);
 
-#define cProcDir	1
-#define cProcEntry	2
-
-struct ProcStructure_s
-{
-	int   type;
-	char* name;
-	struct proc_dir_entry* entry;
-	proc_read_t read_proc;
-	proc_write_t write_proc;
-	void* instance; /* needed for cpp stuff */
-	void* identifier; /* needed for cpp stuff */
-};
 
 static int get_player_version(char *page, char **start, off_t off, int count,
                            int *eof, void *data)

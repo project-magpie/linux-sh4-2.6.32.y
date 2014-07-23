@@ -53,6 +53,8 @@
 #include <linux/platform_device.h>
 
 #include "aotom_main.h"
+#include "aotom_proc.h"
+
 #include "utf.h"
 
 static short paramDebug = 0;
@@ -1172,8 +1174,8 @@ static int __init aotom_init_module(void)
 		YWPANEL_VFD_ShowString("  init  ");
 	}
 
+	register_proc_fp_entries();
 	dprintk(5, "[aotom] %s <\n", __func__);
-
 	return 0;
 }
 
@@ -1223,6 +1225,7 @@ static void __exit aotom_cleanup_module(void)
 	unregister_chrdev_region(MKDEV(VFD_MAJOR, 0), 1);
 
 	YWPANEL_VFD_Term();
+	remove_proc_fp_entries();
 	printk("[aotom] Fulan front panel module unloading\n");
 }
 

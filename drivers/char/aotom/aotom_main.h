@@ -1,6 +1,8 @@
 #ifndef __AOTOM_MAIN_H__
 #define __AOTOM_MAIN_H__
 
+#include <linux/types.h>
+
 #ifndef __KERNEL__
 typedef signed char s8;
 typedef unsigned char u8;
@@ -11,11 +13,6 @@ typedef unsigned short u16;
 typedef signed int s32;
 typedef unsigned int u32;
 
-#if 0
-/* broken and unused */
-typedef signed long s64;
-typedef unsigned long u64;
-#endif
 #endif
 
 #define VFD_MAJOR             147

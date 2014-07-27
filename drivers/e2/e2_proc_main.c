@@ -532,12 +532,8 @@ struct ProcStructure_s e2Proc[] =
 	{cProcEntry, "stb/fp/version"                                                   , NULL, zero_read, NULL, NULL, ""},
 	{cProcEntry, "stb/fp/wakeup_time"                                               , NULL, wakeup_time_read, wakeup_time_write, NULL, ""},
 	{cProcEntry, "stb/fp/was_timer_wakeup"                                          , NULL, NULL, NULL, NULL, ""},
-#ifdef CONFIG_AOTOM
 	{cProcEntry, "stb/fp/rtc"                                                       , NULL, NULL, NULL, NULL, ""},
 	{cProcEntry, "stb/fp/rtc_offset"                                                , NULL, NULL, NULL, NULL, ""},
-#else
-	{cProcEntry, "stb/fp/rtc"                                                       , NULL, zero_read, default_write_proc, NULL, ""},
-#endif
 	{cProcDir  , "stb/tsmux"                                                        , NULL, NULL, NULL, NULL, ""},
 	{cProcEntry, "stb/tsmux/input0"                                                 , NULL, NULL, NULL, NULL, ""},
 	{cProcEntry, "stb/tsmux/input1"                                                 , NULL, NULL, NULL, NULL, ""},
@@ -765,7 +761,7 @@ char * basename(char * name)
 int install_e2_procs(char *path, read_proc_t *read_func, write_proc_t *write_func, void *data)
 {
   int i;
-
+  printk("%s: %s\n", __func__, path);
   /* find the entry */
   for(i = 0; i < sizeof(e2Proc) / sizeof(e2Proc[0]); i++)
   {
@@ -857,6 +853,7 @@ int remove_e2_procs(char *path, read_proc_t *read_func, write_proc_t *write_func
 {
   int i;
 
+  printk("%s: %s\n", __func__, path);
   /* find the entry */
   for(i = 0; i < sizeof(e2Proc) / sizeof(e2Proc[0]); i++)
   {

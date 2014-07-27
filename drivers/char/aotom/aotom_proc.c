@@ -69,7 +69,10 @@ extern void remove_proc_fp_entries(void)
  	int len = 0;
 	u32 rtc_time = YWPANEL_FP_GetTime();
 	if(NULL != page)
-		len = sprintf(page,"%u\n", rtc_time);
+	{
+		/* AOTOM needs time in local time so deduct rtc_offset for e2 */
+		len = sprintf(page,"%u\n", rtc_time-rtc_offset);
+	}
 	return len;
  }
 
@@ -95,7 +98,8 @@ extern void remove_proc_fp_entries(void)
 		test = sscanf (myString,"%u",&argument);
 		if(0 < test)
 		{
-			YWPANEL_FP_SetTime(argument);
+			/* AOTOM needs time in local time so add rtc_offset for time from e2 */
+			YWPANEL_FP_SetTime(argument+rtc_offset);
 			YWPANEL_FP_ControlTimer(true);
 		}
 		/* always return count to avoid endless loop */

@@ -24,10 +24,18 @@
 #include <asm/uaccess.h>    	/* copy_from_user */
 #include <linux/kernel.h>       /* sscanf */
 
- static int aotom_read_rtc(char *page, char **start, off_t off, int count,
- 	int *eof, void *data);
- static int aotom_write_rtc(struct file *file, const char __user *buffer,
- 	unsigned long count, void *data);
+static int rtc_offset = 0;
+
+static int aotom_read_rtc(char *page, char **start, off_t off, int count,
+	int *eof, void *data);
+static int aotom_write_rtc(struct file *file, const char __user *buffer,
+	unsigned long count, void *data);
+
+static int aotom_read_rtc_offset(char *page, char **start, off_t off, int count,
+	int *eof, void *data);
+static int aotom_write_rtc_offset(struct file *file, const char __user *buffer,
+	unsigned long count, void *data);
+
 
 typedef struct {
   char *name;
@@ -38,6 +46,7 @@ typedef struct {
 static fp_procs_t fp_procs[] =
 {
   { "stb/fp/rtc", aotom_read_rtc, aotom_write_rtc },
+  { "stb/fp/rtc_offset", aotom_read_rtc_offset, aotom_write_rtc_offset },
 };
 
 extern void register_proc_fp_entries(void) {
@@ -58,9 +67,9 @@ extern void remove_proc_fp_entries(void)
  static int aotom_read_rtc(char *page, char **start, off_t off, int count,
  	int *eof, void *data) {
  	int len = 0;
-	int wakeup_time = YWPANEL_FP_GetTime();
+	u32 rtc_time = YWPANEL_FP_GetTime();
 	if(NULL != page)
-		len = sprintf(page,"%d\n", wakeup_time);
+		len = sprintf(page,"%u\n", rtc_time);
 	return len;
  }
 
@@ -68,7 +77,7 @@ extern void remove_proc_fp_entries(void)
  	unsigned long count, void *data) {
 	char *page = NULL;
 	ssize_t ret = -ENOMEM;
-	int argument = 0;
+	u32 argument = 0;
 	int test = -1;
 	char *myString = kmalloc(count + 1, GFP_KERNEL);
 	printk("%s %ld - ", __FUNCTION__, count);
@@ -83,12 +92,50 @@ extern void remove_proc_fp_entries(void)
 		strncpy(myString, page, count);
 		myString[count] = '\0';
 		printk("%s -> %s\n",__FUNCTION__, myString);
-		test = sscanf (myString,"%d",&argument);
+		test = sscanf (myString,"%u",&argument);
 		if(0 < test)
 		{
 			YWPANEL_FP_SetTime(argument);
 			YWPANEL_FP_ControlTimer(true);
 		}
+		/* always return count to avoid endless loop */
+		ret = count;
+	}
+
+out:
+	free_page((unsigned long)page);
+	kfree(myString);
+	return ret;
+ }
+
+static int aotom_read_rtc_offset(char *page, char **start, off_t off, int count,
+ 	int *eof, void *data) {
+ 	int len = 0;
+	if(NULL != page)
+		len = sprintf(page,"%d\n", rtc_offset);
+	return len;
+ }
+
+ static int aotom_write_rtc_offset(struct file *file, const char __user *buffer,
+ 	unsigned long count, void *data) {
+	char *page = NULL;
+	ssize_t ret = -ENOMEM;
+	int test = -1;
+	char *myString = kmalloc(count + 1, GFP_KERNEL);
+	printk("%s %ld - ", __FUNCTION__, count);
+	page = (char *)__get_free_page(GFP_KERNEL);
+	if (page)
+	{
+		ret = -EFAULT;
+
+		if (copy_from_user(page, buffer, count))
+			goto out;
+
+		strncpy(myString, page, count);
+		myString[count] = '\0';
+		printk("%s -> %s\n",__FUNCTION__, myString);
+		test = sscanf (myString,"%d",&rtc_offset);
+		printk(" offset: %d\n",rtc_offset);
 		/* always return count to avoid endless loop */
 		ret = count;
 	}

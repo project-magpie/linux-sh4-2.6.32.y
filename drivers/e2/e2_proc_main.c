@@ -534,6 +534,7 @@ struct ProcStructure_s e2Proc[] =
 	{cProcEntry, "stb/fp/was_timer_wakeup"                                          , NULL, NULL, NULL, NULL, ""},
 #ifdef CONFIG_AOTOM
 	{cProcEntry, "stb/fp/rtc"                                                       , NULL, NULL, NULL, NULL, ""},
+	{cProcEntry, "stb/fp/rtc_offset"                                                , NULL, NULL, NULL, NULL, ""},
 #else
 	{cProcEntry, "stb/fp/rtc"                                                       , NULL, zero_read, default_write_proc, NULL, ""},
 #endif
